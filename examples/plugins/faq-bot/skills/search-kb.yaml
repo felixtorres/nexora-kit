@@ -1,0 +1,20 @@
+name: search-kb
+description: >
+  Search the knowledge base for entries matching a query.
+  Returns the top matching results with relevance scores.
+invocation: model
+input_schema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: Search query to find relevant FAQ entries
+    limit:
+      type: number
+      description: Maximum number of results (defaults to config.max_results)
+  required:
+    - query
+prompt: |
+  Search the FAQ knowledge base for entries related to: {{query}}
+  Return up to {{limit}} results (default: {{config.max_results}}).
+  For each result include the question, answer summary, and relevance score.

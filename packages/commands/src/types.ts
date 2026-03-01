@@ -13,6 +13,7 @@ export interface CommandDefinition {
   description: string;
   args: ArgumentDef[];
   handler?: CommandHandler;
+  prompt?: string;
 }
 
 export type CommandHandler = (context: CommandContext) => Promise<CommandResult>;

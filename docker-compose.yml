@@ -1,0 +1,27 @@
+# NexoraKit — Docker Compose
+# Usage: docker compose up
+#
+# Mount your own config and plugins:
+#   docker compose up -v ./my-instance:/app/instance
+
+services:
+  nexora-kit:
+    build: .
+    ports:
+      - "${NEXORA_PORT:-3000}:3000"
+    volumes:
+      - nexora-data:/app/instance/data
+      - ./instance/plugins:/app/instance/plugins:ro
+    environment:
+      - NEXORA_API_KEY=${NEXORA_API_KEY:-dev-key-change-me}
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  nexora-data:

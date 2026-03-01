@@ -1,0 +1,6 @@
+{
+  "name": "@nexora-kit/plugin-faq-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FAQ bot example plugin — YAML-driven Q&A with knowledge base lookup"
+}

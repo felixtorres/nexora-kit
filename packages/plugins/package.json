@@ -17,6 +17,7 @@
     "@nexora-kit/config": "*",
     "@nexora-kit/skills": "*",
     "@nexora-kit/commands": "*",
+    "@nexora-kit/mcp": "*",
     "yaml": "^2.8.2",
     "zod": "*",
     "semver": "*"

@@ -1,0 +1,26 @@
+name: faq-bot
+version: 1.0.0
+namespace: faq
+description: >
+  A knowledge-base FAQ bot. Defines skills for answering common questions,
+  searching a knowledge base, and providing contextual help.
+  Demonstrates YAML-driven skill definitions and user-invoked commands.
+
+permissions:
+  - llm:invoke
+  - storage:read
+
+config:
+  schema:
+    knowledge_base_path:
+      type: string
+      description: Path to the FAQ knowledge base file
+      default: ./knowledge-base.json
+    max_results:
+      type: number
+      description: Maximum number of search results to return
+      default: 5
+    confidence_threshold:
+      type: number
+      description: Minimum confidence score (0-1) for returning an answer
+      default: 0.3

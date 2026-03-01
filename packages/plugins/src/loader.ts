@@ -3,16 +3,20 @@ import * as path from 'node:path';
 import type { PluginInstance, ToolDefinition } from '@nexora-kit/core';
 import type { SkillDefinition } from '@nexora-kit/skills';
 import type { CommandDefinition } from '@nexora-kit/commands';
+import type { McpServerConfig } from '@nexora-kit/mcp';
 import { parseYamlSkill, parseMdSkill } from '@nexora-kit/skills';
 import { parseYamlCommand } from '@nexora-kit/commands';
+import { parseMcpYaml } from '@nexora-kit/mcp';
 import { parseManifest } from './manifest.js';
 import { qualifyName, validateNamespace } from './namespace.js';
+import { isClaudePlugin, loadClaudePlugin } from './claude-compat.js';
 
 export interface LoadResult {
   plugin: PluginInstance;
   errors: string[];
   skillDefinitions: Map<string, SkillDefinition>;
   commandDefinitions: Map<string, CommandDefinition>;
+  mcpServerConfigs: McpServerConfig[];
 }
 
 export function loadPlugin(pluginDir: string): LoadResult {
@@ -20,6 +24,7 @@ export function loadPlugin(pluginDir: string): LoadResult {
   const emptyResult = {
     skillDefinitions: new Map<string, SkillDefinition>(),
     commandDefinitions: new Map<string, CommandDefinition>(),
+    mcpServerConfigs: [] as McpServerConfig[],
   };
 
   // Read plugin.yaml
@@ -133,6 +138,18 @@ export function loadPlugin(pluginDir: string): LoadResult {
     }
   }
 
+  // Discover MCP server configs from mcp/mcp.yaml
+  let mcpServerConfigs: McpServerConfig[] = [];
+  const mcpYamlPath = path.join(pluginDir, 'mcp', 'mcp.yaml');
+  if (fs.existsSync(mcpYamlPath)) {
+    try {
+      const content = fs.readFileSync(mcpYamlPath, 'utf-8');
+      mcpServerConfigs = parseMcpYaml(content);
+    } catch {
+      errors.push('Failed to parse mcp/mcp.yaml');
+    }
+  }
+
   return {
     plugin: {
       manifest,
@@ -143,21 +160,32 @@ export function loadPlugin(pluginDir: string): LoadResult {
     errors,
     skillDefinitions,
     commandDefinitions,
+    mcpServerConfigs,
   };
 }
 
 export function discoverPlugins(baseDir: string): LoadResult[] {
   if (!fs.existsSync(baseDir)) return [];
 
+  const resolvedBase = fs.realpathSync(baseDir);
   const results: LoadResult[] = [];
   const entries = fs.readdirSync(baseDir, { withFileTypes: true });
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const pluginDir = path.join(baseDir, entry.name);
+
+    // Path traversal guard: resolve symlinks and verify plugin stays within base
+    const resolvedPlugin = fs.realpathSync(pluginDir);
+    if (!resolvedPlugin.startsWith(resolvedBase + path.sep) && resolvedPlugin !== resolvedBase) {
+      continue; // Skip symlinks that escape the plugins directory
+    }
+
     const manifestPath = path.join(pluginDir, 'plugin.yaml');
     if (fs.existsSync(manifestPath)) {
       results.push(loadPlugin(pluginDir));
+    } else if (isClaudePlugin(pluginDir)) {
+      results.push(loadClaudePlugin(pluginDir));
     }
   }
 

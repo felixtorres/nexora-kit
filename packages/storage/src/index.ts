@@ -5,3 +5,4 @@ export { SqliteConfigStore } from './config-store.js';
 export { SqlitePluginStateStore, type PluginStateRecord } from './plugin-state-store.js';
 export { SqliteTokenUsageStore, type TokenUsageRecord } from './token-usage-store.js';
 export { SqliteUsageEventStore, type UsageEvent, type UsageEventFilter } from './usage-event-store.js';
+export { SqliteAuditEventStore, type AuditEvent, type AuditEventFilter } from './audit-event-store.js';

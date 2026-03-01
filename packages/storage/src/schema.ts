@@ -49,6 +49,15 @@ const TABLES = [
     latency_ms INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '{}',
+    result TEXT NOT NULL DEFAULT 'success',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
 ];
 
 export function initSchema(db: Database.Database): void {

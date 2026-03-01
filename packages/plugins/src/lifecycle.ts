@@ -4,6 +4,7 @@ import type { PermissionGate, PermissionRule } from '@nexora-kit/sandbox';
 import type { ConfigResolver } from '@nexora-kit/config';
 import { ConfigLayer } from '@nexora-kit/config';
 import type { SkillDefinition, SkillHandlerFactory, SkillRegistry } from '@nexora-kit/skills';
+import type { McpManager, McpServerConfig } from '@nexora-kit/mcp';
 import { resolveDependencies } from './dependency.js';
 import { wrapWithErrorBoundary } from './error-boundary.js';
 import { loadPlugin } from './loader.js';
@@ -15,11 +16,13 @@ export interface LifecycleOptions {
   toolHandlers?: Map<string, ToolHandler>;
   skillHandlerFactory?: SkillHandlerFactory;
   skillRegistry?: SkillRegistry;
+  mcpManager?: McpManager;
 }
 
 export class PluginLifecycleManager {
   private plugins = new Map<string, PluginInstance>();
   private pluginSkills = new Map<string, Map<string, SkillDefinition>>();
+  private pluginMcpConfigs = new Map<string, McpServerConfig[]>();
   private pluginDirs = new Map<string, string>();
   private readonly permissionGate: PermissionGate;
   private readonly configResolver: ConfigResolver;
@@ -27,6 +30,7 @@ export class PluginLifecycleManager {
   private readonly toolHandlers: Map<string, ToolHandler>;
   private readonly skillHandlerFactory?: SkillHandlerFactory;
   private readonly skillRegistry?: SkillRegistry;
+  private readonly mcpManager?: McpManager;
 
   constructor(options: LifecycleOptions) {
     this.permissionGate = options.permissionGate;
@@ -35,6 +39,7 @@ export class PluginLifecycleManager {
     this.toolHandlers = options.toolHandlers ?? new Map();
     this.skillHandlerFactory = options.skillHandlerFactory;
     this.skillRegistry = options.skillRegistry;
+    this.mcpManager = options.mcpManager;
   }
 
   install(plugin: PluginInstance): void {
@@ -121,6 +126,15 @@ export class PluginLifecycleManager {
       }
     }
 
+    // Start MCP servers and register their tools
+    if (this.mcpManager) {
+      const mcpConfigs = this.pluginMcpConfigs.get(namespace);
+      if (mcpConfigs && mcpConfigs.length > 0) {
+        // MCP server startup is async — we fire-and-forget here but errors are caught
+        void this.startMcpServers(namespace, mcpConfigs);
+      }
+    }
+
     this.setState(namespace, 'enabled');
   }
 
@@ -130,6 +144,11 @@ export class PluginLifecycleManager {
       throw new Error(`Plugin '${namespace}' is not installed`);
     }
     if (plugin.state === 'disabled' || plugin.state === 'installed') return;
+
+    // Stop MCP servers
+    if (this.mcpManager) {
+      void this.mcpManager.stopServers(namespace);
+    }
 
     // Unregister tools
     for (const tool of plugin.tools) {
@@ -177,6 +196,10 @@ export class PluginLifecycleManager {
     this.pluginSkills.set(namespace, skills);
   }
 
+  setMcpConfigs(namespace: string, configs: McpServerConfig[]): void {
+    this.pluginMcpConfigs.set(namespace, configs);
+  }
+
   registerPluginDir(namespace: string, dir: string): void {
     this.pluginDirs.set(namespace, dir);
   }
@@ -202,6 +225,10 @@ export class PluginLifecycleManager {
       this.setSkillDefinitions(namespace, result.skillDefinitions);
     }
 
+    if (result.mcpServerConfigs.length > 0) {
+      this.setMcpConfigs(namespace, result.mcpServerConfigs);
+    }
+
     // Re-register the plugin dir
     this.pluginDirs.set(namespace, dir);
 
@@ -211,6 +238,38 @@ export class PluginLifecycleManager {
     }
 
     return result;
+  }
+
+  private async startMcpServers(namespace: string, configs: McpServerConfig[]): Promise<void> {
+    if (!this.mcpManager) return;
+
+    try {
+      await this.mcpManager.startServers(namespace, configs);
+
+      // Register MCP tools in the dispatcher
+      const mcpTools = this.mcpManager.getTools(namespace);
+      const plugin = this.plugins.get(namespace);
+      for (const { definition, handler } of mcpTools) {
+        const wrappedHandler = wrapWithErrorBoundary(definition.name, handler, {
+          maxConsecutiveFailures: 5,
+          onDisable: (_name, error) => {
+            this.setState(namespace, 'errored', error);
+          },
+        });
+        this.toolDispatcher.register(definition, wrappedHandler, {
+          namespace,
+          requiredPermissions: ['mcp:connect'],
+        });
+
+        // Track the tool on the plugin instance
+        if (plugin) {
+          plugin.tools.push(definition);
+        }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.setState(namespace, 'errored', `MCP server start failed: ${msg}`);
+    }
   }
 
   private setState(namespace: string, state: PluginState, error?: string): void {

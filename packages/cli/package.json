@@ -2,12 +2,33 @@
   "name": "@nexora-kit/cli",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "nexora-kit": "dist/bin.js"
+  },
   "scripts": {
     "build": "tsc",
-    "test": "echo 'No tests yet'",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@nexora-kit/core": "*",
+    "@nexora-kit/config": "*",
+    "@nexora-kit/plugins": "*",
+    "@nexora-kit/storage": "*",
+    "@nexora-kit/admin": "*",
+    "@nexora-kit/api": "*",
+    "@nexora-kit/sandbox": "*",
+    "@nexora-kit/skills": "*",
+    "@nexora-kit/commands": "*",
+    "@nexora-kit/mcp": "*",
+    "@nexora-kit/llm": "*",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.0"
   }
 }

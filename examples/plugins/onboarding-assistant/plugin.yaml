@@ -1,0 +1,27 @@
+name: onboarding-assistant
+version: 1.0.0
+namespace: onboarding
+description: >
+  An onboarding assistant that guides new team members through setup,
+  introduces tools, and tracks onboarding progress. Demonstrates
+  command-driven workflows and multi-step skill chains.
+
+permissions:
+  - llm:invoke
+  - storage:read
+  - storage:write
+
+config:
+  schema:
+    company_name:
+      type: string
+      description: Company name for personalized greetings
+      default: Acme Corp
+    onboarding_steps:
+      type: number
+      description: Total number of onboarding steps
+      default: 5
+    welcome_message:
+      type: string
+      description: Custom welcome message
+      default: Welcome to the team! Let me help you get set up.

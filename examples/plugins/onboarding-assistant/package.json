@@ -1,0 +1,6 @@
+{
+  "name": "@nexora-kit/plugin-onboarding-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Onboarding assistant example plugin — guides new users through setup"
+}

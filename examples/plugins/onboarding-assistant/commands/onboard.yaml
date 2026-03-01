@@ -1,0 +1,19 @@
+name: onboard
+description: Start or check onboarding for a team member
+args:
+  - name: action
+    type: string
+    required: true
+    description: Action to perform (start, status, complete)
+  - name: name
+    type: string
+    required: true
+    description: Team member name
+  - name: role
+    type: string
+    required: false
+    description: Team member role
+aliases:
+  a: action
+  n: name
+  r: role

@@ -1,0 +1,12 @@
+node_modules
+dist
+*.test.ts
+*.test.js
+.git
+.github
+.turbo
+coverage
+*.md
+!README.md
+examples/
+instance/data/

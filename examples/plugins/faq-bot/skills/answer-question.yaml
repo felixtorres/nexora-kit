@@ -1,0 +1,27 @@
+name: answer-question
+description: >
+  Answer a user's question using the FAQ knowledge base.
+  Searches for the most relevant entry and provides a clear answer.
+invocation: model
+input_schema:
+  type: object
+  properties:
+    question:
+      type: string
+      description: The user's question to answer
+    category:
+      type: string
+      description: Optional category to narrow the search
+  required:
+    - question
+prompt: |
+  You are a helpful FAQ assistant. Answer the following question based on the knowledge base.
+
+  Question: {{question}}
+  {{#category}}Category filter: {{category}}{{/category}}
+
+  Guidelines:
+  - Be concise and direct
+  - If the answer is not in the knowledge base, say so clearly
+  - Include relevant links or references when available
+  - Maximum confidence threshold: {{config.confidence_threshold}}

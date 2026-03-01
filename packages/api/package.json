@@ -2,12 +2,22 @@
   "name": "@nexora-kit/api",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "echo 'No tests yet'",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@nexora-kit/core": "*",
+    "@nexora-kit/plugins": "*",
+    "@nexora-kit/admin": "*",
+    "zod": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.0"
   }
 }

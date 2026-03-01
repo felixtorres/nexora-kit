@@ -5,3 +5,4 @@ export { InMemoryStore, type MemoryStore } from './memory.js';
 export { AgentLoop, type AgentLoopOptions } from './agent-loop.js';
 export { NoopObservability } from './observability.js';
 export { LangfuseObservability, type LangfuseConfig } from './langfuse.js';
+export { JsonLogger, NoopLogger, type Logger, type LogLevel, type LogEntry } from './logger.js';

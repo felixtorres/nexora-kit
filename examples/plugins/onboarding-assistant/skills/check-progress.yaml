@@ -1,0 +1,29 @@
+name: check-progress
+description: >
+  Check the onboarding progress for a team member.
+  Reports which steps are complete and what's remaining.
+invocation: model
+input_schema:
+  type: object
+  properties:
+    user_name:
+      type: string
+      description: Name of the team member to check
+    completed_steps:
+      type: string
+      description: Comma-separated list of completed step numbers
+  required:
+    - user_name
+prompt: |
+  Check onboarding progress for {{user_name}} at {{config.company_name}}.
+
+  Completed steps: {{completed_steps}}
+  Total steps: {{config.onboarding_steps}}
+
+  Provide:
+  1. A summary of what's been completed
+  2. What's remaining
+  3. Estimated time to complete remaining steps
+  4. Any blockers or help needed
+
+  Be encouraging about progress made so far.
