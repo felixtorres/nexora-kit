@@ -22,6 +22,7 @@ NexoraKit is a self-hosted chatbot platform that lets teams build and deploy AI-
 | `@nexora-kit/admin` | Plugin registry, RBAC, audit logging |
 | `@nexora-kit/config` | Hierarchical config resolution |
 | `@nexora-kit/tool-registry` | Dynamic tool discovery, semantic search, per-request selection |
+| `@nexora-kit/storage` | SQLite persistence (messages, config, plugin state, usage) |
 | `@nexora-kit/sandbox` | Isolated execution, permission boundaries, code mode |
 | `@nexora-kit/cli` | Developer CLI tooling |
 | `@nexora-kit/testing` | Test utilities, mock providers |
@@ -29,15 +30,15 @@ NexoraKit is a self-hosted chatbot platform that lets teams build and deploy AI-
 ## Getting Started
 
 ```bash
-pnpm install
-pnpm build
-pnpm test
+npm install
+npm run build
+npm run test
 ```
 
 ## Tech Stack
 
 - **Language:** TypeScript (Node.js 20+)
-- **Monorepo:** Turborepo + pnpm
+- **Monorepo:** Turborepo + npm workspaces
 - **LLM:** Provider-agnostic (Claude, OpenAI, Azure, Ollama, Bedrock)
-- **Storage:** PostgreSQL + Redis
+- **Storage:** SQLite (default), PostgreSQL + Redis (optional, for high-scale)
 - **Deployment:** Kubernetes (Helm chart)
