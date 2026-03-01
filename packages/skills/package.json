@@ -1,0 +1,21 @@
+{
+  "name": "@nexora-kit/skills",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@nexora-kit/core": "*",
+    "@nexora-kit/llm": "*",
+    "@nexora-kit/config": "*",
+    "yaml": "^2.8.2",
+    "zod": "*"
+  }
+}

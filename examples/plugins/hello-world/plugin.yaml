@@ -1,0 +1,14 @@
+name: hello-world
+version: 1.0.0
+namespace: hello
+description: A minimal example plugin that greets users
+author: nexora-kit-team
+
+permissions:
+  - llm:invoke
+
+config:
+  schema:
+    greeting:
+      type: string
+      default: "Hello! I'm the hello-world bot."

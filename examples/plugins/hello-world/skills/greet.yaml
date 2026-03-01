@@ -1,0 +1,11 @@
+name: greet
+description: Greet the user with a friendly message
+invocation: model
+parameters:
+  userName:
+    type: string
+    description: The user's name
+prompt: |
+  Generate a warm, friendly greeting for {{userName}}.
+  Use the configured greeting as a starting point: {{config.greeting}}
+  Keep it under 2 sentences.

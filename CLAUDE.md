@@ -1,0 +1,65 @@
+# NexoraKit — Project Instructions
+
+Enterprise chatbot platform — plugin-based, provider-agnostic, self-hosted.
+
+## Project Structure
+
+Turborepo monorepo with npm workspaces. **Package manager: npm** (do not use pnpm or yarn).
+
+```
+packages/
+  core/          # Agent loop, context manager, memory, tool dispatcher
+  llm/           # Provider abstraction, routing, fallback, token budgets
+  plugins/       # Plugin loader, lifecycle, namespace isolation
+  config/        # Hierarchical config resolution (zod)
+  sandbox/       # Isolated execution, permission boundaries
+  tool-registry/ # Dynamic tool discovery, semantic search
+  skills/        # Skill framework: TS, YAML, MD handlers
+  commands/      # Command parser, help generation
+  mcp/           # MCP server manager, health monitoring
+  api/           # REST + WebSocket gateway
+  admin/         # Plugin registry, RBAC, audit logging
+  cli/           # Developer CLI tooling
+  testing/       # Test utilities, mock providers
+examples/plugins/
+  hello-world/   # Example plugin demonstrating skills and commands
+```
+
+### Dependency layers
+
+Foundation (no internal deps): `sandbox`, `config`, `llm`
+Core layer: `core` depends on llm, config, sandbox
+Plugin layer: `plugins` depends on core, sandbox, config
+Discovery: `tool-registry` depends on core
+Independent: skills, commands, mcp, api, admin, cli, testing
+
+## Commands
+
+```bash
+npm run build       # turbo build (respects dependency graph)
+npm run dev         # turbo dev (watch mode, persistent)
+npm run test        # turbo test (runs after build)
+npm run lint        # turbo lint
+npm run typecheck   # turbo typecheck (runs after deps build)
+npm run clean       # turbo clean
+npx vitest          # run tests directly
+```
+
+## Conventions
+
+- All packages use ES modules (`"type": "module"`)
+- TypeScript strict mode, target ES2022, module Node16
+- Source in `src/`, output in `dist/`
+- Scoped under `@nexora-kit/`
+- Vitest for testing, ESLint + Prettier for linting/formatting
+- Node.js >= 20.0.0
+
+## Feature Planning
+
+For non-trivial features, create planning docs before writing code:
+
+1. **PRD** in `docs/PRD_[FEATURE_NAME].md` — problem, solution, acceptance criteria, risks
+2. **Dev Plan** in `docs/DEV_PLAN_[FEATURE_NAME].md` — architecture, phases, testing strategy
+3. **Progress Log** in `DEVELOPMENT_LOG.md` — status, daily entries, blockers
+
+Skip these for small bug fixes or single-file changes — use your judgment.
