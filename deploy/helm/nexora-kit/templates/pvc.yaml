@@ -1,0 +1,17 @@
+{{- if and .Values.persistence.enabled (eq .Values.nexora.storage.backend "sqlite") -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nexora-kit.fullname" . }}-data
+  labels:
+    {{- include "nexora-kit.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

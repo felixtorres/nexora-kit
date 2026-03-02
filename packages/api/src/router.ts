@@ -62,6 +62,7 @@ export async function parseRequest(
   req: IncomingMessage,
   params: Record<string, string>,
   auth?: AuthIdentity,
+  maxBodyBytes?: number,
 ): Promise<ApiRequest> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
@@ -81,7 +82,7 @@ export async function parseRequest(
     if (contentType && typeof contentType === 'string' && !contentType.startsWith('application/json')) {
       throw new ApiError(415, 'Unsupported Media Type: expected application/json', 'UNSUPPORTED_MEDIA_TYPE');
     }
-    body = await readJsonBody(req);
+    body = await readJsonBody(req, maxBodyBytes);
   }
 
   return {

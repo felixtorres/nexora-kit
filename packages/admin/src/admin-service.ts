@@ -101,13 +101,13 @@ export class AdminService {
   }
 
   /** Get usage analytics per plugin */
-  getUsageSummary(since?: string): UsageSummary[] {
+  async getUsageSummary(since?: string): Promise<UsageSummary[]> {
     return this.usage.summarizeByPlugin(since ? { since } : undefined);
   }
 
   /** Purge old audit events */
-  purgeAuditLog(): number {
-    return this.audit.purge(this.retentionDays);
+  async purgeAuditLog(): Promise<number> {
+    return await this.audit.purge(this.retentionDays);
   }
 
   get auditLogger(): AuditLogger {

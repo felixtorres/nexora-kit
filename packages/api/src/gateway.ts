@@ -1,4 +1,5 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
 import type { GatewayConfig, AuthIdentity } from './types.js';
 import { Router, parseRequest, sendResponse, errorResponse, ApiError, jsonResponse } from './router.js';
@@ -20,6 +21,7 @@ import {
   createAdminAuditPurgeHandler,
 } from './admin-handlers.js';
 import { MetricsCollector } from './metrics.js';
+import { buildOpenApiSpec } from './openapi.js';
 
 export class Gateway {
   private server: Server | null = null;
@@ -47,6 +49,7 @@ export class Gateway {
     this.router.get(`${prefix}/plugins/:name`, createPluginDetailHandler(deps));
     this.router.get(`${prefix}/health`, createHealthHandler(deps));
     this.router.get(`${prefix}/metrics`, async () => jsonResponse(200, this.metrics.snapshot()));
+    this.router.get(`${prefix}/openapi.json`, async () => jsonResponse(200, buildOpenApiSpec(prefix)));
 
     // Admin routes
     if (config.admin) {
@@ -68,6 +71,11 @@ export class Gateway {
       agentLoop: config.agentLoop,
       auth: config.auth,
       heartbeatMs: config.wsHeartbeatMs,
+      rateLimits: {
+        maxMessagesPerMinute: config.wsMaxMessagesPerMinute,
+        maxConcurrentChats: config.wsMaxConcurrentChats,
+        maxConnectionsPerUser: config.wsMaxConnectionsPerUser,
+      },
     });
   }
 
@@ -125,10 +133,19 @@ export class Gateway {
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const requestStart = Date.now();
 
+    // Correlation ID
+    const requestId = (req.headers['x-request-id'] as string | undefined)
+      ?? `req-${Date.now()}-${randomBytes(4).toString('hex')}`;
+    res.setHeader('X-Request-Id', requestId);
+
     // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const corsOrigin = resolveCorsOrigin(this.config, req);
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id');
+    if (this.config.allowedOrigins && this.config.allowedOrigins.length > 0) {
+      res.setHeader('Vary', 'Origin');
+    }
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -146,10 +163,13 @@ export class Gateway {
       return;
     }
 
-    // Auth — skip for health and metrics endpoints (exact path match)
+    // Auth — skip for health; skip for metrics only if publicMetrics is true
     let auth: AuthIdentity | undefined;
     const prefix = this.config.apiPrefix ?? '/v1';
-    const isPublicEndpoint = url.pathname === `${prefix}/health` || url.pathname === `${prefix}/metrics`;
+    const isHealthEndpoint = url.pathname === `${prefix}/health`;
+    const isMetricsEndpoint = url.pathname === `${prefix}/metrics`;
+    const isOpenApiEndpoint = url.pathname === `${prefix}/openapi.json`;
+    const isPublicEndpoint = isHealthEndpoint || isOpenApiEndpoint || (isMetricsEndpoint && (this.config.publicMetrics ?? false));
     if (!isPublicEndpoint) {
       auth = (await this.config.auth.authenticate({
         method,
@@ -182,7 +202,7 @@ export class Gateway {
 
     // Parse and handle
     try {
-      const apiReq = await parseRequest(req, match.params, auth);
+      const apiReq = await parseRequest(req, match.params, auth, this.config.maxBodyBytes);
       const apiRes = await match.handler(apiReq);
       sendResponse(res, apiRes);
       this.metrics.recordRequest(method, apiRes.status, Date.now() - requestStart);
@@ -192,4 +212,16 @@ export class Gateway {
       this.metrics.recordRequest(method, errRes.status, Date.now() - requestStart);
     }
   }
+}
+
+function resolveCorsOrigin(config: GatewayConfig, req: IncomingMessage): string {
+  const allowedOrigins = config.allowedOrigins;
+  if (!allowedOrigins || allowedOrigins.length === 0) {
+    return '*';
+  }
+  const origin = req.headers['origin'];
+  if (origin && allowedOrigins.includes(origin)) {
+    return origin;
+  }
+  return allowedOrigins[0];
 }

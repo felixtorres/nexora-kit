@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { IPluginStateStore } from './interfaces.js';
 
 export interface PluginStateRecord {
   namespace: string;
@@ -8,7 +9,7 @@ export interface PluginStateRecord {
   installedAt?: string;
 }
 
-export class SqlitePluginStateStore {
+export class SqlitePluginStateStore implements IPluginStateStore {
   private readonly db: Database.Database;
 
   constructor(db: Database.Database) {

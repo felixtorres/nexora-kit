@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { IUsageEventStore } from './interfaces.js';
 
 export interface UsageEvent {
   id?: number;
@@ -18,7 +19,7 @@ export interface UsageEventFilter {
   limit?: number;
 }
 
-export class SqliteUsageEventStore {
+export class SqliteUsageEventStore implements IUsageEventStore {
   private readonly db: Database.Database;
 
   constructor(db: Database.Database) {

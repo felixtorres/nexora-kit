@@ -1,17 +1,17 @@
-import type { SqliteAuditEventStore, AuditEvent, AuditEventFilter } from '@nexora-kit/storage';
+import type { IAuditEventStore, AuditEvent, AuditEventFilter } from '@nexora-kit/storage';
 
 export class AuditLogger {
-  private readonly store: SqliteAuditEventStore;
+  private readonly store: IAuditEventStore;
 
-  constructor(store: SqliteAuditEventStore) {
+  constructor(store: IAuditEventStore) {
     this.store = store;
   }
 
-  log(event: Omit<AuditEvent, 'id' | 'createdAt'>): number {
+  log(event: Omit<AuditEvent, 'id' | 'createdAt'>): number | Promise<number> {
     return this.store.insert(event);
   }
 
-  logPluginInstall(actor: string, namespace: string, details?: Record<string, unknown>): number {
+  logPluginInstall(actor: string, namespace: string, details?: Record<string, unknown>): number | Promise<number> {
     return this.log({
       actor,
       action: 'plugin.install',
@@ -21,7 +21,7 @@ export class AuditLogger {
     });
   }
 
-  logPluginUninstall(actor: string, namespace: string): number {
+  logPluginUninstall(actor: string, namespace: string): number | Promise<number> {
     return this.log({
       actor,
       action: 'plugin.uninstall',
@@ -30,7 +30,7 @@ export class AuditLogger {
     });
   }
 
-  logPluginEnable(actor: string, namespace: string): number {
+  logPluginEnable(actor: string, namespace: string): number | Promise<number> {
     return this.log({
       actor,
       action: 'plugin.enable',
@@ -39,7 +39,7 @@ export class AuditLogger {
     });
   }
 
-  logPluginDisable(actor: string, namespace: string): number {
+  logPluginDisable(actor: string, namespace: string): number | Promise<number> {
     return this.log({
       actor,
       action: 'plugin.disable',
@@ -48,7 +48,7 @@ export class AuditLogger {
     });
   }
 
-  logConfigChange(actor: string, key: string, details?: Record<string, unknown>): number {
+  logConfigChange(actor: string, key: string, details?: Record<string, unknown>): number | Promise<number> {
     return this.log({
       actor,
       action: 'config.update',
@@ -58,7 +58,7 @@ export class AuditLogger {
     });
   }
 
-  logFailure(actor: string, action: string, target: string, error: string): number {
+  logFailure(actor: string, action: string, target: string, error: string): number | Promise<number> {
     return this.log({
       actor,
       action,
@@ -68,11 +68,11 @@ export class AuditLogger {
     });
   }
 
-  query(filter?: AuditEventFilter): AuditEvent[] {
+  query(filter?: AuditEventFilter): AuditEvent[] | Promise<AuditEvent[]> {
     return this.store.query(filter);
   }
 
-  purge(retentionDays: number): number {
+  purge(retentionDays: number): number | Promise<number> {
     return this.store.deleteOlderThan(retentionDays);
   }
 }

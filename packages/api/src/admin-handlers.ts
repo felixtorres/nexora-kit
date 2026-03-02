@@ -86,7 +86,7 @@ export function createAdminAuditLogHandler(admin: AdminService) {
       limit: parsed.data.limit,
     };
 
-    const events = admin.auditLogger.query(filter);
+    const events = await admin.auditLogger.query(filter);
     return jsonResponse(200, { events, count: events.length });
   };
 }
@@ -116,11 +116,11 @@ export function createAdminUsageHandler(admin: AdminService) {
     };
 
     if (parsed.data.breakdown === 'daily') {
-      const daily = admin.usageAnalytics.dailyBreakdown(filter);
+      const daily = await admin.usageAnalytics.dailyBreakdown(filter);
       return jsonResponse(200, { breakdown: 'daily', data: daily });
     }
 
-    const summaries = admin.usageAnalytics.summarizeByPlugin(filter);
+    const summaries = await admin.usageAnalytics.summarizeByPlugin(filter);
     const totalTokens = summaries.reduce((sum, s) => sum + s.totalTokens, 0);
     return jsonResponse(200, { breakdown: 'plugin', data: summaries, totalTokens });
   };
@@ -132,7 +132,7 @@ export function createAdminAuditPurgeHandler(admin: AdminService) {
   return async (req: ApiRequest): Promise<ApiResponse> => {
     requireAdmin(req);
 
-    const deleted = admin.purgeAuditLog();
+    const deleted = await admin.purgeAuditLog();
     return jsonResponse(200, { deleted });
   };
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { WebSocketManager, isWebSocketUpgrade } from './websocket.js';
@@ -209,6 +209,126 @@ describe('WebSocketManager', () => {
     expect(wsm.getConnectionCount()).toBe(0);
     expect(s1.destroy).toHaveBeenCalled();
     expect(s2.destroy).toHaveBeenCalled();
+  });
+
+  // --- WS rate limit tests ---
+
+  it('enforces per-connection message rate limit', async () => {
+    const auth = makeMockAuth();
+    wsm = new WebSocketManager({
+      agentLoop: makeMockAgentLoop(),
+      auth,
+      rateLimits: { maxMessagesPerMinute: 3 },
+    });
+
+    const socket = makeMockSocket();
+    await wsm.handleUpgrade(makeMockReq(), socket as any);
+    socket.write.mockClear();
+
+    // Send 3 messages (should all succeed)
+    for (let i = 0; i < 3; i++) {
+      const frame = encodeClientFrame(JSON.stringify({ type: 'ping' }));
+      socket.emit('data', frame);
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    const successCalls = socket.write.mock.calls.length;
+    // All 3 should get pong responses
+    expect(successCalls).toBe(3);
+
+    // 4th message should be rate limited
+    socket.write.mockClear();
+    const frame = encodeClientFrame(JSON.stringify({ type: 'ping' }));
+    socket.emit('data', frame);
+    await new Promise((r) => setTimeout(r, 5));
+
+    const written = socket.write.mock.calls[0][0] as Buffer;
+    const msg = JSON.parse(written.subarray(2).toString());
+    expect(msg.type).toBe('error');
+    expect(msg.message).toContain('rate limit');
+  });
+
+  it('enforces per-connection concurrent chat cap', async () => {
+    // Agent loop that never resolves
+    const neverResolve = {
+      run: vi.fn().mockImplementation(async function* () {
+        yield { type: 'session' };
+        await new Promise(() => {}); // Never resolves
+      }),
+      abort: vi.fn(),
+    } as any;
+
+    const auth = makeMockAuth();
+    wsm = new WebSocketManager({
+      agentLoop: neverResolve,
+      auth,
+      rateLimits: { maxConcurrentChats: 1 },
+    });
+
+    const socket = makeMockSocket();
+    await wsm.handleUpgrade(makeMockReq(), socket as any);
+    socket.write.mockClear();
+
+    // Start first chat
+    const frame1 = encodeClientFrame(JSON.stringify({ type: 'chat', message: 'Hello' }));
+    socket.emit('data', frame1);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Try second chat — should be rejected
+    socket.write.mockClear();
+    const frame2 = encodeClientFrame(JSON.stringify({ type: 'chat', message: 'Second' }));
+    socket.emit('data', frame2);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const lastCall = socket.write.mock.calls[socket.write.mock.calls.length - 1];
+    const written = lastCall[0] as Buffer;
+    const msg = JSON.parse(written.subarray(2).toString());
+    expect(msg.type).toBe('error');
+    expect(msg.message).toContain('concurrent');
+  });
+
+  it('enforces per-user connection limit', async () => {
+    const auth = makeMockAuth({ userId: 'user-1', teamId: 't1', role: 'user' });
+    wsm = new WebSocketManager({
+      agentLoop: makeMockAgentLoop(),
+      auth,
+      rateLimits: { maxConnectionsPerUser: 1 },
+    });
+
+    const s1 = makeMockSocket();
+    await wsm.handleUpgrade(makeMockReq('key1'), s1 as any);
+    expect(wsm.getConnectionCount()).toBe(1);
+
+    // Second connection for same user should be rejected
+    const s2 = makeMockSocket();
+    await wsm.handleUpgrade(makeMockReq('key2'), s2 as any);
+
+    const response = s2.write.mock.calls[0][0] as string;
+    expect(response).toContain('429');
+    expect(s2.destroy).toHaveBeenCalled();
+    expect(wsm.getConnectionCount()).toBe(1);
+  });
+
+  it('tracks user connection count and decrements on close', async () => {
+    const auth = makeMockAuth({ userId: 'user-1', teamId: 't1', role: 'user' });
+    wsm = new WebSocketManager({
+      agentLoop: makeMockAgentLoop(),
+      auth,
+      rateLimits: { maxConnectionsPerUser: 2 },
+    });
+
+    const s1 = makeMockSocket();
+    await wsm.handleUpgrade(makeMockReq('key1'), s1 as any);
+    expect(wsm.getUserConnectionCount('user-1')).toBe(1);
+
+    const s2 = makeMockSocket();
+    await wsm.handleUpgrade(makeMockReq('key2'), s2 as any);
+    expect(wsm.getUserConnectionCount('user-1')).toBe(2);
+
+    // Close first socket — count should decrement
+    s1.emit('close');
+    expect(wsm.getUserConnectionCount('user-1')).toBe(1);
+    expect(wsm.getConnectionCount()).toBe(1);
   });
 });
 

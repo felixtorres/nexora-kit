@@ -182,7 +182,7 @@ describe('Gateway', () => {
     expect(resHeaders.get('retry-after')).toBeDefined();
   });
 
-  it('handles CORS preflight', async () => {
+  it('handles CORS preflight with wildcard when no allowedOrigins', async () => {
     gateway = new Gateway({
       port: 0,
       agentLoop: makeMockAgentLoop(),
@@ -197,6 +197,41 @@ describe('Gateway', () => {
 
     expect(res.status).toBe(204);
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  it('reflects matching origin when allowedOrigins is set', async () => {
+    gateway = new Gateway({
+      port: 0,
+      agentLoop: makeMockAgentLoop(),
+      auth: new ApiKeyAuth({}),
+      allowedOrigins: ['https://app.example.com', 'https://admin.example.com'],
+    });
+    await gateway.start();
+    const addr = gateway.getAddress()!;
+
+    const res = await fetch(`http://${addr.host}:${addr.port}/v1/health`, {
+      headers: { Origin: 'https://app.example.com' },
+    });
+
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://app.example.com');
+    expect(res.headers.get('vary')).toBe('Origin');
+  });
+
+  it('returns first origin for non-matching origin', async () => {
+    gateway = new Gateway({
+      port: 0,
+      agentLoop: makeMockAgentLoop(),
+      auth: new ApiKeyAuth({}),
+      allowedOrigins: ['https://app.example.com'],
+    });
+    await gateway.start();
+    const addr = gateway.getAddress()!;
+
+    const res = await fetch(`http://${addr.host}:${addr.port}/v1/health`, {
+      headers: { Origin: 'https://evil.example.com' },
+    });
+
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://app.example.com');
   });
 
   it('returns address after start', async () => {
@@ -227,5 +262,71 @@ describe('Gateway', () => {
     // Old prefix should 404
     const { status: oldStatus } = await fetchJson(`http://${addr.host}:${addr.port}/v1/health`);
     expect(oldStatus).toBe(404);
+  });
+
+  it('includes X-Request-Id correlation header', async () => {
+    gateway = new Gateway({
+      port: 0,
+      agentLoop: makeMockAgentLoop(),
+      auth: new ApiKeyAuth({}),
+    });
+    await gateway.start();
+    const addr = gateway.getAddress()!;
+
+    const res = await fetch(`http://${addr.host}:${addr.port}/v1/health`);
+    const requestId = res.headers.get('x-request-id');
+    expect(requestId).toBeTruthy();
+    expect(requestId).toMatch(/^req-/);
+  });
+
+  it('echoes client-provided X-Request-Id', async () => {
+    gateway = new Gateway({
+      port: 0,
+      agentLoop: makeMockAgentLoop(),
+      auth: new ApiKeyAuth({}),
+    });
+    await gateway.start();
+    const addr = gateway.getAddress()!;
+
+    const res = await fetch(`http://${addr.host}:${addr.port}/v1/health`, {
+      headers: { 'X-Request-Id': 'my-trace-id-123' },
+    });
+
+    expect(res.headers.get('x-request-id')).toBe('my-trace-id-123');
+  });
+
+  it('metrics requires auth by default (publicMetrics unset)', async () => {
+    gateway = new Gateway({
+      port: 0,
+      agentLoop: makeMockAgentLoop(),
+      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+    });
+    await gateway.start();
+    const addr = gateway.getAddress()!;
+
+    // Without auth → 401
+    const { status } = await fetchJson(`http://${addr.host}:${addr.port}/v1/metrics`);
+    expect(status).toBe(401);
+
+    // With auth → 200
+    const { status: authStatus } = await fetchJson(`http://${addr.host}:${addr.port}/v1/metrics`, {
+      headers: { Authorization: 'Bearer key' },
+    });
+    expect(authStatus).toBe(200);
+  });
+
+  it('metrics is public when publicMetrics is true', async () => {
+    gateway = new Gateway({
+      port: 0,
+      agentLoop: makeMockAgentLoop(),
+      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+      publicMetrics: true,
+    });
+    await gateway.start();
+    const addr = gateway.getAddress()!;
+
+    const { status, body } = await fetchJson(`http://${addr.host}:${addr.port}/v1/metrics`);
+    expect(status).toBe(200);
+    expect(body.uptime_seconds).toBeDefined();
   });
 });

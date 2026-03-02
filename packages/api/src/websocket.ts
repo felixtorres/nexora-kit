@@ -12,24 +12,36 @@ export interface WsConnection {
   socket: Socket;
   auth: AuthIdentity;
   alive: boolean;
+  messageTimestamps: number[];
+  activeChats: number;
+}
+
+export interface WsRateLimitConfig {
+  maxMessagesPerMinute?: number;
+  maxConcurrentChats?: number;
+  maxConnectionsPerUser?: number;
 }
 
 export class WebSocketManager {
   private connections = new Map<string, WsConnection>();
+  private userConnectionCount = new Map<string, number>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private readonly agentLoop: AgentLoop;
   private readonly auth: AuthProvider;
   private readonly heartbeatMs: number;
+  private readonly rateLimits: WsRateLimitConfig;
   private nextId = 1;
 
   constructor(options: {
     agentLoop: AgentLoop;
     auth: AuthProvider;
     heartbeatMs?: number;
+    rateLimits?: WsRateLimitConfig;
   }) {
     this.agentLoop = options.agentLoop;
     this.auth = options.auth;
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
+    this.rateLimits = options.rateLimits ?? {};
   }
 
   async handleUpgrade(req: IncomingMessage, socket: Socket): Promise<void> {
@@ -50,6 +62,16 @@ export class WebSocketManager {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
+    }
+
+    // Per-user connection limit
+    if (this.rateLimits.maxConnectionsPerUser) {
+      const currentCount = this.userConnectionCount.get(identity.userId) ?? 0;
+      if (currentCount >= this.rateLimits.maxConnectionsPerUser) {
+        socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+        socket.destroy();
+        return;
+      }
     }
 
     // WebSocket handshake
@@ -73,20 +95,38 @@ export class WebSocketManager {
     );
 
     const connId = `ws-${this.nextId++}`;
-    const conn: WsConnection = { id: connId, socket, auth: identity, alive: true };
+    const conn: WsConnection = {
+      id: connId,
+      socket,
+      auth: identity,
+      alive: true,
+      messageTimestamps: [],
+      activeChats: 0,
+    };
     this.connections.set(connId, conn);
+
+    // Track per-user connections
+    this.userConnectionCount.set(
+      identity.userId,
+      (this.userConnectionCount.get(identity.userId) ?? 0) + 1,
+    );
 
     socket.on('data', (data: Buffer) => {
       this.handleData(conn, data);
     });
 
-    socket.on('close', () => {
+    const removeConnection = () => {
       this.connections.delete(connId);
-    });
+      const count = this.userConnectionCount.get(identity.userId) ?? 1;
+      if (count <= 1) {
+        this.userConnectionCount.delete(identity.userId);
+      } else {
+        this.userConnectionCount.set(identity.userId, count - 1);
+      }
+    };
 
-    socket.on('error', () => {
-      this.connections.delete(connId);
-    });
+    socket.on('close', removeConnection);
+    socket.on('error', removeConnection);
   }
 
   startHeartbeat(): void {
@@ -119,6 +159,10 @@ export class WebSocketManager {
     return this.connections.size;
   }
 
+  getUserConnectionCount(userId: string): number {
+    return this.userConnectionCount.get(userId) ?? 0;
+  }
+
   closeAll(): void {
     for (const conn of this.connections.values()) {
       // Send close frame
@@ -126,6 +170,7 @@ export class WebSocketManager {
       conn.socket.destroy();
     }
     this.connections.clear();
+    this.userConnectionCount.clear();
   }
 
   private handleData(conn: WsConnection, data: Buffer): void {
@@ -149,6 +194,18 @@ export class WebSocketManager {
     // Text frame
     if (frame.opcode !== 0x1) return;
 
+    // Per-connection message rate limit
+    if (this.rateLimits.maxMessagesPerMinute) {
+      const now = Date.now();
+      const windowStart = now - 60_000;
+      conn.messageTimestamps = conn.messageTimestamps.filter((t) => t > windowStart);
+      if (conn.messageTimestamps.length >= this.rateLimits.maxMessagesPerMinute) {
+        this.sendJson(conn.socket, { type: 'error', message: 'Message rate limit exceeded' });
+        return;
+      }
+      conn.messageTimestamps.push(now);
+    }
+
     let message: unknown;
     try {
       message = JSON.parse(frame.payload.toString());
@@ -167,6 +224,11 @@ export class WebSocketManager {
     // Chat message
     const chatResult = wsChatMessageSchema.safeParse(message);
     if (chatResult.success) {
+      // Per-connection concurrent chat cap
+      if (this.rateLimits.maxConcurrentChats && conn.activeChats >= this.rateLimits.maxConcurrentChats) {
+        this.sendJson(conn.socket, { type: 'error', message: 'Too many concurrent chats' });
+        return;
+      }
       this.handleChat(conn, chatResult.data).catch(() => {
         this.sendJson(conn.socket, { type: 'error', message: 'Chat processing failed' });
       });
@@ -180,20 +242,25 @@ export class WebSocketManager {
     conn: WsConnection,
     msg: { sessionId?: string; message: string; pluginNamespaces?: string[]; metadata?: Record<string, unknown> },
   ): Promise<void> {
-    const sessionId = msg.sessionId ?? `ws-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    conn.activeChats++;
+    try {
+      const sessionId = msg.sessionId ?? `ws-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    this.sendJson(conn.socket, { type: 'session', sessionId });
+      this.sendJson(conn.socket, { type: 'session', sessionId });
 
-    for await (const event of this.agentLoop.run({
-      sessionId,
-      message: msg.message,
-      teamId: conn.auth.teamId,
-      userId: conn.auth.userId,
-      pluginNamespaces: msg.pluginNamespaces,
-      metadata: msg.metadata,
-    })) {
-      if (conn.socket.destroyed) break;
-      this.sendJson(conn.socket, event);
+      for await (const event of this.agentLoop.run({
+        sessionId,
+        message: msg.message,
+        teamId: conn.auth.teamId,
+        userId: conn.auth.userId,
+        pluginNamespaces: msg.pluginNamespaces,
+        metadata: msg.metadata,
+      })) {
+        if (conn.socket.destroyed) break;
+        this.sendJson(conn.socket, event);
+      }
+    } finally {
+      conn.activeChats--;
     }
   }
 

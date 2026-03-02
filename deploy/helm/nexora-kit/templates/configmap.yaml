@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nexora-kit.fullname" . }}-config
+  labels:
+    {{- include "nexora-kit.labels" . | nindent 4 }}
+data:
+  nexora.yaml: |
+    name: {{ .Values.nexora.name }}
+    port: {{ .Values.nexora.port }}
+    host: {{ .Values.nexora.host | quote }}
+
+    auth:
+      type: {{ .Values.nexora.auth.type }}
+      {{- if .Values.nexora.auth.keys }}
+      keys:
+        {{- range .Values.nexora.auth.keys }}
+        - key: {{ .key }}
+          userId: {{ .userId }}
+          teamId: {{ .teamId }}
+          role: {{ .role }}
+        {{- end }}
+      {{- end }}
+
+    storage:
+      {{- if eq .Values.nexora.storage.backend "postgres" }}
+      backend: postgres
+      connectionString: {{ .Values.nexora.storage.postgresConnectionString | quote }}
+      poolSize: {{ .Values.nexora.storage.postgresPoolSize }}
+      {{- else }}
+      path: {{ .Values.nexora.storage.sqlitePath }}
+      {{- end }}
+
+    plugins:
+      directory: {{ .Values.nexora.plugins.directory }}
+
+    {{- if .Values.nexora.rateLimit.enabled }}
+    rateLimit:
+      windowMs: {{ .Values.nexora.rateLimit.windowMs }}
+      maxRequests: {{ .Values.nexora.rateLimit.maxRequests }}
+    {{- end }}
+
+    {{- if .Values.nexora.allowedOrigins }}
+    allowedOrigins:
+      {{- range .Values.nexora.allowedOrigins }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
+
+    maxBodyBytes: {{ .Values.nexora.maxBodyBytes }}
+    publicMetrics: {{ .Values.nexora.publicMetrics }}

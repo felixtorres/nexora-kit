@@ -49,39 +49,39 @@ describe('AdminService', () => {
     db.close();
   });
 
-  it('enables a plugin and logs audit event', () => {
+  it('enables a plugin and logs audit event', async () => {
     service.enablePlugin('admin-1', 'test-plugin');
 
     expect(pluginManager.enable).toHaveBeenCalledWith('test-plugin');
 
-    const events = service.auditLogger.query();
+    const events = await service.auditLogger.query();
     expect(events).toHaveLength(1);
     expect(events[0].action).toBe('plugin.enable');
     expect(events[0].actor).toBe('admin-1');
   });
 
-  it('disables a plugin and logs audit event', () => {
+  it('disables a plugin and logs audit event', async () => {
     service.disablePlugin('admin-1', 'test-plugin');
 
     expect(pluginManager.disable).toHaveBeenCalledWith('test-plugin');
 
-    const events = service.auditLogger.query();
+    const events = await service.auditLogger.query();
     expect(events[0].action).toBe('plugin.disable');
   });
 
-  it('uninstalls a plugin and logs audit event', () => {
+  it('uninstalls a plugin and logs audit event', async () => {
     service.uninstallPlugin('admin-1', 'test-plugin');
 
     expect(pluginManager.uninstall).toHaveBeenCalledWith('test-plugin');
 
-    const events = service.auditLogger.query();
+    const events = await service.auditLogger.query();
     expect(events[0].action).toBe('plugin.uninstall');
   });
 
-  it('logs failure when enabling non-existent plugin', () => {
+  it('logs failure when enabling non-existent plugin', async () => {
     expect(() => service.enablePlugin('admin-1', 'nope')).toThrow('Plugin not found');
 
-    const events = service.auditLogger.query();
+    const events = await service.auditLogger.query();
     expect(events[0].result).toBe('failure');
   });
 
@@ -93,31 +93,31 @@ describe('AdminService', () => {
     expect(() => service.uninstallPlugin('admin-1', 'nope')).toThrow('Plugin not found');
   });
 
-  it('logs failure when enable throws', () => {
+  it('logs failure when enable throws', async () => {
     pluginManager.enable.mockImplementation(() => { throw new Error('Already enabled'); });
 
     expect(() => service.enablePlugin('admin-1', 'test-plugin')).toThrow('Already enabled');
 
-    const events = service.auditLogger.query();
+    const events = await service.auditLogger.query();
     expect(events[0].result).toBe('failure');
     expect(events[0].details).toEqual({ error: 'Already enabled' });
   });
 
-  it('returns usage summary', () => {
+  it('returns usage summary', async () => {
     const store = new SqliteUsageEventStore(db);
     store.insert({ pluginName: 'test-plugin', inputTokens: 100, outputTokens: 50 });
 
-    const summaries = service.getUsageSummary();
+    const summaries = await service.getUsageSummary();
     expect(summaries).toHaveLength(1);
     expect(summaries[0].totalTokens).toBe(150);
   });
 
-  it('purges old audit events', () => {
+  it('purges old audit events', async () => {
     service.enablePlugin('admin-1', 'test-plugin');
     db.prepare("UPDATE audit_events SET created_at = datetime('now', '-100 days')").run();
     service.disablePlugin('admin-1', 'test-plugin');
 
-    const purged = service.purgeAuditLog();
+    const purged = await service.purgeAuditLog();
     expect(purged).toBe(1);
   });
 });

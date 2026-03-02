@@ -6,3 +6,31 @@ export { SqlitePluginStateStore, type PluginStateRecord } from './plugin-state-s
 export { SqliteTokenUsageStore, type TokenUsageRecord } from './token-usage-store.js';
 export { SqliteUsageEventStore, type UsageEvent, type UsageEventFilter } from './usage-event-store.js';
 export { SqliteAuditEventStore, type AuditEvent, type AuditEventFilter } from './audit-event-store.js';
+
+// Interfaces
+export type {
+  IMemoryStore,
+  IConfigStore,
+  IPluginStateStore,
+  ITokenUsageStore,
+  IUsageEventStore,
+  IAuditEventStore,
+} from './interfaces.js';
+
+// Backend factory
+export { createStorageBackend, type StorageBackendConfig, type StorageBackend } from './backend.js';
+
+// PostgreSQL stores
+export { PgMemoryStore } from './postgres/pg-memory-store.js';
+export { PgConfigStore } from './postgres/pg-config-store.js';
+export { PgPluginStateStore } from './postgres/pg-plugin-state-store.js';
+export { PgTokenUsageStore } from './postgres/pg-token-usage-store.js';
+export { PgUsageEventStore } from './postgres/pg-usage-event-store.js';
+export { PgAuditEventStore } from './postgres/pg-audit-event-store.js';
+export { initPgSchema } from './postgres/schema.js';
+export type { PgPool } from './postgres/pg-pool.js';
+
+// Redis stores
+export { RedisMemoryStore } from './redis/redis-memory-store.js';
+export { RedisTokenUsageStore } from './redis/redis-token-usage-store.js';
+export type { RedisClient } from './redis/redis-client.js';

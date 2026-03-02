@@ -1,4 +1,4 @@
-import type { SqliteUsageEventStore, UsageEventFilter } from '@nexora-kit/storage';
+import type { IUsageEventStore, UsageEvent, UsageEventFilter } from '@nexora-kit/storage';
 
 export interface UsageSummary {
   pluginName: string;
@@ -18,15 +18,15 @@ export interface DailyUsage {
 }
 
 export class UsageAnalytics {
-  private readonly store: SqliteUsageEventStore;
+  private readonly store: IUsageEventStore;
 
-  constructor(store: SqliteUsageEventStore) {
+  constructor(store: IUsageEventStore) {
     this.store = store;
   }
 
   /** Aggregate usage by plugin */
-  summarizeByPlugin(filter?: Omit<UsageEventFilter, 'limit'>): UsageSummary[] {
-    const events = this.store.query(filter);
+  async summarizeByPlugin(filter?: Omit<UsageEventFilter, 'limit'>): Promise<UsageSummary[]> {
+    const events = await this.store.query(filter);
 
     const map = new Map<string, {
       inputTokens: number;
@@ -67,8 +67,8 @@ export class UsageAnalytics {
   }
 
   /** Aggregate usage by day and plugin */
-  dailyBreakdown(filter?: Omit<UsageEventFilter, 'limit'>): DailyUsage[] {
-    const events = this.store.query(filter);
+  async dailyBreakdown(filter?: Omit<UsageEventFilter, 'limit'>): Promise<DailyUsage[]> {
+    const events = await this.store.query(filter);
 
     const map = new Map<string, {
       inputTokens: number;
@@ -103,8 +103,8 @@ export class UsageAnalytics {
   }
 
   /** Get total token count across all plugins */
-  totalTokens(filter?: Omit<UsageEventFilter, 'limit'>): number {
-    const summaries = this.summarizeByPlugin(filter);
+  async totalTokens(filter?: Omit<UsageEventFilter, 'limit'>): Promise<number> {
+    const summaries = await this.summarizeByPlugin(filter);
     return summaries.reduce((sum, s) => sum + s.totalTokens, 0);
   }
 }

@@ -1,7 +1,8 @@
 import type { MemoryStore, Message } from '@nexora-kit/core';
 import type Database from 'better-sqlite3';
+import type { IMemoryStore } from './interfaces.js';
 
-export class SqliteMemoryStore implements MemoryStore {
+export class SqliteMemoryStore implements MemoryStore, IMemoryStore {
   private readonly db: Database.Database;
 
   constructor(db: Database.Database) {

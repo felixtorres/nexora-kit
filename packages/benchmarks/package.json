@@ -1,0 +1,18 @@
+{
+  "name": "@nexora-kit/benchmarks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/run.js",
+  "types": "dist/run.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "bench": "node dist/run.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@nexora-kit/core": "*",
+    "@nexora-kit/api": "*",
+    "@nexora-kit/testing": "*"
+  }
+}

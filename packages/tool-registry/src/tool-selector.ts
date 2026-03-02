@@ -8,6 +8,7 @@ import type {
 import { ToolIndex } from './tool-index.js';
 import { estimateToolTokens } from './token-estimator.js';
 import { SelectionLogger } from './selection-logger.js';
+import type { EmbeddingProvider } from './embedding/embedding-provider.js';
 
 export interface ToolSelectorOptions {
   index: ToolIndex;
@@ -16,14 +17,17 @@ export interface ToolSelectorOptions {
     keyword: number;
     recency: number;
     context: number;
+    embedding?: number;
   };
   pinnedTools?: string[];
+  embeddingProvider?: EmbeddingProvider;
 }
 
 const DEFAULT_WEIGHTS = {
   keyword: 0.4,
   recency: 0.3,
   context: 0.3,
+  embedding: 0,
 };
 
 export class ToolSelector implements ToolSelectorInterface {
@@ -31,15 +35,39 @@ export class ToolSelector implements ToolSelectorInterface {
   private readonly logger: SelectionLogger;
   private readonly weights: typeof DEFAULT_WEIGHTS;
   private readonly pinnedTools: Set<string>;
+  private readonly embeddingProvider?: EmbeddingProvider;
 
   constructor(options: ToolSelectorOptions) {
     this.index = options.index;
     this.logger = options.logger ?? new SelectionLogger();
     this.weights = { ...DEFAULT_WEIGHTS, ...options.weights };
     this.pinnedTools = new Set(options.pinnedTools ?? []);
+    this.embeddingProvider = options.embeddingProvider;
   }
 
   select(request: ToolSelectionRequest): SelectedTools {
+    return this.selectInternal(request, []);
+  }
+
+  /** Async select with embedding search support */
+  async selectAsync(request: ToolSelectionRequest): Promise<SelectedTools> {
+    let embeddingCandidates: RankedTool[] = [];
+
+    if (this.embeddingProvider && this.weights.embedding > 0) {
+      const queryVec = await this.embeddingProvider.embed(request.query);
+      embeddingCandidates = this.index.searchByEmbedding(
+        queryVec,
+        request.namespaces,
+      );
+    }
+
+    return this.selectInternal(request, embeddingCandidates);
+  }
+
+  private selectInternal(
+    request: ToolSelectionRequest,
+    embeddingCandidates: RankedTool[],
+  ): SelectedTools {
     const startTime = performance.now();
 
     // 1. Get keyword-scored candidates
@@ -52,14 +80,37 @@ export class ToolSelector implements ToolSelectorInterface {
     const recentSet = new Set(request.recentToolNames ?? []);
     const recentList = request.recentToolNames ?? [];
 
-    // 2. Score each candidate with composite weights
-    const scored = candidates.map((c) => ({
+    // Build embedding score map
+    const embeddingScoreMap = new Map<string, number>();
+    for (const ec of embeddingCandidates) {
+      embeddingScoreMap.set(ec.tool.name, ec.score);
+    }
+
+    // 2. Merge candidates: keyword + embedding
+    const candidateMap = new Map<string, RankedTool>();
+    for (const c of candidates) {
+      candidateMap.set(c.tool.name, c);
+    }
+    for (const ec of embeddingCandidates) {
+      if (!candidateMap.has(ec.tool.name)) {
+        candidateMap.set(ec.tool.name, { ...ec, score: 0 }); // zero keyword score
+      }
+    }
+
+    // 3. Score each candidate with composite weights
+    const scored = [...candidateMap.values()].map((c) => ({
       ...c,
-      compositeScore: this.compositeScore(c, recentSet, recentList, request.namespaces),
+      compositeScore: this.compositeScore(
+        c,
+        recentSet,
+        recentList,
+        request.namespaces,
+        embeddingScoreMap.get(c.tool.name) ?? 0,
+      ),
     }));
 
     // Also include zero-keyword-score tools from active namespaces that are pinned or recent
-    const candidateNames = new Set(candidates.map((c) => c.tool.name));
+    const candidateNames = new Set(candidateMap.keys());
     for (const ns of request.namespaces) {
       const nsTools = this.index.getByNamespace(ns);
       for (const tool of nsTools) {
@@ -71,17 +122,17 @@ export class ToolSelector implements ToolSelectorInterface {
             namespace: ns,
             source: this.pinnedTools.has(tool.name) ? 'pinned' : 'recency',
             compositeScore: this.pinnedTools.has(tool.name)
-              ? 1.0  // Pinned tools get max score
+              ? 1.0
               : this.weights.recency * this.recencyScore(tool.name, recentList),
           });
         }
       }
     }
 
-    // 3. Sort by composite score
+    // 4. Sort by composite score
     scored.sort((a, b) => b.compositeScore - a.compositeScore);
 
-    // 4. Separate pinned tools (always included)
+    // 5. Separate pinned tools (always included)
     const pinnedResults: ToolDefinition[] = [];
     let pinnedTokens = 0;
     const remaining: typeof scored = [];
@@ -95,7 +146,7 @@ export class ToolSelector implements ToolSelectorInterface {
       }
     }
 
-    // 5. Fill remaining budget
+    // 6. Fill remaining budget
     const selectedTools: ToolDefinition[] = [...pinnedResults];
     let totalTokens = pinnedTokens;
     let droppedCount = 0;
@@ -136,6 +187,7 @@ export class ToolSelector implements ToolSelectorInterface {
     recentSet: Set<string>,
     recentList: string[],
     activeNamespaces: string[],
+    embeddingScore: number,
   ): number {
     const keywordScore = candidate.score * this.weights.keyword;
     const recencyScore = recentSet.has(candidate.tool.name)
@@ -144,8 +196,9 @@ export class ToolSelector implements ToolSelectorInterface {
     const contextScore = activeNamespaces.includes(candidate.namespace)
       ? this.weights.context
       : 0;
+    const embScore = embeddingScore * this.weights.embedding;
 
-    return keywordScore + recencyScore + contextScore;
+    return keywordScore + recencyScore + contextScore + embScore;
   }
 
   private recencyScore(toolName: string, recentList: string[]): number {

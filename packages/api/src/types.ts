@@ -68,6 +68,12 @@ export interface GatewayConfig {
   admin?: AdminService;
   rateLimit?: RateLimitConfig;
   wsHeartbeatMs?: number;
+  allowedOrigins?: string[];
+  maxBodyBytes?: number;
+  publicMetrics?: boolean;
+  wsMaxMessagesPerMinute?: number;
+  wsMaxConcurrentChats?: number;
+  wsMaxConnectionsPerUser?: number;
 }
 
 // --- Chat request validation ---

@@ -26,10 +26,20 @@ export interface AuditEntry {
   error?: string;
 }
 
+/**
+ * Executes plugin code in a Node.js Worker thread with resource limits.
+ *
+ * **Security limitation:** The `allowedModules` option only intercepts `require()` calls.
+ * Dynamic `import()` expressions can bypass this restriction because they are handled by
+ * the V8 module loader, not by the `require` override. This is a known limitation of
+ * in-process worker-thread isolation. For full module restriction, use OS-level sandboxing
+ * (e.g., containers, seccomp, or Node's experimental `--experimental-permission` flag).
+ */
 export class CodeExecutor {
   private readonly permissionGate: PermissionGate;
   private readonly resourceLimiter: ResourceLimiter;
   private readonly auditLog: AuditEntry[] = [];
+  private sandboxWarningEmitted = false;
 
   constructor(permissionGate: PermissionGate, resourceLimiter?: ResourceLimiter) {
     this.permissionGate = permissionGate;
@@ -56,6 +66,18 @@ export class CodeExecutor {
     if (!permCheck.allowed) {
       this.logAudit(request.pluginNamespace, 'code:execute', 0, false, permCheck.reason);
       throw new Error(`Permission denied: ${permCheck.reason}`);
+    }
+
+    // Warn if allowedModules is set — import() can bypass require() interception
+    if (request.allowedModules && !this.sandboxWarningEmitted) {
+      this.sandboxWarningEmitted = true;
+      const major = parseInt(process.versions.node.split('.')[0], 10);
+      if (major < 20) {
+        console.warn(
+          '[nexora-kit/sandbox] allowedModules is set but dynamic import() can bypass require() interception. ' +
+          'Consider upgrading to Node 20+ and using --experimental-permission for stronger isolation.',
+        );
+      }
     }
 
     // Acquire execution slot

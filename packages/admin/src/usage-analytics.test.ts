@@ -19,12 +19,12 @@ describe('UsageAnalytics', () => {
     db.close();
   });
 
-  it('summarizes usage by plugin', () => {
+  it('summarizes usage by plugin', async () => {
     store.insert({ pluginName: 'plugin-a', inputTokens: 100, outputTokens: 50, latencyMs: 200 });
     store.insert({ pluginName: 'plugin-a', inputTokens: 200, outputTokens: 100, latencyMs: 300 });
     store.insert({ pluginName: 'plugin-b', inputTokens: 50, outputTokens: 25 });
 
-    const summaries = analytics.summarizeByPlugin();
+    const summaries = await analytics.summarizeByPlugin();
     expect(summaries).toHaveLength(2);
 
     const a = summaries.find((s) => s.pluginName === 'plugin-a')!;
@@ -39,35 +39,35 @@ describe('UsageAnalytics', () => {
     expect(b.avgLatencyMs).toBeNull();
   });
 
-  it('filters by user', () => {
+  it('filters by user', async () => {
     store.insert({ pluginName: 'p', userId: 'u1', inputTokens: 100, outputTokens: 50 });
     store.insert({ pluginName: 'p', userId: 'u2', inputTokens: 200, outputTokens: 100 });
 
-    const summaries = analytics.summarizeByPlugin({ userId: 'u1' });
+    const summaries = await analytics.summarizeByPlugin({ userId: 'u1' });
     expect(summaries).toHaveLength(1);
     expect(summaries[0].totalInputTokens).toBe(100);
   });
 
-  it('returns daily breakdown', () => {
+  it('returns daily breakdown', async () => {
     store.insert({ pluginName: 'p', inputTokens: 100, outputTokens: 50 });
     store.insert({ pluginName: 'p', inputTokens: 200, outputTokens: 100 });
 
-    const daily = analytics.dailyBreakdown();
+    const daily = await analytics.dailyBreakdown();
     expect(daily).toHaveLength(1);
     expect(daily[0].inputTokens).toBe(300);
     expect(daily[0].requestCount).toBe(2);
   });
 
-  it('calculates total tokens', () => {
+  it('calculates total tokens', async () => {
     store.insert({ pluginName: 'a', inputTokens: 100, outputTokens: 50 });
     store.insert({ pluginName: 'b', inputTokens: 200, outputTokens: 100 });
 
-    expect(analytics.totalTokens()).toBe(450);
+    expect(await analytics.totalTokens()).toBe(450);
   });
 
-  it('returns empty for no data', () => {
-    expect(analytics.summarizeByPlugin()).toEqual([]);
-    expect(analytics.dailyBreakdown()).toEqual([]);
-    expect(analytics.totalTokens()).toBe(0);
+  it('returns empty for no data', async () => {
+    expect(await analytics.summarizeByPlugin()).toEqual([]);
+    expect(await analytics.dailyBreakdown()).toEqual([]);
+    expect(await analytics.totalTokens()).toBe(0);
   });
 });

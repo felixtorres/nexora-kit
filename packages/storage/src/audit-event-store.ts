@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { IAuditEventStore } from './interfaces.js';
 
 export interface AuditEvent {
   id?: number;
@@ -18,7 +19,7 @@ export interface AuditEventFilter {
   limit?: number;
 }
 
-export class SqliteAuditEventStore {
+export class SqliteAuditEventStore implements IAuditEventStore {
   private readonly db: Database.Database;
 
   constructor(db: Database.Database) {

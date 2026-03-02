@@ -31,7 +31,7 @@ export {
 export type { HandlerDeps } from './handlers.js';
 
 export { WebSocketManager, isWebSocketUpgrade } from './websocket.js';
-export type { WsConnection } from './websocket.js';
+export type { WsConnection, WsRateLimitConfig } from './websocket.js';
 
 export {
   createAdminPluginEnableHandler,
@@ -45,3 +45,4 @@ export {
 export { MetricsCollector, type MetricsSnapshot } from './metrics.js';
 
 export { Gateway } from './gateway.js';
+export { buildOpenApiSpec } from './openapi.js';

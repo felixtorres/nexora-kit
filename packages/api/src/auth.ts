@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import type { AuthProvider, AuthIdentity, ApiRequest } from './types.js';
 
 export class ApiKeyAuth implements AuthProvider {
@@ -27,10 +28,15 @@ export interface JwtPayload {
 }
 
 export class JwtAuth implements AuthProvider {
-  private readonly secret: string;
+  private readonly secrets: string[];
 
-  constructor(secret: string) {
-    this.secret = secret;
+  constructor(secret: string);
+  constructor(secrets: string[]);
+  constructor(secretOrSecrets: string | string[]) {
+    this.secrets = Array.isArray(secretOrSecrets) ? secretOrSecrets : [secretOrSecrets];
+    if (this.secrets.length === 0) {
+      throw new Error('At least one secret is required');
+    }
   }
 
   async authenticate(req: ApiRequest): Promise<AuthIdentity | null> {
@@ -55,16 +61,32 @@ export class JwtAuth implements AuthProvider {
       const parts = token.split('.');
       if (parts.length !== 3) return null;
 
-      // Verify signature using HMAC-SHA256
       const [headerB64, payloadB64, signatureB64] = parts;
-      const expectedSig = this.hmacSign(`${headerB64}.${payloadB64}`);
-      if (expectedSig !== signatureB64) return null;
+
+      // Validate algorithm — reject 'none' and non-HS256
+      const headerJson = Buffer.from(headerB64, 'base64url').toString();
+      const header = JSON.parse(headerJson) as { alg?: string };
+      if (header.alg !== 'HS256') return null;
+
+      // Try each secret (supports key rotation)
+      let valid = false;
+      for (const secret of this.secrets) {
+        const expectedSig = hmacSign(`${headerB64}.${payloadB64}`, secret);
+        if (expectedSig === signatureB64) {
+          valid = true;
+          break;
+        }
+      }
+      if (!valid) return null;
 
       const payloadJson = Buffer.from(payloadB64, 'base64url').toString();
       const payload = JSON.parse(payloadJson) as JwtPayload;
 
       // Check expiry
       if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+
+      // Reject tokens with iat in the future (30s tolerance)
+      if (payload.iat && payload.iat > Date.now() / 1000 + 30) return null;
 
       if (!payload.sub || !payload.team) return null;
 
@@ -74,23 +96,19 @@ export class JwtAuth implements AuthProvider {
     }
   }
 
-  private hmacSign(data: string): string {
-    const { createHmac } = require('node:crypto') as typeof import('node:crypto');
-    return createHmac('sha256', this.secret)
-      .update(data)
-      .digest('base64url');
-  }
-
   /** Create a signed JWT token (for testing and admin tooling) */
   static createToken(payload: JwtPayload, secret: string): string {
-    const { createHmac } = require('node:crypto') as typeof import('node:crypto');
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signature = createHmac('sha256', secret)
-      .update(`${header}.${body}`)
-      .digest('base64url');
+    const signature = hmacSign(`${header}.${body}`, secret);
     return `${header}.${body}.${signature}`;
   }
+}
+
+function hmacSign(data: string, secret: string): string {
+  return createHmac('sha256', secret)
+    .update(data)
+    .digest('base64url');
 }
 
 export class CompositeAuth implements AuthProvider {

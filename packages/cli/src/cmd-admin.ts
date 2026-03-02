@@ -52,7 +52,7 @@ export const adminUsageCommand: CliCommand = {
     if (args.flags['since']) filter.since = args.flags['since'] as string;
 
     if (breakdown === 'daily') {
-      const data = analytics.dailyBreakdown(filter);
+      const data = await analytics.dailyBreakdown(filter);
       if (data.length === 0) {
         info('No usage data found.');
         storage.close();
@@ -71,7 +71,7 @@ export const adminUsageCommand: CliCommand = {
         ]),
       );
     } else {
-      const data = analytics.summarizeByPlugin(filter);
+      const data = await analytics.summarizeByPlugin(filter);
       if (data.length === 0) {
         info('No usage data found.');
         storage.close();

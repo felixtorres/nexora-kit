@@ -15,6 +15,8 @@ import {
   StorageDatabase, initSchema,
   SqliteMemoryStore, SqliteConfigStore,
   SqliteAuditEventStore, SqliteUsageEventStore,
+  createStorageBackend,
+  type StorageBackend,
 } from '@nexora-kit/storage';
 import { AuditLogger, UsageAnalytics, AdminService } from '@nexora-kit/admin';
 import { Gateway, ApiKeyAuth } from '@nexora-kit/api';
@@ -28,7 +30,7 @@ interface InstanceConfig {
     type: 'api-key';
     keys: Array<{ key: string; userId: string; teamId: string; role: 'admin' | 'user' }>;
   };
-  storage?: { path?: string };
+  storage?: { backend?: 'sqlite' | 'postgres'; path?: string; connectionString?: string; poolSize?: number };
   plugins?: { directory?: string };
   sandbox?: { defaultTier?: 'none' | 'basic' | 'strict' };
   llm?: { provider?: string; apiKey?: string; model?: string };
@@ -62,13 +64,22 @@ export const serveCommand: CliCommand = {
     info(`Starting ${fmt.bold(config.name ?? 'nexora-kit')} on ${host}:${port}`);
 
     // --- Storage ---
-    const dbPath = resolve(instanceDir, config.storage?.path ?? './data/nexora.db');
-    const storage = new StorageDatabase({ path: dbPath });
-    initSchema(storage.db);
+    let storageBackend: StorageBackend;
+    if (config.storage?.backend === 'postgres' && config.storage.connectionString) {
+      storageBackend = await createStorageBackend({
+        type: 'postgres',
+        connectionString: config.storage.connectionString,
+        poolSize: config.storage.poolSize,
+      });
+      info('Using PostgreSQL storage backend');
+    } else {
+      const dbPath = resolve(instanceDir, config.storage?.path ?? './data/nexora.db');
+      storageBackend = await createStorageBackend({ type: 'sqlite', path: dbPath });
+    }
 
-    const memoryStore = new SqliteMemoryStore(storage.db);
-    const auditEventStore = new SqliteAuditEventStore(storage.db);
-    const usageEventStore = new SqliteUsageEventStore(storage.db);
+    const memoryStore = storageBackend.memoryStore;
+    const auditEventStore = storageBackend.auditEventStore;
+    const usageEventStore = storageBackend.usageEventStore;
 
     // --- Config ---
     const configResolver = new ConfigResolver();
@@ -172,7 +183,7 @@ export const serveCommand: CliCommand = {
     const shutdown = async () => {
       info('Shutting down...');
       await gateway.stop();
-      storage.close();
+      await storageBackend.close();
       success('Stopped.');
       process.exit(0);
     };

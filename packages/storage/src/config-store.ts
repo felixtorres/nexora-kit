@@ -1,7 +1,8 @@
 import type { ConfigResolver, ConfigEntry, ConfigLayer } from '@nexora-kit/config';
 import type Database from 'better-sqlite3';
+import type { IConfigStore } from './interfaces.js';
 
-export class SqliteConfigStore {
+export class SqliteConfigStore implements IConfigStore {
   private readonly db: Database.Database;
 
   constructor(db: Database.Database) {

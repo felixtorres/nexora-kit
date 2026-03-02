@@ -17,68 +17,68 @@ describe('AuditLogger', () => {
     db.close();
   });
 
-  it('logs plugin install', () => {
-    const id = logger.logPluginInstall('admin-1', 'my-plugin', { version: '1.0.0' });
+  it('logs plugin install', async () => {
+    const id = await logger.logPluginInstall('admin-1', 'my-plugin', { version: '1.0.0' });
     expect(id).toBeGreaterThan(0);
 
-    const events = logger.query();
+    const events = await logger.query();
     expect(events).toHaveLength(1);
     expect(events[0].action).toBe('plugin.install');
     expect(events[0].target).toBe('plugin:my-plugin');
     expect(events[0].details).toEqual({ version: '1.0.0' });
   });
 
-  it('logs plugin uninstall', () => {
-    logger.logPluginUninstall('admin-1', 'my-plugin');
-    const events = logger.query();
+  it('logs plugin uninstall', async () => {
+    await logger.logPluginUninstall('admin-1', 'my-plugin');
+    const events = await logger.query();
     expect(events[0].action).toBe('plugin.uninstall');
   });
 
-  it('logs plugin enable', () => {
-    logger.logPluginEnable('admin-1', 'my-plugin');
-    const events = logger.query();
+  it('logs plugin enable', async () => {
+    await logger.logPluginEnable('admin-1', 'my-plugin');
+    const events = await logger.query();
     expect(events[0].action).toBe('plugin.enable');
   });
 
-  it('logs plugin disable', () => {
-    logger.logPluginDisable('admin-1', 'my-plugin');
-    const events = logger.query();
+  it('logs plugin disable', async () => {
+    await logger.logPluginDisable('admin-1', 'my-plugin');
+    const events = await logger.query();
     expect(events[0].action).toBe('plugin.disable');
   });
 
-  it('logs config change', () => {
-    logger.logConfigChange('admin-1', 'llm.model', { from: 'sonnet', to: 'opus' });
-    const events = logger.query();
+  it('logs config change', async () => {
+    await logger.logConfigChange('admin-1', 'llm.model', { from: 'sonnet', to: 'opus' });
+    const events = await logger.query();
     expect(events[0].action).toBe('config.update');
     expect(events[0].target).toBe('config:llm.model');
   });
 
-  it('logs failure', () => {
-    logger.logFailure('admin-1', 'plugin.install', 'plugin:bad', 'Not found');
-    const events = logger.query();
+  it('logs failure', async () => {
+    await logger.logFailure('admin-1', 'plugin.install', 'plugin:bad', 'Not found');
+    const events = await logger.query();
     expect(events[0].result).toBe('failure');
     expect(events[0].details).toEqual({ error: 'Not found' });
   });
 
-  it('filters query results', () => {
-    logger.logPluginInstall('admin-1', 'p1');
-    logger.logPluginEnable('admin-1', 'p1');
-    logger.logPluginInstall('admin-2', 'p2');
+  it('filters query results', async () => {
+    await logger.logPluginInstall('admin-1', 'p1');
+    await logger.logPluginEnable('admin-1', 'p1');
+    await logger.logPluginInstall('admin-2', 'p2');
 
-    const byActor = logger.query({ actor: 'admin-1' });
+    const byActor = await logger.query({ actor: 'admin-1' });
     expect(byActor).toHaveLength(2);
 
-    const byAction = logger.query({ action: 'plugin.enable' });
+    const byAction = await logger.query({ action: 'plugin.enable' });
     expect(byAction).toHaveLength(1);
   });
 
-  it('purges old events', () => {
-    logger.logPluginInstall('admin', 'p1');
+  it('purges old events', async () => {
+    await logger.logPluginInstall('admin', 'p1');
     db.prepare("UPDATE audit_events SET created_at = datetime('now', '-100 days')").run();
-    logger.logPluginInstall('admin', 'p2');
+    await logger.logPluginInstall('admin', 'p2');
 
-    const deleted = logger.purge(90);
+    const deleted = await logger.purge(90);
     expect(deleted).toBe(1);
-    expect(logger.query()).toHaveLength(1);
+    expect(await logger.query()).toHaveLength(1);
   });
 });

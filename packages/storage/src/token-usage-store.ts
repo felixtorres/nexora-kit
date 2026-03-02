@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { ITokenUsageStore } from './interfaces.js';
 
 export interface TokenUsageRecord {
   pluginNamespace: string;
@@ -9,7 +10,7 @@ export interface TokenUsageRecord {
 
 const INSTANCE_KEY = '__instance__';
 
-export class SqliteTokenUsageStore {
+export class SqliteTokenUsageStore implements ITokenUsageStore {
   private readonly db: Database.Database;
 
   constructor(db: Database.Database) {

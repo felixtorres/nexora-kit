@@ -17,6 +17,14 @@
     "@nexora-kit/llm": "*",
     "better-sqlite3": "^11.8.1"
   },
+  "peerDependencies": {
+    "pg": "^8.0.0",
+    "ioredis": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": { "optional": true },
+    "ioredis": { "optional": true }
+  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13"
   }

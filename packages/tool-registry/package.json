@@ -13,5 +13,11 @@
   },
   "dependencies": {
     "@nexora-kit/core": "*"
+  },
+  "peerDependencies": {
+    "@xenova/transformers": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@xenova/transformers": { "optional": true }
   }
 }
