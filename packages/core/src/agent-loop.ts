@@ -1,15 +1,16 @@
 import type { LlmProvider, TokenBudget } from '@nexora-kit/llm';
 import { ContextManager } from './context.js';
 import { ToolDispatcher } from './dispatcher.js';
-import { InMemoryStore, type MemoryStore } from './memory.js';
+import { InMemoryMessageStore, type MessageStore } from './memory.js';
 import { NoopObservability } from './observability.js';
 import type {
   ChatEvent,
+  ChatInput,
   ChatRequest,
   CommandDispatcherInterface,
+  Conversation,
   Message,
   MessageContent,
-  Session,
   ToolCall,
   ToolSelectorInterface,
   ObservabilityHooks,
@@ -19,7 +20,7 @@ export interface AgentLoopOptions {
   llm: LlmProvider;
   contextManager?: ContextManager;
   toolDispatcher?: ToolDispatcher;
-  memoryStore?: MemoryStore;
+  messageStore?: MessageStore;
   systemPrompt?: string;
   maxTurns?: number;
   model?: string;
@@ -35,7 +36,7 @@ export class AgentLoop {
   private readonly llm: LlmProvider;
   private readonly context: ContextManager;
   private readonly dispatcher: ToolDispatcher;
-  private readonly memory: MemoryStore;
+  private readonly memory: MessageStore;
   private readonly systemPrompt: string;
   private readonly maxTurns: number;
   private readonly model: string;
@@ -51,7 +52,7 @@ export class AgentLoop {
     this.llm = options.llm;
     this.context = options.contextManager ?? new ContextManager();
     this.dispatcher = options.toolDispatcher ?? new ToolDispatcher();
-    this.memory = options.memoryStore ?? new InMemoryStore();
+    this.memory = options.messageStore ?? new InMemoryMessageStore();
     this.systemPrompt = options.systemPrompt ?? 'You are a helpful assistant.';
     this.maxTurns = options.maxTurns ?? 10;
     this.model = options.model ?? this.llm.models[0]?.id ?? 'default';
@@ -63,47 +64,64 @@ export class AgentLoop {
     this.commandDispatcher = options.commandDispatcher;
   }
 
-  async *run(request: ChatRequest): AsyncIterable<ChatEvent> {
+  async *run(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatEvent> {
     const controller = new AbortController();
-    this.abortControllers.set(request.sessionId, controller);
-    const traceId = `trace-${request.sessionId}-${Date.now()}`;
+    this.abortControllers.set(request.conversationId, controller);
+
+    // Wire external signal to internal controller
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+    }
+
+    const traceId = `trace-${request.conversationId}-${Date.now()}`;
     const traceStartTime = performance.now();
 
+    // Extract text from ChatInput union
+    const messageText = extractText(request.input);
+
     this.observability.onTraceStart(traceId, {
-      sessionId: request.sessionId,
-      message: request.message,
+      conversationId: request.conversationId,
+      message: messageText,
     });
 
     try {
-      // Load or create session
-      const existingMessages = await this.memory.get(request.sessionId);
-      const session: Session = {
-        id: request.sessionId,
+      // Load or create conversation
+      const existingMessages = await this.memory.get(request.conversationId);
+      const conversation: Conversation = {
+        id: request.conversationId,
         teamId: request.teamId,
         userId: request.userId,
+        title: null,
         pluginNamespaces: request.pluginNamespaces ?? [],
         messages: existingMessages,
+        messageCount: existingMessages.length,
+        lastMessageAt: null,
         metadata: request.metadata ?? {},
         createdAt: new Date(),
         updatedAt: new Date(),
+        deletedAt: null,
       };
 
       // Append user message
-      const userMessage: Message = { role: 'user', content: request.message };
-      this.context.append(session, userMessage);
-      await this.memory.append(request.sessionId, [userMessage]);
+      const userMessage: Message = { role: 'user', content: messageText };
+      this.context.append(conversation, userMessage);
+      await this.memory.append(request.conversationId, [userMessage]);
 
       // Command pre-processing: if message starts with / and matches a command, dispatch directly
-      if (this.commandDispatcher && request.message.startsWith('/') && this.commandDispatcher.isCommand(request.message)) {
-        const cmdResult = await this.commandDispatcher.dispatch(request.message, {
-          id: request.sessionId,
+      if (this.commandDispatcher && messageText.startsWith('/') && this.commandDispatcher.isCommand(messageText)) {
+        const cmdResult = await this.commandDispatcher.dispatch(messageText, {
+          id: request.conversationId,
           userId: request.userId,
           teamId: request.teamId,
         });
 
         const assistantMessage: Message = { role: 'assistant', content: cmdResult.content };
-        this.context.append(session, assistantMessage);
-        await this.memory.append(request.sessionId, [assistantMessage]);
+        this.context.append(conversation, assistantMessage);
+        await this.memory.append(request.conversationId, [assistantMessage]);
 
         yield { type: 'text', content: cmdResult.content };
         if (cmdResult.isError) {
@@ -131,15 +149,15 @@ export class AgentLoop {
         let tools;
         if (this.toolSelector) {
           const selection = this.toolSelector.select({
-            query: request.message,
-            namespaces: session.pluginNamespaces,
+            query: messageText,
+            namespaces: conversation.pluginNamespaces,
             tokenBudget: this.toolTokenBudget,
-            recentToolNames: this.getRecentToolNames(session),
+            recentToolNames: this.getRecentToolNames(conversation),
           });
           tools = selection.tools;
 
           this.observability.onToolSelection({
-            query: request.message,
+            query: messageText,
             selected: selection.tools.length,
             dropped: selection.droppedCount,
             tokensUsed: selection.totalTokens,
@@ -149,7 +167,7 @@ export class AgentLoop {
           tools = this.dispatcher.listTools();
         }
 
-        const ctx = this.context.assemble(session, tools, this.systemPrompt);
+        const ctx = this.context.assemble(conversation, tools, this.systemPrompt);
 
         // Check token budget before LLM call
         if (this.tokenBudget && this.pluginNamespace) {
@@ -175,7 +193,7 @@ export class AgentLoop {
         const llmStartTime = performance.now();
         const llmStream = this.llm.chat({
           model: this.model,
-          messages: ctx.messages,
+          messages: ctx.messages as any[], // MessageContent union is a superset of LlmContentBlock
           tools: ctx.tools.length > 0 ? ctx.tools : undefined,
           stream: true,
         });
@@ -253,8 +271,8 @@ export class AgentLoop {
               ? assistantContent[0].text
               : assistantContent,
           };
-          this.context.append(session, assistantMessage);
-          await this.memory.append(request.sessionId, [assistantMessage]);
+          this.context.append(conversation, assistantMessage);
+          await this.memory.append(request.conversationId, [assistantMessage]);
         }
 
         // If no tool calls, we're done
@@ -303,8 +321,8 @@ export class AgentLoop {
               },
             ],
           };
-          this.context.append(session, toolMessage);
-          await this.memory.append(request.sessionId, [toolMessage]);
+          this.context.append(conversation, toolMessage);
+          await this.memory.append(request.conversationId, [toolMessage]);
         }
 
         yield { type: 'usage', inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
@@ -320,23 +338,23 @@ export class AgentLoop {
       yield { type: 'error', message: `Max turns (${this.maxTurns}) reached`, code: 'MAX_TURNS' };
       yield { type: 'done' };
     } finally {
-      this.abortControllers.delete(request.sessionId);
+      this.abortControllers.delete(request.conversationId);
     }
   }
 
-  abort(sessionId: string): void {
-    this.abortControllers.get(sessionId)?.abort();
+  abort(conversationId: string): void {
+    this.abortControllers.get(conversationId)?.abort();
   }
 
   get toolDispatcher(): ToolDispatcher {
     return this.dispatcher;
   }
 
-  private getRecentToolNames(session: Session): string[] {
+  private getRecentToolNames(conversation: Conversation): string[] {
     const recent: string[] = [];
     // Walk messages in reverse, collect tool_use names
-    for (let i = session.messages.length - 1; i >= 0 && recent.length < 20; i--) {
-      const msg = session.messages[i];
+    for (let i = conversation.messages.length - 1; i >= 0 && recent.length < 20; i--) {
+      const msg = conversation.messages[i];
       if (msg.role === 'assistant' && Array.isArray(msg.content)) {
         for (const part of msg.content) {
           if (part.type === 'tool_use') {
@@ -346,5 +364,16 @@ export class AgentLoop {
       }
     }
     return recent.reverse();
+  }
+}
+
+function extractText(input: ChatInput): string {
+  switch (input.type) {
+    case 'text':
+      return input.text;
+    case 'action':
+      return `[action:${input.actionId}]`;
+    case 'file':
+      return input.text ?? `[file:${input.fileId}]`;
   }
 }

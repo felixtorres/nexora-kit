@@ -1,29 +1,37 @@
 import type { Message } from './types.js';
 
-export interface MemoryStore {
-  get(sessionId: string): Promise<Message[]>;
-  append(sessionId: string, messages: Message[]): Promise<void>;
-  clear(sessionId: string): Promise<void>;
+export interface MessageStore {
+  get(conversationId: string): Promise<Message[]>;
+  append(conversationId: string, messages: Message[]): Promise<void>;
+  clear(conversationId: string): Promise<void>;
+  truncateFrom(conversationId: string, fromSeq: number): Promise<void>;
 }
 
 /**
  * In-memory store for development and testing.
- * Production would use PostgreSQL.
+ * Production would use PostgreSQL or SQLite.
  */
-export class InMemoryStore implements MemoryStore {
+export class InMemoryMessageStore implements MessageStore {
   private store = new Map<string, Message[]>();
 
-  async get(sessionId: string): Promise<Message[]> {
-    return [...(this.store.get(sessionId) ?? [])];
+  async get(conversationId: string): Promise<Message[]> {
+    return [...(this.store.get(conversationId) ?? [])];
   }
 
-  async append(sessionId: string, messages: Message[]): Promise<void> {
-    const existing = this.store.get(sessionId) ?? [];
+  async append(conversationId: string, messages: Message[]): Promise<void> {
+    const existing = this.store.get(conversationId) ?? [];
     existing.push(...messages);
-    this.store.set(sessionId, existing);
+    this.store.set(conversationId, existing);
   }
 
-  async clear(sessionId: string): Promise<void> {
-    this.store.delete(sessionId);
+  async clear(conversationId: string): Promise<void> {
+    this.store.delete(conversationId);
+  }
+
+  async truncateFrom(conversationId: string, fromSeq: number): Promise<void> {
+    const existing = this.store.get(conversationId);
+    if (existing && fromSeq < existing.length) {
+      existing.length = fromSeq;
+    }
   }
 }

@@ -6,7 +6,7 @@ describe('defineSkill', () => {
     const skill = defineSkill({
       name: 'greet',
       description: 'Greet someone',
-      handler: async () => ({ content: 'hello' }),
+      handler: async () => ({ output: 'hello' }),
     });
 
     expect(skill.name).toBe('greet');
@@ -21,7 +21,7 @@ describe('defineSkill', () => {
       name: 'search',
       description: 'Search something',
       invocation: 'user',
-      handler: async () => ({ content: 'results' }),
+      handler: async () => ({ output: 'results' }),
     });
 
     expect(skill.invocation).toBe('user');
@@ -35,7 +35,7 @@ describe('defineSkill', () => {
         x: { type: 'number', description: 'First operand' },
         y: { type: 'number', description: 'Second operand' },
       },
-      handler: async () => ({ content: '42' }),
+      handler: async () => ({ output: '42' }),
     });
 
     expect(Object.keys(skill.parameters)).toEqual(['x', 'y']);
@@ -44,19 +44,19 @@ describe('defineSkill', () => {
 
   it('throws on empty name', () => {
     expect(() =>
-      defineSkill({ name: '', description: 'Test', handler: async () => ({ content: '' }) }),
+      defineSkill({ name: '', description: 'Test', handler: async () => ({ output: '' }) }),
     ).toThrow('Skill name is required');
   });
 
   it('throws on empty description', () => {
     expect(() =>
-      defineSkill({ name: 'test', description: '', handler: async () => ({ content: '' }) }),
+      defineSkill({ name: 'test', description: '', handler: async () => ({ output: '' }) }),
     ).toThrow('Skill description is required');
   });
 
   it('throws if name contains colon', () => {
     expect(() =>
-      defineSkill({ name: 'ns:test', description: 'Test', handler: async () => ({ content: '' }) }),
+      defineSkill({ name: 'ns:test', description: 'Test', handler: async () => ({ output: '' }) }),
     ).toThrow('must not contain namespace separator');
   });
 });

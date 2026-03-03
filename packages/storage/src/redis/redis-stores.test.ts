@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { RedisMemoryStore } from './redis-memory-store.js';
+import { RedisMessageStore } from './redis-memory-store.js';
 import { RedisTokenUsageStore } from './redis-token-usage-store.js';
 // RedisClient type not used directly — mock inferred via vi.fn()
 
@@ -17,45 +17,45 @@ function makeMockRedis() {
   } as any;
 }
 
-describe('RedisMemoryStore', () => {
+describe('RedisMessageStore', () => {
   let redis: ReturnType<typeof makeMockRedis>;
-  let store: RedisMemoryStore;
+  let store: RedisMessageStore;
 
   beforeEach(() => {
     redis = makeMockRedis();
-    store = new RedisMemoryStore(redis);
+    store = new RedisMessageStore(redis);
   });
 
-  it('gets messages for a session', async () => {
+  it('gets messages for a conversation', async () => {
     redis.lrange.mockResolvedValueOnce([
       JSON.stringify({ role: 'user', content: 'Hello' }),
       JSON.stringify({ role: 'assistant', content: 'Hi' }),
     ]);
 
-    const msgs = await store.get('sess-1');
+    const msgs = await store.get('conv-1');
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe('user');
-    expect(redis.lrange).toHaveBeenCalledWith('nxk:messages:sess-1', 0, -1);
+    expect(redis.lrange).toHaveBeenCalledWith('nxk:messages:conv-1', 0, -1);
   });
 
   it('appends messages', async () => {
-    await store.append('sess-1', [
+    await store.append('conv-1', [
       { role: 'user', content: 'Hello' },
     ]);
     expect(redis.rpush).toHaveBeenCalledWith(
-      'nxk:messages:sess-1',
+      'nxk:messages:conv-1',
       JSON.stringify({ role: 'user', content: 'Hello' }),
     );
   });
 
   it('skips append with empty messages', async () => {
-    await store.append('sess-1', []);
+    await store.append('conv-1', []);
     expect(redis.rpush).not.toHaveBeenCalled();
   });
 
   it('clears messages', async () => {
-    await store.clear('sess-1');
-    expect(redis.del).toHaveBeenCalledWith('nxk:messages:sess-1');
+    await store.clear('conv-1');
+    expect(redis.del).toHaveBeenCalledWith('nxk:messages:conv-1');
   });
 });
 

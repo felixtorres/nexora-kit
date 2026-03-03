@@ -1,4 +1,4 @@
-import type { ToolHandler } from '@nexora-kit/core';
+import type { ToolHandler, ResponseBlock, ArtifactOperation } from '@nexora-kit/core';
 
 export type SkillInvocation = 'model' | 'user' | 'both';
 
@@ -28,8 +28,9 @@ export interface SkillContext {
 }
 
 export interface SkillResult {
-  content: string;
+  output: string | ResponseBlock[];
   isError?: boolean;
+  artifacts?: ArtifactOperation[];
   metadata?: Record<string, unknown>;
 }
 

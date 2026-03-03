@@ -1,7 +1,7 @@
 import type { ObservabilityHooks, Message } from './types.js';
 
 export class NoopObservability implements ObservabilityHooks {
-  onTraceStart(_traceId: string, _input: { sessionId: string; message: string }): void {}
+  onTraceStart(_traceId: string, _input: { conversationId: string; message: string }): void {}
 
   onGeneration(_data: {
     model: string;

@@ -1,12 +1,13 @@
-import type { MemoryStore } from '@nexora-kit/core';
-import type { IConfigStore, IPluginStateStore, ITokenUsageStore, IUsageEventStore, IAuditEventStore } from './interfaces.js';
+import type { MessageStore } from '@nexora-kit/core';
+import type { IConversationStore, IConfigStore, IPluginStateStore, ITokenUsageStore, IUsageEventStore, IAuditEventStore } from './interfaces.js';
 
 export type StorageBackendConfig =
   | { type: 'sqlite'; path: string; walMode?: boolean }
   | { type: 'postgres'; connectionString: string; poolSize?: number };
 
 export interface StorageBackend {
-  memoryStore: MemoryStore;
+  messageStore: MessageStore;
+  conversationStore: IConversationStore;
   configStore: IConfigStore;
   pluginStateStore: IPluginStateStore;
   tokenUsageStore: ITokenUsageStore;
@@ -28,7 +29,8 @@ export async function createStorageBackend(config: StorageBackendConfig): Promis
 async function createSqliteBackend(config: { path: string; walMode?: boolean }): Promise<StorageBackend> {
   const { StorageDatabase } = await import('./database.js');
   const { initSchema } = await import('./schema.js');
-  const { SqliteMemoryStore } = await import('./memory-store.js');
+  const { SqliteMessageStore } = await import('./memory-store.js');
+  const { SqliteConversationStore } = await import('./conversation-store.js');
   const { SqliteConfigStore } = await import('./config-store.js');
   const { SqlitePluginStateStore } = await import('./plugin-state-store.js');
   const { SqliteTokenUsageStore } = await import('./token-usage-store.js');
@@ -39,7 +41,8 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
   initSchema(storage.db);
 
   return {
-    memoryStore: new SqliteMemoryStore(storage.db),
+    messageStore: new SqliteMessageStore(storage.db),
+    conversationStore: new SqliteConversationStore(storage.db),
     configStore: new SqliteConfigStore(storage.db),
     pluginStateStore: new SqlitePluginStateStore(storage.db),
     tokenUsageStore: new SqliteTokenUsageStore(storage.db),
@@ -71,7 +74,8 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
   const { initPgSchema } = await import('./postgres/schema.js');
   await initPgSchema(pool);
 
-  const { PgMemoryStore } = await import('./postgres/pg-memory-store.js');
+  const { PgMessageStore } = await import('./postgres/pg-memory-store.js');
+  const { PgConversationStore } = await import('./postgres/pg-conversation-store.js');
   const { PgConfigStore } = await import('./postgres/pg-config-store.js');
   const { PgPluginStateStore } = await import('./postgres/pg-plugin-state-store.js');
   const { PgTokenUsageStore } = await import('./postgres/pg-token-usage-store.js');
@@ -79,7 +83,8 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
   const { PgAuditEventStore } = await import('./postgres/pg-audit-event-store.js');
 
   return {
-    memoryStore: new PgMemoryStore(pool),
+    messageStore: new PgMessageStore(pool),
+    conversationStore: new PgConversationStore(pool),
     configStore: new PgConfigStore(pool),
     pluginStateStore: new PgPluginStateStore(pool),
     tokenUsageStore: new PgTokenUsageStore(pool),

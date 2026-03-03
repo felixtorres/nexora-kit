@@ -23,12 +23,13 @@ describe('createStorageBackend', () => {
       path: join(tmpDir, 'test.db'),
     });
 
-    expect(backend.memoryStore).toBeDefined();
+    expect(backend.messageStore).toBeDefined();
     expect(backend.configStore).toBeDefined();
     expect(backend.pluginStateStore).toBeDefined();
     expect(backend.tokenUsageStore).toBeDefined();
     expect(backend.usageEventStore).toBeDefined();
     expect(backend.auditEventStore).toBeDefined();
+    expect(backend.conversationStore).toBeDefined();
   });
 
   it('SQLite backend stores and retrieves messages', async () => {
@@ -37,10 +38,10 @@ describe('createStorageBackend', () => {
       path: join(tmpDir, 'test2.db'),
     });
 
-    await backend.memoryStore.append('sess-1', [
+    await backend.messageStore.append('conv-1', [
       { role: 'user', content: 'Hello' },
     ]);
-    const msgs = await backend.memoryStore.get('sess-1');
+    const msgs = await backend.messageStore.get('conv-1');
     expect(msgs).toHaveLength(1);
     expect(msgs[0].role).toBe('user');
   });

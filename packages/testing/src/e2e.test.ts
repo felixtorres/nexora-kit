@@ -255,8 +255,8 @@ describe('E2E: Session persistence', () => {
 
     const instance = createTestInstance({ llm });
 
-    await instance.chat('Hello', { sessionId: 'persist-test' });
-    await instance.chat('Follow up', { sessionId: 'persist-test' });
+    await instance.chat('Hello', { conversationId: 'persist-test' });
+    await instance.chat('Follow up', { conversationId: 'persist-test' });
 
     // Second call should include history from first call
     expect(requests).toHaveLength(2);

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@nexora-kit/core": "*",
+    "@nexora-kit/storage": "*",
     "@nexora-kit/plugins": "*",
     "@nexora-kit/admin": "*",
     "zod": "*"

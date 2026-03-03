@@ -82,7 +82,7 @@ describe('SkillHandlerFactory', () => {
       invocation: 'model',
       parameters: {},
       handler: async (ctx) => ({
-        content: `Result: ${Number(ctx.input.a) + Number(ctx.input.b)}`,
+        output: `Result: ${Number(ctx.input.a) + Number(ctx.input.b)}`,
       }),
     };
 
@@ -102,7 +102,7 @@ describe('SkillHandlerFactory', () => {
       description: 'Fail',
       invocation: 'model',
       parameters: {},
-      handler: async () => ({ content: 'something broke', isError: true }),
+      handler: async () => ({ output: 'something broke', isError: true }),
     };
 
     const handler = factory.createHandler('ns:fail', skillDef, 'ns');
@@ -177,7 +177,7 @@ describe('SkillHandlerFactory', () => {
       parameters: {},
       handler: async (ctx) => {
         capturedConfig = ctx.config;
-        return { content: 'ok' };
+        return { output: 'ok' };
       },
     };
 
@@ -202,7 +202,7 @@ describe('SkillHandlerFactory', () => {
         } catch (e) {
           invokeError = e as Error;
         }
-        return { content: 'ok' };
+        return { output: 'ok' };
       },
     };
 

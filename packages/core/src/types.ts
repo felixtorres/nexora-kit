@@ -26,11 +26,51 @@ export interface ToolResultContent {
   isError?: boolean;
 }
 
-export type MessageContent = TextContent | ToolUseContent | ToolResultContent;
+export interface BlocksContent {
+  type: 'blocks';
+  blocks: ResponseBlock[];
+}
+
+export interface FileContent {
+  type: 'file';
+  fileId: string;
+  mimeType: string;
+  name: string;
+}
+
+export interface ArtifactContent {
+  type: 'artifact';
+  artifactId: string;
+  operation: ArtifactOperation;
+}
+
+export type MessageContent =
+  | TextContent
+  | ToolUseContent
+  | ToolResultContent
+  | BlocksContent
+  | FileContent
+  | ArtifactContent;
 
 export interface Message {
   role: Role;
   content: string | MessageContent[];
+}
+
+// --- Response Blocks (F3 placeholder) ---
+
+export interface ResponseBlock {
+  type: string;
+  [key: string]: unknown;
+}
+
+// --- Artifacts (F7 placeholder) ---
+
+export interface ArtifactOperation {
+  type: 'create' | 'update';
+  artifactId: string;
+  title?: string;
+  content?: string;
 }
 
 // --- Tools ---
@@ -67,17 +107,26 @@ export interface ToolResult {
   isError?: boolean;
 }
 
-// --- Sessions ---
+// --- Conversations (was Sessions) ---
 
-export interface Session {
+export interface Conversation {
   id: string;
   teamId: string;
   userId: string;
+  title: string | null;
+  systemPrompt?: string;
+  templateId?: string;
+  workspaceId?: string;
+  model?: string;
+  agentId?: string;
   pluginNamespaces: string[];
   messages: Message[];
+  messageCount: number;
+  lastMessageAt: Date | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date | null;
 }
 
 // --- Context ---
@@ -91,9 +140,28 @@ export interface Context {
 
 // --- Chat ---
 
+export interface ChatInputText {
+  type: 'text';
+  text: string;
+}
+
+export interface ChatInputAction {
+  type: 'action';
+  actionId: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ChatInputFile {
+  type: 'file';
+  fileId: string;
+  text?: string;
+}
+
+export type ChatInput = ChatInputText | ChatInputAction | ChatInputFile;
+
 export interface ChatRequest {
-  sessionId: string;
-  message: string;
+  conversationId: string;
+  input: ChatInput;
   teamId: string;
   userId: string;
   pluginNamespaces?: string[];
@@ -106,7 +174,13 @@ export type ChatEvent =
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
   | { type: 'error'; message: string; code?: string }
-  | { type: 'done' };
+  | { type: 'done' }
+  | { type: 'blocks'; blocks: ResponseBlock[] }
+  | { type: 'artifact_create'; artifactId: string; title: string; content: string }
+  | { type: 'artifact_stream'; artifactId: string; delta: string }
+  | { type: 'artifact_update'; artifactId: string; title?: string; content?: string }
+  | { type: 'artifact_done'; artifactId: string }
+  | { type: 'cancelled' };
 
 // --- Permissions ---
 
@@ -227,7 +301,7 @@ export interface CommandDispatcherInterface {
 // --- Observability ---
 
 export interface ObservabilityHooks {
-  onTraceStart(traceId: string, input: { sessionId: string; message: string }): void;
+  onTraceStart(traceId: string, input: { conversationId: string; message: string }): void;
   onGeneration(data: {
     model: string;
     input: Message[];

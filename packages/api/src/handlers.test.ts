@@ -50,51 +50,51 @@ describe('createChatHandler', () => {
     const handler = createChatHandler({ agentLoop } as unknown as HandlerDeps);
     const res = await handler(makeReq({
       method: 'POST',
-      body: { message: 'Hi there', sessionId: 'sess-1' },
+      body: { input: 'Hi there', conversationId: 'conv-1' },
     }));
 
     expect(res.status).toBe(200);
     const body = res.body as any;
-    expect(body.sessionId).toBe('sess-1');
+    expect(body.conversationId).toBe('conv-1');
     expect(body.message).toBe('Hello world!');
     expect(body.events).toHaveLength(4);
 
     expect(agentLoop.run).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: 'sess-1',
-      message: 'Hi there',
+      conversationId: 'conv-1',
+      input: { type: 'text', text: 'Hi there' },
       teamId: 'team1',
       userId: 'user1',
     }));
   });
 
-  it('generates sessionId when not provided', async () => {
+  it('generates conversationId when not provided', async () => {
     const agentLoop = makeMockAgentLoop([{ type: 'done' }]);
     const handler = createChatHandler({ agentLoop } as unknown as HandlerDeps);
 
     const res = await handler(makeReq({
       method: 'POST',
-      body: { message: 'Hi' },
+      body: { input: 'Hi' },
     }));
 
     const body = res.body as any;
-    expect(body.sessionId).toMatch(/^session-/);
+    expect(body.conversationId).toMatch(/^conv-/);
   });
 
   it('rejects unauthenticated requests', async () => {
     const agentLoop = makeMockAgentLoop([]);
     const handler = createChatHandler({ agentLoop } as unknown as HandlerDeps);
 
-    await expect(handler(makeReq({ auth: undefined, body: { message: 'Hi' } }))).rejects.toThrow('Authentication required');
+    await expect(handler(makeReq({ auth: undefined, body: { input: 'Hi' } }))).rejects.toThrow('Authentication required');
   });
 
   it('rejects invalid body', async () => {
     const agentLoop = makeMockAgentLoop([]);
     const handler = createChatHandler({ agentLoop } as unknown as HandlerDeps);
 
-    await expect(handler(makeReq({ body: { message: '' } }))).rejects.toThrow('Invalid request');
+    await expect(handler(makeReq({ body: { input: '' } }))).rejects.toThrow('Invalid request');
   });
 
-  it('rejects missing message', async () => {
+  it('rejects missing input', async () => {
     const agentLoop = makeMockAgentLoop([]);
     const handler = createChatHandler({ agentLoop } as unknown as HandlerDeps);
 

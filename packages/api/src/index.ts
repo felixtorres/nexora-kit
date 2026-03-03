@@ -9,11 +9,23 @@ export type {
   Route,
   GatewayConfig,
   ChatRequestBody,
+  SendMessageBody,
+  CreateConversationBody,
+  UpdateConversationBody,
   WsChatMessage,
   WsPingMessage,
+  WsCancelMessage,
   WsClientMessage,
 } from './types.js';
-export { chatRequestSchema, wsChatMessageSchema, wsPingMessageSchema } from './types.js';
+export {
+  chatRequestSchema,
+  sendMessageSchema,
+  createConversationSchema,
+  updateConversationSchema,
+  wsChatMessageSchema,
+  wsPingMessageSchema,
+  wsCancelMessageSchema,
+} from './types.js';
 
 export { ApiKeyAuth, JwtAuth, CompositeAuth } from './auth.js';
 export type { JwtPayload } from './auth.js';
@@ -24,6 +36,12 @@ export { Router, ApiError, errorResponse, jsonResponse, parseRequest, sendRespon
 
 export {
   createChatHandler,
+  createConversationCreateHandler,
+  createConversationListHandler,
+  createConversationGetHandler,
+  createConversationUpdateHandler,
+  createConversationDeleteHandler,
+  createSendMessageHandler,
   createPluginsListHandler,
   createPluginDetailHandler,
   createHealthHandler,

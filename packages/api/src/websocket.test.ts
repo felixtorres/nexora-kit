@@ -147,21 +147,21 @@ describe('WebSocketManager', () => {
 
     const frame = encodeClientFrame(JSON.stringify({
       type: 'chat',
-      message: 'Hi',
-      sessionId: 'sess-1',
+      input: 'Hi',
+      conversationId: 'conv-1',
     }));
     socket.emit('data', frame);
 
     await new Promise((r) => setTimeout(r, 50));
 
-    // Should send: session event, text event, done event
+    // Should send: conversation event, text event, done event
     expect(socket.write.mock.calls.length).toBeGreaterThanOrEqual(3);
 
-    // First message: session ID
+    // First message: conversation ID
     const firstPayload = socket.write.mock.calls[0][0] as Buffer;
-    const sessionMsg = JSON.parse(firstPayload.subarray(2).toString());
-    expect(sessionMsg.type).toBe('session');
-    expect(sessionMsg.sessionId).toBe('sess-1');
+    const convMsg = JSON.parse(firstPayload.subarray(2).toString());
+    expect(convMsg.type).toBe('conversation');
+    expect(convMsg.conversationId).toBe('conv-1');
   });
 
   it('sends error for invalid JSON', async () => {
@@ -270,13 +270,13 @@ describe('WebSocketManager', () => {
     socket.write.mockClear();
 
     // Start first chat
-    const frame1 = encodeClientFrame(JSON.stringify({ type: 'chat', message: 'Hello' }));
+    const frame1 = encodeClientFrame(JSON.stringify({ type: 'chat', input: 'Hello' }));
     socket.emit('data', frame1);
     await new Promise((r) => setTimeout(r, 20));
 
     // Try second chat — should be rejected
     socket.write.mockClear();
-    const frame2 = encodeClientFrame(JSON.stringify({ type: 'chat', message: 'Second' }));
+    const frame2 = encodeClientFrame(JSON.stringify({ type: 'chat', input: 'Second' }));
     socket.emit('data', frame2);
     await new Promise((r) => setTimeout(r, 10));
 

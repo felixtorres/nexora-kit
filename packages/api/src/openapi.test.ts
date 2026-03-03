@@ -15,6 +15,9 @@ describe('buildOpenApiSpec', () => {
 
     expect(paths['/v1/health']).toBeDefined();
     expect(paths['/v1/metrics']).toBeDefined();
+    expect(paths['/v1/conversations']).toBeDefined();
+    expect(paths['/v1/conversations/{id}']).toBeDefined();
+    expect(paths['/v1/conversations/{id}/messages']).toBeDefined();
     expect(paths['/v1/chat']).toBeDefined();
     expect(paths['/v1/plugins']).toBeDefined();
     expect(paths['/v1/plugins/{name}']).toBeDefined();
@@ -39,7 +42,9 @@ describe('buildOpenApiSpec', () => {
     const spec = buildOpenApiSpec();
     const schemas = (spec.components as any).schemas;
     expect(schemas.ChatRequest).toBeDefined();
-    expect(schemas.ChatResponse).toBeDefined();
+    expect(schemas.MessageResponse).toBeDefined();
+    expect(schemas.ConversationRecord).toBeDefined();
+    expect(schemas.SendMessageRequest).toBeDefined();
     expect(schemas.HealthResponse).toBeDefined();
     expect(schemas.Error).toBeDefined();
   });

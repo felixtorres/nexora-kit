@@ -58,7 +58,7 @@ describe('Gateway', () => {
     const { status, body } = await fetchJson(`http://${addr.host}:${addr.port}/v1/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'Hello' }),
+      body: JSON.stringify({ input: 'Hello' }),
     });
 
     expect(status).toBe(401);
@@ -86,12 +86,12 @@ describe('Gateway', () => {
         'Content-Type': 'application/json',
         Authorization: 'Bearer my-key',
       },
-      body: JSON.stringify({ message: 'Hello' }),
+      body: JSON.stringify({ input: 'Hello' }),
     });
 
     expect(status).toBe(200);
     expect(body.message).toBe('Hello back!');
-    expect(body.sessionId).toBeDefined();
+    expect(body.conversationId).toBeDefined();
     expect(body.events).toHaveLength(3);
   });
 

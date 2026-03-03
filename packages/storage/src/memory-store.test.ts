@@ -1,23 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initSchema } from './schema.js';
-import { SqliteMemoryStore } from './memory-store.js';
+import { SqliteMessageStore } from './memory-store.js';
 
-describe('SqliteMemoryStore', () => {
+describe('SqliteMessageStore', () => {
   let db: Database.Database;
-  let store: SqliteMemoryStore;
+  let store: SqliteMessageStore;
 
   beforeEach(() => {
     db = new Database(':memory:');
     initSchema(db);
-    store = new SqliteMemoryStore(db);
+    store = new SqliteMessageStore(db);
   });
 
   afterEach(() => {
     db.close();
   });
 
-  it('returns empty array for unknown session', async () => {
+  it('returns empty array for unknown conversation', async () => {
     expect(await store.get('unknown')).toEqual([]);
   });
 
@@ -43,16 +43,16 @@ describe('SqliteMemoryStore', () => {
     expect(messages.map((m) => m.content)).toEqual(['First', 'Second', 'Third']);
   });
 
-  it('isolates sessions', async () => {
-    await store.append('s1', [{ role: 'user', content: 'Session 1' }]);
-    await store.append('s2', [{ role: 'user', content: 'Session 2' }]);
+  it('isolates conversations', async () => {
+    await store.append('c1', [{ role: 'user', content: 'Conversation 1' }]);
+    await store.append('c2', [{ role: 'user', content: 'Conversation 2' }]);
 
-    expect(await store.get('s1')).toHaveLength(1);
-    expect(await store.get('s2')).toHaveLength(1);
-    expect((await store.get('s1'))[0].content).toBe('Session 1');
+    expect(await store.get('c1')).toHaveLength(1);
+    expect(await store.get('c2')).toHaveLength(1);
+    expect((await store.get('c1'))[0].content).toBe('Conversation 1');
   });
 
-  it('clears messages for a session', async () => {
+  it('clears messages for a conversation', async () => {
     await store.append('s1', [{ role: 'user', content: 'Hello' }]);
     await store.append('s2', [{ role: 'user', content: 'Other' }]);
 

@@ -29,8 +29,8 @@ async function collectEvents(loop: AgentLoop, request: Parameters<AgentLoop['run
 }
 
 const baseRequest = {
-  sessionId: 'test-session',
-  message: 'Hello',
+  conversationId: 'test-conv',
+  input: { type: 'text' as const, text: 'Hello' },
   teamId: 'team-a',
   userId: 'user-1',
 };
@@ -218,7 +218,7 @@ describe('AgentLoop with Observability', () => {
     expect(toolCallData.output).toContain('not found');
   });
 
-  it('getRecentToolNames extracts from session messages', async () => {
+  it('getRecentToolNames extracts from conversation messages', async () => {
     const obs: ObservabilityHooks = {
       onTraceStart: vi.fn(),
       onGeneration: vi.fn(),

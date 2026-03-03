@@ -5,11 +5,72 @@ import type { TokenUsageRecord } from './token-usage-store.js';
 import type { UsageEvent, UsageEventFilter } from './usage-event-store.js';
 import type { AuditEvent, AuditEventFilter } from './audit-event-store.js';
 
-export interface IMemoryStore {
-  get(sessionId: string): Promise<Message[]>;
-  append(sessionId: string, messages: Message[]): Promise<void>;
-  clear(sessionId: string): Promise<void>;
+export interface IMessageStore {
+  get(conversationId: string): Promise<Message[]>;
+  append(conversationId: string, messages: Message[]): Promise<void>;
+  clear(conversationId: string): Promise<void>;
+  truncateFrom(conversationId: string, fromSeq: number): Promise<void>;
 }
+
+// --- Conversation Store ---
+
+export interface ConversationRecord {
+  id: string;
+  teamId: string;
+  userId: string;
+  title: string | null;
+  systemPrompt?: string | null;
+  templateId?: string | null;
+  workspaceId?: string | null;
+  model?: string | null;
+  agentId?: string | null;
+  pluginNamespaces: string[];
+  messageCount: number;
+  lastMessageAt: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export interface CreateConversationInput {
+  teamId: string;
+  userId: string;
+  title?: string;
+  systemPrompt?: string;
+  templateId?: string;
+  workspaceId?: string;
+  model?: string;
+  agentId?: string;
+  pluginNamespaces?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ConversationPatch {
+  title?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListConversationsOptions {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+export interface IConversationStore {
+  create(input: CreateConversationInput): ConversationRecord | Promise<ConversationRecord>;
+  get(id: string, userId: string): ConversationRecord | undefined | Promise<ConversationRecord | undefined>;
+  list(userId: string, opts?: ListConversationsOptions): PaginatedResult<ConversationRecord> | Promise<PaginatedResult<ConversationRecord>>;
+  update(id: string, userId: string, patch: ConversationPatch): ConversationRecord | undefined | Promise<ConversationRecord | undefined>;
+  softDelete(id: string, userId: string): boolean | Promise<boolean>;
+  updateMessageStats(id: string, count: number, lastMessageAt: string): void | Promise<void>;
+}
+
+// --- Other Stores ---
 
 export interface IConfigStore {
   loadInto(resolver: ConfigResolver): void | Promise<void>;

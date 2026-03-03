@@ -8,8 +8,8 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
     openapi: '3.1.0',
     info: {
       title: 'NexoraKit API',
-      version: '1.0.0',
-      description: 'Enterprise chatbot platform API — plugin-based, provider-agnostic LLM.',
+      version: '2.0.0',
+      description: 'Enterprise chatbot platform API — conversation-based, plugin-driven, provider-agnostic LLM.',
     },
     paths: {
       [`${prefix}/health`]: {
@@ -40,11 +40,133 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           },
         },
       },
+
+      // --- Conversations ---
+
+      [`${prefix}/conversations`]: {
+        post: {
+          summary: 'Create a conversation',
+          operationId: 'createConversation',
+          tags: ['conversations'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateConversationRequest' } } },
+          },
+          responses: {
+            201: {
+              description: 'Conversation created',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ConversationRecord' } } },
+            },
+            401: { $ref: '#/components/responses/Unauthorized' },
+            429: { $ref: '#/components/responses/RateLimited' },
+          },
+        },
+        get: {
+          summary: 'List conversations',
+          operationId: 'listConversations',
+          tags: ['conversations'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+            { name: 'cursor', in: 'query', schema: { type: 'string' } },
+          ],
+          responses: {
+            200: {
+              description: 'Paginated conversation list',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ConversationList' } } },
+            },
+            401: { $ref: '#/components/responses/Unauthorized' },
+          },
+        },
+      },
+      [`${prefix}/conversations/{id}`]: {
+        get: {
+          summary: 'Get a conversation',
+          operationId: 'getConversation',
+          tags: ['conversations'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          responses: {
+            200: {
+              description: 'Conversation details',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ConversationRecord' } } },
+            },
+            401: { $ref: '#/components/responses/Unauthorized' },
+            404: { $ref: '#/components/responses/NotFound' },
+          },
+        },
+        patch: {
+          summary: 'Update a conversation',
+          operationId: 'updateConversation',
+          tags: ['conversations'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateConversationRequest' } } },
+          },
+          responses: {
+            200: {
+              description: 'Conversation updated',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ConversationRecord' } } },
+            },
+            401: { $ref: '#/components/responses/Unauthorized' },
+            404: { $ref: '#/components/responses/NotFound' },
+          },
+        },
+        delete: {
+          summary: 'Delete a conversation',
+          operationId: 'deleteConversation',
+          tags: ['conversations'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          responses: {
+            204: { description: 'Conversation deleted' },
+            401: { $ref: '#/components/responses/Unauthorized' },
+            404: { $ref: '#/components/responses/NotFound' },
+          },
+        },
+      },
+      [`${prefix}/conversations/{id}/messages`]: {
+        post: {
+          summary: 'Send a message to a conversation',
+          operationId: 'sendMessage',
+          tags: ['conversations'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SendMessageRequest' } } },
+          },
+          responses: {
+            200: {
+              description: 'Message response with events',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageResponse' } } },
+            },
+            401: { $ref: '#/components/responses/Unauthorized' },
+            404: { $ref: '#/components/responses/NotFound' },
+            429: { $ref: '#/components/responses/RateLimited' },
+          },
+        },
+      },
+
+      // --- Legacy chat ---
+
       [`${prefix}/chat`]: {
         post: {
-          summary: 'Send a chat message',
+          summary: 'Send a chat message (legacy)',
           operationId: 'postChat',
           tags: ['chat'],
+          deprecated: true,
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -53,13 +175,16 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           responses: {
             200: {
               description: 'Chat response with events',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } },
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageResponse' } } },
             },
             401: { $ref: '#/components/responses/Unauthorized' },
             429: { $ref: '#/components/responses/RateLimited' },
           },
         },
       },
+
+      // --- Plugins ---
+
       [`${prefix}/plugins`]: {
         get: {
           summary: 'List installed plugins',
@@ -94,6 +219,9 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           },
         },
       },
+
+      // --- Admin ---
+
       [`${prefix}/admin/plugins/{name}/enable`]: {
         post: {
           summary: 'Enable a plugin',
@@ -172,7 +300,7 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
         HealthResponse: {
           type: 'object',
           properties: {
-            status: { type: 'string', enum: ['healthy'] },
+            status: { type: 'string', enum: ['healthy', 'degraded'] },
           },
           required: ['status'],
         },
@@ -188,21 +316,86 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
             p95_latency_ms: { type: 'integer' },
           },
         },
-        ChatRequest: {
+        ChatInput: {
+          oneOf: [
+            { type: 'string', minLength: 1, maxLength: 100000 },
+            { type: 'object', properties: { type: { const: 'text' }, text: { type: 'string' } }, required: ['type', 'text'] },
+            { type: 'object', properties: { type: { const: 'action' }, actionId: { type: 'string' }, payload: { type: 'object' } }, required: ['type', 'actionId', 'payload'] },
+            { type: 'object', properties: { type: { const: 'file' }, fileId: { type: 'string' }, text: { type: 'string' } }, required: ['type', 'fileId'] },
+          ],
+        },
+        CreateConversationRequest: {
           type: 'object',
           properties: {
-            message: { type: 'string', minLength: 1, maxLength: 100000 },
-            sessionId: { type: 'string' },
+            title: { type: 'string', maxLength: 200 },
+            systemPrompt: { type: 'string', maxLength: 50000 },
+            templateId: { type: 'string' },
+            workspaceId: { type: 'string' },
+            model: { type: 'string' },
+            agentId: { type: 'string' },
             pluginNamespaces: { type: 'array', items: { type: 'string' } },
             metadata: { type: 'object', additionalProperties: true },
           },
-          required: ['message'],
         },
-        ChatResponse: {
+        UpdateConversationRequest: {
           type: 'object',
           properties: {
+            title: { type: 'string', maxLength: 200 },
+            metadata: { type: 'object', additionalProperties: true },
+          },
+        },
+        SendMessageRequest: {
+          type: 'object',
+          properties: {
+            input: { $ref: '#/components/schemas/ChatInput' },
+            pluginNamespaces: { type: 'array', items: { type: 'string' } },
+            metadata: { type: 'object', additionalProperties: true },
+          },
+          required: ['input'],
+        },
+        ConversationRecord: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            teamId: { type: 'string' },
+            userId: { type: 'string' },
+            title: { type: 'string', nullable: true },
+            systemPrompt: { type: 'string', nullable: true },
+            templateId: { type: 'string', nullable: true },
+            workspaceId: { type: 'string', nullable: true },
+            model: { type: 'string', nullable: true },
+            agentId: { type: 'string', nullable: true },
+            pluginNamespaces: { type: 'array', items: { type: 'string' } },
+            messageCount: { type: 'integer' },
+            lastMessageAt: { type: 'string', nullable: true },
+            metadata: { type: 'object', additionalProperties: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            deletedAt: { type: 'string', format: 'date-time', nullable: true },
+          },
+        },
+        ConversationList: {
+          type: 'object',
+          properties: {
+            items: { type: 'array', items: { $ref: '#/components/schemas/ConversationRecord' } },
+            nextCursor: { type: 'string', nullable: true },
+          },
+        },
+        ChatRequest: {
+          type: 'object',
+          properties: {
+            input: { $ref: '#/components/schemas/ChatInput' },
+            conversationId: { type: 'string' },
+            pluginNamespaces: { type: 'array', items: { type: 'string' } },
+            metadata: { type: 'object', additionalProperties: true },
+          },
+          required: ['input'],
+        },
+        MessageResponse: {
+          type: 'object',
+          properties: {
+            conversationId: { type: 'string' },
             message: { type: 'string' },
-            sessionId: { type: 'string' },
             events: { type: 'array', items: { type: 'object' } },
           },
         },

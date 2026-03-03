@@ -4,7 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import type { CliCommand } from './commands.js';
 import { success, error, info, fmt } from './output.js';
 
-import { AgentLoop, ContextManager, ToolDispatcher, InMemoryStore } from '@nexora-kit/core';
+import { AgentLoop, ContextManager, ToolDispatcher, InMemoryMessageStore } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
 import { PluginLifecycleManager, discoverPlugins } from '@nexora-kit/plugins';
@@ -13,7 +13,7 @@ import { CommandRegistry, CommandDispatcher } from '@nexora-kit/commands';
 import { McpManager } from '@nexora-kit/mcp';
 import {
   StorageDatabase, initSchema,
-  SqliteMemoryStore, SqliteConfigStore,
+  SqliteMessageStore, SqliteConfigStore,
   SqliteAuditEventStore, SqliteUsageEventStore,
   createStorageBackend,
   type StorageBackend,
@@ -77,7 +77,7 @@ export const serveCommand: CliCommand = {
       storageBackend = await createStorageBackend({ type: 'sqlite', path: dbPath });
     }
 
-    const memoryStore = storageBackend.memoryStore;
+    const messageStore = storageBackend.messageStore;
     const auditEventStore = storageBackend.auditEventStore;
     const usageEventStore = storageBackend.usageEventStore;
 
@@ -144,7 +144,7 @@ export const serveCommand: CliCommand = {
       llm: llmProvider,
       contextManager: new ContextManager(),
       toolDispatcher,
-      memoryStore,
+      messageStore,
       commandDispatcher,
     });
 
@@ -166,6 +166,8 @@ export const serveCommand: CliCommand = {
       host,
       agentLoop,
       auth,
+      conversationStore: storageBackend.conversationStore,
+      messageStore: storageBackend.messageStore,
       plugins: lifecycle,
       admin: adminService,
       rateLimit: config.rateLimit

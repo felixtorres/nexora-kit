@@ -7,6 +7,12 @@ import { RateLimiter } from './rate-limit.js';
 import { WebSocketManager, isWebSocketUpgrade } from './websocket.js';
 import {
   createChatHandler,
+  createConversationCreateHandler,
+  createConversationListHandler,
+  createConversationGetHandler,
+  createConversationUpdateHandler,
+  createConversationDeleteHandler,
+  createSendMessageHandler,
   createPluginsListHandler,
   createPluginDetailHandler,
   createHealthHandler,
@@ -39,12 +45,25 @@ export class Gateway {
     // Set up handlers
     const deps: HandlerDeps = {
       agentLoop: config.agentLoop,
+      conversationStore: config.conversationStore,
+      messageStore: config.messageStore,
       plugins: config.plugins,
     };
 
     // Set up router
     this.router = new Router();
+
+    // Conversation endpoints
+    this.router.post(`${prefix}/conversations`, createConversationCreateHandler(deps));
+    this.router.get(`${prefix}/conversations`, createConversationListHandler(deps));
+    this.router.get(`${prefix}/conversations/:id`, createConversationGetHandler(deps));
+    this.router.add('PATCH', `${prefix}/conversations/:id`, createConversationUpdateHandler(deps));
+    this.router.add('DELETE', `${prefix}/conversations/:id`, createConversationDeleteHandler(deps));
+    this.router.post(`${prefix}/conversations/:id/messages`, createSendMessageHandler(deps));
+
+    // Legacy chat endpoint
     this.router.post(`${prefix}/chat`, createChatHandler(deps));
+
     this.router.get(`${prefix}/plugins`, createPluginsListHandler(deps));
     this.router.get(`${prefix}/plugins/:name`, createPluginDetailHandler(deps));
     this.router.get(`${prefix}/health`, createHealthHandler(deps));
@@ -141,7 +160,7 @@ export class Gateway {
     // CORS headers
     const corsOrigin = resolveCorsOrigin(this.config, req);
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id');
     if (this.config.allowedOrigins && this.config.allowedOrigins.length > 0) {
       res.setHeader('Vary', 'Origin');

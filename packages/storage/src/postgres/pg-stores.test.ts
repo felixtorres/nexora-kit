@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PgMemoryStore } from './pg-memory-store.js';
+import { PgMessageStore } from './pg-memory-store.js';
 import { PgConfigStore } from './pg-config-store.js';
 import { PgPluginStateStore } from './pg-plugin-state-store.js';
 import { PgTokenUsageStore } from './pg-token-usage-store.js';
@@ -14,16 +14,16 @@ function makeMockPool(): PgPool & { query: ReturnType<typeof vi.fn> } {
   };
 }
 
-describe('PgMemoryStore', () => {
+describe('PgMessageStore', () => {
   let pool: ReturnType<typeof makeMockPool>;
-  let store: PgMemoryStore;
+  let store: PgMessageStore;
 
   beforeEach(() => {
     pool = makeMockPool();
-    store = new PgMemoryStore(pool);
+    store = new PgMessageStore(pool);
   });
 
-  it('gets messages for a session', async () => {
+  it('gets messages for a conversation', async () => {
     pool.query.mockResolvedValueOnce({
       rows: [
         { role: 'user', content: '"Hello"' },
@@ -32,12 +32,12 @@ describe('PgMemoryStore', () => {
       rowCount: 2,
     });
 
-    const msgs = await store.get('sess-1');
+    const msgs = await store.get('conv-1');
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe('user');
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining('SELECT role, content'),
-      ['sess-1'],
+      ['conv-1'],
     );
   });
 
@@ -45,7 +45,7 @@ describe('PgMemoryStore', () => {
     pool.query.mockResolvedValueOnce({ rows: [{ max_seq: 0 }], rowCount: 1 });
     pool.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
-    await store.append('sess-1', [
+    await store.append('conv-1', [
       { role: 'user', content: 'Hello' },
       { role: 'assistant', content: 'Hi' },
     ]);
@@ -55,15 +55,15 @@ describe('PgMemoryStore', () => {
   });
 
   it('skips append with empty messages', async () => {
-    await store.append('sess-1', []);
+    await store.append('conv-1', []);
     expect(pool.query).not.toHaveBeenCalled();
   });
 
   it('clears messages', async () => {
-    await store.clear('sess-1');
+    await store.clear('conv-1');
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining('DELETE'),
-      ['sess-1'],
+      ['conv-1'],
     );
   });
 });

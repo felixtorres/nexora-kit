@@ -47,10 +47,11 @@ export class SkillHandlerFactory {
       };
 
       const result: SkillResult = await skillDef.handler!(context);
+      const outputText = typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
       if (result.isError) {
-        throw new Error(result.content);
+        throw new Error(outputText);
       }
-      return result.content;
+      return outputText;
     };
   }
 

@@ -38,8 +38,8 @@ async function collectEvents(
 }
 
 const baseRequest = {
-  sessionId: 'test-session',
-  message: 'Hello',
+  conversationId: 'test-conv',
+  input: { type: 'text' as const, text: 'Hello' },
   teamId: 'team-a',
   userId: 'user-1',
   pluginNamespaces: ['test-plugin'],

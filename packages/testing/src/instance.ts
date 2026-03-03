@@ -1,5 +1,5 @@
-import { AgentLoop, ContextManager, ToolDispatcher, InMemoryStore } from '@nexora-kit/core';
-import type { ToolHandler, ChatEvent } from '@nexora-kit/core';
+import { AgentLoop, ContextManager, ToolDispatcher, InMemoryMessageStore } from '@nexora-kit/core';
+import type { ToolHandler, ChatEvent, ChatInput } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
 import { PluginLifecycleManager, loadPlugin, type LoadResult } from '@nexora-kit/plugins';
@@ -29,7 +29,7 @@ export interface TestInstance {
   registerTool(name: string, description: string, handler: ToolHandler): void;
 
   /** Run a chat and collect all events */
-  chat(message: string, options?: Partial<{ sessionId: string; userId: string; teamId: string }>): Promise<ChatEvent[]>;
+  chat(message: string, options?: Partial<{ conversationId: string; userId: string; teamId: string }>): Promise<ChatEvent[]>;
 }
 
 interface TestInstanceOptions {
@@ -41,7 +41,7 @@ interface TestInstanceOptions {
 
 /**
  * Creates a fully-wired test instance with all components connected.
- * Uses InMemoryStore (no SQLite needed) and mock LLM by default.
+ * Uses InMemoryMessageStore (no SQLite needed) and mock LLM by default.
  */
 export function createTestInstance(options: TestInstanceOptions = {}): TestInstance {
   const llm = options.llm ?? createMockLlm(options.responses ?? [
@@ -55,7 +55,7 @@ export function createTestInstance(options: TestInstanceOptions = {}): TestInsta
   const commandRegistry = new CommandRegistry();
   const commandDispatcher = new CommandDispatcher(commandRegistry);
   const mcpManager = new McpManager();
-  const memoryStore = new InMemoryStore();
+  const messageStore = new InMemoryMessageStore();
 
   const skillHandlerFactory = new SkillHandlerFactory({
     llmProvider: llm,
@@ -82,7 +82,7 @@ export function createTestInstance(options: TestInstanceOptions = {}): TestInsta
     llm,
     contextManager: new ContextManager(),
     toolDispatcher,
-    memoryStore,
+    messageStore,
     commandDispatcher,
     tokenBudget,
     pluginNamespace: options.pluginNamespace,
@@ -130,8 +130,8 @@ export function createTestInstance(options: TestInstanceOptions = {}): TestInsta
     async chat(message, opts = {}): Promise<ChatEvent[]> {
       const events: ChatEvent[] = [];
       for await (const event of agentLoop.run({
-        sessionId: opts.sessionId ?? 'test-session',
-        message,
+        conversationId: opts.conversationId ?? 'test-conversation',
+        input: { type: 'text', text: message },
         teamId: opts.teamId ?? 'team-test',
         userId: opts.userId ?? 'user-test',
         pluginNamespaces: [],

@@ -2,7 +2,7 @@ import type { ObservabilityHooks, Message } from './types.js';
 
 interface LangfuseTrace {
   id: string;
-  sessionId: string;
+  conversationId: string;
   startTime: number;
   generations: LangfuseGeneration[];
   spans: LangfuseSpan[];
@@ -47,10 +47,10 @@ export class LangfuseObservability implements ObservabilityHooks {
     this.config = config;
   }
 
-  onTraceStart(traceId: string, input: { sessionId: string; message: string }): void {
+  onTraceStart(traceId: string, input: { conversationId: string; message: string }): void {
     this.traces.set(traceId, {
       id: traceId,
-      sessionId: input.sessionId,
+      conversationId: input.conversationId,
       startTime: Date.now(),
       generations: [],
       spans: [],
@@ -59,7 +59,7 @@ export class LangfuseObservability implements ObservabilityHooks {
 
     this.buffer.push({
       type: 'trace-start',
-      data: { traceId, sessionId: input.sessionId, message: input.message },
+      data: { traceId, conversationId: input.conversationId, message: input.message },
     });
   }
 

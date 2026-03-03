@@ -3,7 +3,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 import type { AgentLoop, ChatEvent } from '@nexora-kit/core';
 import type { AuthProvider, AuthIdentity } from './types.js';
-import { wsChatMessageSchema, wsPingMessageSchema } from './types.js';
+import { wsChatMessageSchema, wsPingMessageSchema, wsCancelMessageSchema } from './types.js';
 
 const WS_MAGIC = '258EAFA5-E914-47DA-95CA-5AB9B6FF85B5';
 
@@ -14,6 +14,7 @@ export interface WsConnection {
   alive: boolean;
   messageTimestamps: number[];
   activeChats: number;
+  activeAbortControllers: Map<string, AbortController>;
 }
 
 export interface WsRateLimitConfig {
@@ -102,6 +103,7 @@ export class WebSocketManager {
       alive: true,
       messageTimestamps: [],
       activeChats: 0,
+      activeAbortControllers: new Map(),
     };
     this.connections.set(connId, conn);
 
@@ -221,6 +223,17 @@ export class WebSocketManager {
       return;
     }
 
+    // Cancel message
+    const cancelResult = wsCancelMessageSchema.safeParse(message);
+    if (cancelResult.success) {
+      const controller = conn.activeAbortControllers.get(cancelResult.data.conversationId);
+      if (controller) {
+        controller.abort();
+        conn.activeAbortControllers.delete(cancelResult.data.conversationId);
+      }
+      return;
+    }
+
     // Chat message
     const chatResult = wsChatMessageSchema.safeParse(message);
     if (chatResult.success) {
@@ -240,27 +253,40 @@ export class WebSocketManager {
 
   private async handleChat(
     conn: WsConnection,
-    msg: { sessionId?: string; message: string; pluginNamespaces?: string[]; metadata?: Record<string, unknown> },
+    msg: { conversationId?: string; input: string | { type: string; [key: string]: unknown }; pluginNamespaces?: string[]; metadata?: Record<string, unknown> },
   ): Promise<void> {
     conn.activeChats++;
-    try {
-      const sessionId = msg.sessionId ?? `ws-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const conversationId = msg.conversationId ?? `ws-conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const abortController = new AbortController();
+    conn.activeAbortControllers.set(conversationId, abortController);
 
-      this.sendJson(conn.socket, { type: 'session', sessionId });
+    try {
+      // Normalize input: string shorthand → ChatInputText
+      const chatInput = typeof msg.input === 'string'
+        ? { type: 'text' as const, text: msg.input }
+        : msg.input as { type: 'text'; text: string };
+
+      this.sendJson(conn.socket, { type: 'conversation', conversationId });
 
       for await (const event of this.agentLoop.run({
-        sessionId,
-        message: msg.message,
+        conversationId,
+        input: chatInput,
         teamId: conn.auth.teamId,
         userId: conn.auth.userId,
         pluginNamespaces: msg.pluginNamespaces,
         metadata: msg.metadata,
-      })) {
-        if (conn.socket.destroyed) break;
-        this.sendJson(conn.socket, event);
+      }, abortController.signal)) {
+        if (conn.socket.destroyed || abortController.signal.aborted) break;
+        // Envelope: { type, conversationId, payload }
+        this.sendJson(conn.socket, { type: event.type, conversationId, payload: event });
+      }
+
+      if (abortController.signal.aborted) {
+        this.sendJson(conn.socket, { type: 'cancelled', conversationId });
       }
     } finally {
       conn.activeChats--;
+      conn.activeAbortControllers.delete(conversationId);
     }
   }
 

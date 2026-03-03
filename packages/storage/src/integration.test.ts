@@ -4,11 +4,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { initSchema } from './schema.js';
-import { SqliteMemoryStore } from './memory-store.js';
+import { SqliteMessageStore } from './memory-store.js';
 import { SqlitePluginStateStore } from './plugin-state-store.js';
 import { SqliteTokenUsageStore } from './token-usage-store.js';
 import { SqliteUsageEventStore } from './usage-event-store.js';
 import { SqliteConfigStore } from './config-store.js';
+import { SqliteConversationStore } from './conversation-store.js';
 import { ConfigResolver, ConfigLayer } from '@nexora-kit/config';
 
 describe('Storage integration', () => {
@@ -36,8 +37,8 @@ describe('Storage integration', () => {
     // Write
     const db1 = openDb();
     initSchema(db1);
-    const store1 = new SqliteMemoryStore(db1);
-    await store1.append('session-1', [
+    const store1 = new SqliteMessageStore(db1);
+    await store1.append('conv-1', [
       { role: 'user', content: 'Hello' },
       { role: 'assistant', content: 'Hi there!' },
     ]);
@@ -45,11 +46,30 @@ describe('Storage integration', () => {
 
     // Reopen and verify
     const db2 = new Database(dbPath);
-    const store2 = new SqliteMemoryStore(db2);
-    const messages = await store2.get('session-1');
+    const store2 = new SqliteMessageStore(db2);
+    const messages = await store2.get('conv-1');
     expect(messages).toHaveLength(2);
     expect(messages[0]).toEqual({ role: 'user', content: 'Hello' });
     expect(messages[1]).toEqual({ role: 'assistant', content: 'Hi there!' });
+    db2.close();
+  });
+
+  it('persists conversations across DB close and reopen', () => {
+    const db1 = openDb();
+    initSchema(db1);
+    const convStore1 = new SqliteConversationStore(db1);
+    const created = convStore1.create({ teamId: 'team-1', userId: 'user-1', title: 'Test Chat' });
+    expect(created.id).toBeTruthy();
+    expect(created.title).toBe('Test Chat');
+    db1.close();
+
+    const db2 = new Database(dbPath);
+    const convStore2 = new SqliteConversationStore(db2);
+    const retrieved = convStore2.get(created.id, 'user-1');
+    expect(retrieved).toBeDefined();
+    expect(retrieved!.title).toBe('Test Chat');
+    expect(retrieved!.teamId).toBe('team-1');
+    expect(retrieved!.userId).toBe('user-1');
     db2.close();
   });
 
@@ -121,19 +141,19 @@ describe('Storage integration', () => {
     const db = openDb();
     initSchema(db);
 
-    const memoryStore = new SqliteMemoryStore(db);
+    const messageStore = new SqliteMessageStore(db);
     const configStore = new SqliteConfigStore(db);
     const pluginStore = new SqlitePluginStateStore(db);
     const tokenStore = new SqliteTokenUsageStore(db);
     const eventStore = new SqliteUsageEventStore(db);
 
-    await memoryStore.append('s1', [{ role: 'user', content: 'test' }]);
+    await messageStore.append('c1', [{ role: 'user', content: 'test' }]);
     configStore.persist({ key: 'k', value: 'v', layer: ConfigLayer.InstanceDefaults });
     pluginStore.save({ namespace: 'p', state: 'enabled', version: '1.0.0' });
     tokenStore.save({ pluginNamespace: 'p', used: 10, limit: 100, periodStart: '2026-03-01' });
     eventStore.insert({ pluginName: 'p', inputTokens: 5, outputTokens: 3 });
 
-    expect(await memoryStore.get('s1')).toHaveLength(1);
+    expect(await messageStore.get('c1')).toHaveLength(1);
     expect(configStore.getAll()).toHaveLength(1);
     expect(pluginStore.getAll()).toHaveLength(1);
     expect(tokenStore.getAll()).toHaveLength(1);

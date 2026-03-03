@@ -1,17 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ContextManager } from './context.js';
-import type { Session } from './types.js';
+import type { Conversation } from './types.js';
 
-function createSession(messages: Session['messages'] = []): Session {
+function createConversation(messages: Conversation['messages'] = []): Conversation {
   return {
-    id: 'test-session',
+    id: 'test-conv',
     teamId: 'team-a',
     userId: 'user-1',
+    title: null,
     pluginNamespaces: [],
     messages,
+    messageCount: messages.length,
+    lastMessageAt: null,
     metadata: {},
     createdAt: new Date(),
     updatedAt: new Date(),
+    deletedAt: null,
   };
 }
 
@@ -24,54 +28,54 @@ describe('ContextManager', () => {
 
   describe('assemble', () => {
     it('creates context with system prompt and messages', () => {
-      const session = createSession([{ role: 'user', content: 'Hello' }]);
-      const ctx = cm.assemble(session, []);
+      const conv = createConversation([{ role: 'user', content: 'Hello' }]);
+      const ctx = cm.assemble(conv, []);
       expect(ctx.systemPrompt).toBe('You are helpful.');
       expect(ctx.messages).toHaveLength(1);
       expect(ctx.tools).toEqual([]);
     });
 
     it('includes tools in context', () => {
-      const session = createSession();
+      const conv = createConversation();
       const tools = [{ name: 'test', description: 'Test tool', parameters: { type: 'object' as const, properties: {} } }];
-      const ctx = cm.assemble(session, tools);
+      const ctx = cm.assemble(conv, tools);
       expect(ctx.tools).toHaveLength(1);
     });
 
     it('uses custom system prompt when provided', () => {
-      const session = createSession();
-      const ctx = cm.assemble(session, [], 'Custom prompt');
+      const conv = createConversation();
+      const ctx = cm.assemble(conv, [], 'Custom prompt');
       expect(ctx.systemPrompt).toBe('Custom prompt');
     });
 
-    it('does not mutate session messages', () => {
-      const session = createSession([{ role: 'user', content: 'Hello' }]);
-      const ctx = cm.assemble(session, []);
+    it('does not mutate conversation messages', () => {
+      const conv = createConversation([{ role: 'user', content: 'Hello' }]);
+      const ctx = cm.assemble(conv, []);
       ctx.messages.push({ role: 'assistant', content: 'Hi!' });
-      expect(session.messages).toHaveLength(1);
+      expect(conv.messages).toHaveLength(1);
     });
   });
 
   describe('append', () => {
-    it('appends message to session', () => {
-      const session = createSession();
-      cm.append(session, { role: 'user', content: 'Hello' });
-      expect(session.messages).toHaveLength(1);
+    it('appends message to conversation', () => {
+      const conv = createConversation();
+      cm.append(conv, { role: 'user', content: 'Hello' });
+      expect(conv.messages).toHaveLength(1);
     });
 
-    it('updates session updatedAt', () => {
-      const session = createSession();
-      const before = session.updatedAt;
-      cm.append(session, { role: 'user', content: 'Hello' });
-      expect(session.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    it('updates conversation updatedAt', () => {
+      const conv = createConversation();
+      const before = conv.updatedAt;
+      cm.append(conv, { role: 'user', content: 'Hello' });
+      expect(conv.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
     });
   });
 
   describe('truncate', () => {
     it('does nothing when under limit', () => {
-      const session = createSession([{ role: 'user', content: 'Hi' }]);
-      cm.truncate(session, 1000);
-      expect(session.messages).toHaveLength(1);
+      const conv = createConversation([{ role: 'user', content: 'Hi' }]);
+      cm.truncate(conv, 1000);
+      expect(conv.messages).toHaveLength(1);
     });
 
     it('removes oldest non-system messages when over limit', () => {
@@ -79,9 +83,9 @@ describe('ContextManager', () => {
         role: 'user' as const,
         content: 'x'.repeat(100),
       }));
-      const session = createSession(messages);
-      cm.truncate(session, 100); // very low token limit
-      expect(session.messages.length).toBeLessThan(20);
+      const conv = createConversation(messages);
+      cm.truncate(conv, 100); // very low token limit
+      expect(conv.messages.length).toBeLessThan(20);
     });
 
     it('preserves system messages', () => {
@@ -89,9 +93,9 @@ describe('ContextManager', () => {
         { role: 'system' as const, content: 'Be helpful' },
         ...Array.from({ length: 20 }, () => ({ role: 'user' as const, content: 'x'.repeat(100) })),
       ];
-      const session = createSession(messages);
-      cm.truncate(session, 100);
-      expect(session.messages[0].role).toBe('system');
+      const conv = createConversation(messages);
+      cm.truncate(conv, 100);
+      expect(conv.messages[0].role).toBe('system');
     });
   });
 });

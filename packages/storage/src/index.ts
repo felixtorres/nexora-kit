@@ -1,6 +1,7 @@
 export { StorageDatabase, type StorageDatabaseOptions } from './database.js';
 export { initSchema } from './schema.js';
-export { SqliteMemoryStore } from './memory-store.js';
+export { SqliteMessageStore } from './memory-store.js';
+export { SqliteConversationStore } from './conversation-store.js';
 export { SqliteConfigStore } from './config-store.js';
 export { SqlitePluginStateStore, type PluginStateRecord } from './plugin-state-store.js';
 export { SqliteTokenUsageStore, type TokenUsageRecord } from './token-usage-store.js';
@@ -9,7 +10,13 @@ export { SqliteAuditEventStore, type AuditEvent, type AuditEventFilter } from '.
 
 // Interfaces
 export type {
-  IMemoryStore,
+  IMessageStore,
+  IConversationStore,
+  ConversationRecord,
+  CreateConversationInput,
+  ConversationPatch,
+  ListConversationsOptions,
+  PaginatedResult,
   IConfigStore,
   IPluginStateStore,
   ITokenUsageStore,
@@ -21,7 +28,8 @@ export type {
 export { createStorageBackend, type StorageBackendConfig, type StorageBackend } from './backend.js';
 
 // PostgreSQL stores
-export { PgMemoryStore } from './postgres/pg-memory-store.js';
+export { PgMessageStore } from './postgres/pg-memory-store.js';
+export { PgConversationStore } from './postgres/pg-conversation-store.js';
 export { PgConfigStore } from './postgres/pg-config-store.js';
 export { PgPluginStateStore } from './postgres/pg-plugin-state-store.js';
 export { PgTokenUsageStore } from './postgres/pg-token-usage-store.js';
@@ -31,6 +39,6 @@ export { initPgSchema } from './postgres/schema.js';
 export type { PgPool } from './postgres/pg-pool.js';
 
 // Redis stores
-export { RedisMemoryStore } from './redis/redis-memory-store.js';
+export { RedisMessageStore } from './redis/redis-memory-store.js';
 export { RedisTokenUsageStore } from './redis/redis-token-usage-store.js';
 export type { RedisClient } from './redis/redis-client.js';

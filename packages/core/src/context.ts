@@ -1,4 +1,4 @@
-import type { Context, Message, Session, ToolDefinition } from './types.js';
+import type { Context, Conversation, Message, ToolDefinition } from './types.js';
 
 export interface ContextManagerOptions {
   defaultSystemPrompt?: string;
@@ -14,25 +14,25 @@ export class ContextManager {
     this.maxContextTokens = options.maxContextTokens ?? 100_000;
   }
 
-  assemble(session: Session, tools: ToolDefinition[], systemPrompt?: string): Context {
+  assemble(conversation: Conversation, tools: ToolDefinition[], systemPrompt?: string): Context {
     return {
       systemPrompt: systemPrompt ?? this.defaultSystemPrompt,
-      messages: [...session.messages],
+      messages: [...conversation.messages],
       tools,
-      metadata: { ...session.metadata },
+      metadata: { ...conversation.metadata },
     };
   }
 
-  append(session: Session, message: Message): void {
-    session.messages.push(message);
-    session.updatedAt = new Date();
+  append(conversation: Conversation, message: Message): void {
+    conversation.messages.push(message);
+    conversation.updatedAt = new Date();
   }
 
-  truncate(session: Session, maxTokens?: number): void {
+  truncate(conversation: Conversation, maxTokens?: number): void {
     const limit = maxTokens ?? this.maxContextTokens;
     // Rough token estimate: 4 chars ≈ 1 token
     let totalChars = 0;
-    for (const msg of session.messages) {
+    for (const msg of conversation.messages) {
       totalChars += typeof msg.content === 'string' ? msg.content.length : JSON.stringify(msg.content).length;
     }
 
@@ -40,8 +40,8 @@ export class ContextManager {
     if (estimatedTokens <= limit) return;
 
     // Keep system messages and the most recent messages
-    const systemMessages = session.messages.filter((m) => m.role === 'system');
-    const nonSystem = session.messages.filter((m) => m.role !== 'system');
+    const systemMessages = conversation.messages.filter((m) => m.role === 'system');
+    const nonSystem = conversation.messages.filter((m) => m.role !== 'system');
 
     // Remove oldest non-system messages until under budget
     while (nonSystem.length > 1) {
@@ -52,6 +52,6 @@ export class ContextManager {
       nonSystem.shift();
     }
 
-    session.messages = [...systemMessages, ...nonSystem];
+    conversation.messages = [...systemMessages, ...nonSystem];
   }
 }

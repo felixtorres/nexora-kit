@@ -5,7 +5,7 @@ import { LangfuseObservability } from './langfuse.js';
 describe('NoopObservability', () => {
   it('implements all hooks without error', () => {
     const noop = new NoopObservability();
-    noop.onTraceStart('trace-1', { sessionId: 's1', message: 'hello' });
+    noop.onTraceStart('trace-1', { conversationId: 'c1', message: 'hello' });
     noop.onGeneration({ model: 'test', input: [], durationMs: 100 });
     noop.onToolCall({ name: 'tool', input: {}, isError: false, durationMs: 50 });
     noop.onToolSelection({ query: 'q', selected: 5, dropped: 2, tokensUsed: 1000, timeMs: 1 });
@@ -23,16 +23,16 @@ describe('LangfuseObservability', () => {
 
   it('creates a trace on traceStart', () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'hello' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'hello' });
 
     const trace = obs.getTrace('t1');
     expect(trace).toBeDefined();
-    expect(trace!.sessionId).toBe('s1');
+    expect(trace!.conversationId).toBe('c1');
   });
 
   it('records generations', () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'hi' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'hi' });
     obs.onGeneration({
       model: 'claude-3',
       input: [{ role: 'user', content: 'hello' }],
@@ -49,7 +49,7 @@ describe('LangfuseObservability', () => {
 
   it('records tool calls as spans', () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'hi' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'hi' });
     obs.onToolCall({ name: 'search', input: { query: 'test' }, isError: false, durationMs: 50 });
 
     const trace = obs.getTrace('t1');
@@ -59,7 +59,7 @@ describe('LangfuseObservability', () => {
 
   it('records tool selection as spans', () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'hi' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'hi' });
     obs.onToolSelection({ query: 'search', selected: 5, dropped: 3, tokensUsed: 1000, timeMs: 2 });
 
     const trace = obs.getTrace('t1');
@@ -69,7 +69,7 @@ describe('LangfuseObservability', () => {
 
   it('buffers all events', () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'hi' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'hi' });
     obs.onGeneration({ model: 'm', input: [], durationMs: 1 });
     obs.onToolCall({ name: 't', input: {}, isError: false, durationMs: 1 });
     obs.onToolSelection({ query: 'q', selected: 1, dropped: 0, tokensUsed: 100, timeMs: 1 });
@@ -80,7 +80,7 @@ describe('LangfuseObservability', () => {
 
   it('flush clears buffer and traces', async () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'hi' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'hi' });
     obs.onGeneration({ model: 'm', input: [], durationMs: 1 });
     await obs.flush();
 
@@ -98,8 +98,8 @@ describe('LangfuseObservability', () => {
 
   it('selects most recent trace as active', () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'first' });
-    obs.onTraceStart('t2', { sessionId: 's2', message: 'second' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'first' });
+    obs.onTraceStart('t2', { conversationId: 'c2', message: 'second' });
     obs.onGeneration({ model: 'm', input: [], durationMs: 1 });
 
     expect(obs.getTrace('t1')!.generations).toHaveLength(0);
@@ -108,7 +108,7 @@ describe('LangfuseObservability', () => {
 
   it('records error tool calls', () => {
     const obs = new LangfuseObservability(config);
-    obs.onTraceStart('t1', { sessionId: 's1', message: 'hi' });
+    obs.onTraceStart('t1', { conversationId: 'c1', message: 'hi' });
     obs.onToolCall({ name: 'fail', input: {}, output: 'Error!', isError: true, durationMs: 10 });
 
     const span = obs.getTrace('t1')!.spans[0];

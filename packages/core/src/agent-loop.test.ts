@@ -33,8 +33,8 @@ async function collectEvents(loop: AgentLoop, request: Parameters<AgentLoop['run
 
 describe('AgentLoop', () => {
   const baseRequest = {
-    sessionId: 'test-session',
-    message: 'Hello',
+    conversationId: 'test-conv',
+    input: { type: 'text' as const, text: 'Hello' },
     teamId: 'team-a',
     userId: 'user-1',
   };
@@ -142,7 +142,7 @@ describe('AgentLoop', () => {
     const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
 
     // Abort after brief delay
-    setTimeout(() => loop.abort('test-session'), 50);
+    setTimeout(() => loop.abort('test-conv'), 50);
 
     const events = await collectEvents(loop, baseRequest);
     const hasSecondText = events.some(
@@ -164,7 +164,10 @@ describe('AgentLoop', () => {
     };
 
     const loop = new AgentLoop({ llm, commandDispatcher });
-    const events = await collectEvents(loop, { ...baseRequest, message: '/test:greet --name Felix' });
+    const events = await collectEvents(loop, {
+      ...baseRequest,
+      input: { type: 'text', text: '/test:greet --name Felix' },
+    });
 
     expect(events).toContainEqual({ type: 'text', content: 'Command executed: /test:greet --name Felix' });
     expect(events[events.length - 1]).toEqual({ type: 'done' });
@@ -183,7 +186,10 @@ describe('AgentLoop', () => {
     };
 
     const loop = new AgentLoop({ llm, commandDispatcher });
-    const events = await collectEvents(loop, { ...baseRequest, message: '/unknown-command' });
+    const events = await collectEvents(loop, {
+      ...baseRequest,
+      input: { type: 'text', text: '/unknown-command' },
+    });
 
     expect(events).toContainEqual({ type: 'text', content: 'LLM response' });
   });
@@ -197,7 +203,10 @@ describe('AgentLoop', () => {
     };
 
     const loop = new AgentLoop({ llm, commandDispatcher });
-    const events = await collectEvents(loop, { ...baseRequest, message: '/test:bad' });
+    const events = await collectEvents(loop, {
+      ...baseRequest,
+      input: { type: 'text', text: '/test:bad' },
+    });
 
     expect(events).toContainEqual({ type: 'error', message: 'Command failed', code: 'COMMAND_ERROR' });
     expect(events[events.length - 1]).toEqual({ type: 'done' });
@@ -224,5 +233,42 @@ describe('AgentLoop', () => {
       expect(toolResult.isError).toBe(true);
       expect(toolResult.content).toContain('not found');
     }
+  });
+
+  it('respects external AbortSignal', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'text', content: 'Starting...' },
+        { type: 'tool_call', id: 'tc', name: 'slow', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Should not reach' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'slow', description: 'Slow', parameters: { type: 'object', properties: {} } },
+      async () => {
+        await new Promise((r) => setTimeout(r, 100));
+        return 'done';
+      },
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+    const ac = new AbortController();
+
+    setTimeout(() => ac.abort(), 50);
+
+    const events: ChatEvent[] = [];
+    for await (const event of loop.run(baseRequest, ac.signal)) {
+      events.push(event);
+    }
+    const hasSecondText = events.some(
+      (e) => e.type === 'text' && e.content === 'Should not reach',
+    );
+    expect(hasSecondText).toBe(false);
   });
 });
