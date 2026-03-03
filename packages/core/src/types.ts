@@ -263,6 +263,7 @@ export interface ChatRequest {
   metadata?: Record<string, unknown>;
   systemPrompt?: string;
   model?: string;
+  workspaceId?: string;
 }
 
 export type ChatEvent =

@@ -77,6 +77,7 @@ export function createEditMessageHandler(deps: MessageEditDeps) {
       userId: req.auth.userId,
       systemPrompt: conversation.systemPrompt ?? undefined,
       model: conversation.model ?? undefined,
+      workspaceId: conversation.workspaceId ?? undefined,
     }, req.signal)) {
       events.push(event);
       if (event.type === 'text') {
@@ -167,6 +168,7 @@ export function createRegenerateMessageHandler(deps: MessageEditDeps) {
       userId: req.auth.userId,
       systemPrompt: conversation.systemPrompt ?? undefined,
       model: conversation.model ?? undefined,
+      workspaceId: conversation.workspaceId ?? undefined,
     }, req.signal)) {
       events.push(event);
       if (event.type === 'text') {

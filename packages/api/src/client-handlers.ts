@@ -182,6 +182,7 @@ export function createClientSendMessageHandler(deps: ClientHandlerDeps) {
       userId: endUser.endUserId,
       pluginNamespaces: parsed.data.pluginNamespaces,
       metadata: parsed.data.metadata,
+      workspaceId: conv.workspaceId ?? undefined,
     };
 
     const events = [];

@@ -19,6 +19,14 @@ import type {
   ObservabilityHooks,
 } from './types.js';
 
+/** Minimal workspace context provider to avoid circular core→storage dependency. */
+export interface WorkspaceContextProvider {
+  getWorkspaceContext(workspaceId: string): Promise<{
+    systemPrompt: string | null;
+    documents: { title: string; content: string; priority: number; tokenCount: number }[];
+  }>;
+}
+
 /** Minimal artifact store interface to avoid circular core→storage dependency. */
 export interface ArtifactStoreInterface {
   create(input: {
@@ -47,6 +55,8 @@ export interface AgentLoopOptions {
   pluginNamespace?: string;
   commandDispatcher?: CommandDispatcherInterface;
   artifactStore?: ArtifactStoreInterface;
+  workspaceContextProvider?: WorkspaceContextProvider;
+  workspaceTokenBudget?: number;
 }
 
 export class AgentLoop {
@@ -64,6 +74,8 @@ export class AgentLoop {
   private readonly pluginNamespace: string;
   private readonly commandDispatcher?: CommandDispatcherInterface;
   private readonly artifactStore?: ArtifactStoreInterface;
+  private readonly workspaceContextProvider?: WorkspaceContextProvider;
+  private readonly workspaceTokenBudget: number;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -82,6 +94,8 @@ export class AgentLoop {
     this.pluginNamespace = options.pluginNamespace ?? '';
     this.commandDispatcher = options.commandDispatcher;
     this.artifactStore = options.artifactStore;
+    this.workspaceContextProvider = options.workspaceContextProvider;
+    this.workspaceTokenBudget = options.workspaceTokenBudget ?? 2000;
   }
 
   /**
@@ -130,6 +144,7 @@ export class AgentLoop {
         teamId: request.teamId,
         userId: request.userId,
         title: null,
+        workspaceId: request.workspaceId,
         pluginNamespaces: request.pluginNamespaces ?? [],
         messages: existingMessages,
         messageCount: existingMessages.length,
@@ -232,6 +247,13 @@ export class AgentLoop {
         return;
       }
 
+      // Resolve workspace context (once per run, prepended to system prompt each turn)
+      let workspacePromptPrefix = '';
+      if (this.workspaceContextProvider && conversation.workspaceId) {
+        const wsCtx = await this.workspaceContextProvider.getWorkspaceContext(conversation.workspaceId);
+        workspacePromptPrefix = buildWorkspacePrompt(wsCtx, this.workspaceTokenBudget);
+      }
+
       // Agent loop: LLM call → tool execution → repeat
       let turn = 0;
       let cumulativeInputTokens = 0;
@@ -263,7 +285,10 @@ export class AgentLoop {
           tools = this.dispatcher.listTools();
         }
 
-        const effectiveSystemPrompt = request.systemPrompt ?? this.systemPrompt;
+        const baseSystemPrompt = request.systemPrompt ?? this.systemPrompt;
+        const effectiveSystemPrompt = workspacePromptPrefix
+          ? workspacePromptPrefix + '\n\n' + baseSystemPrompt
+          : baseSystemPrompt;
         const ctx = this.context.assemble(conversation, tools, effectiveSystemPrompt);
 
         // Check token budget before LLM call
@@ -530,4 +555,33 @@ function extractText(input: ChatInput): string {
     case 'file':
       return input.text ?? `[file:${input.fileId}]`;
   }
+}
+
+function buildWorkspacePrompt(
+  wsCtx: { systemPrompt: string | null; documents: { title: string; content: string; tokenCount: number }[] },
+  tokenBudget: number,
+): string {
+  const parts: string[] = [];
+
+  if (wsCtx.systemPrompt) {
+    parts.push(wsCtx.systemPrompt);
+  }
+
+  if (wsCtx.documents.length > 0) {
+    let usedTokens = 0;
+    const docParts: string[] = [];
+
+    // Documents are already sorted by priority DESC from the store
+    for (const doc of wsCtx.documents) {
+      if (usedTokens + doc.tokenCount > tokenBudget) break;
+      docParts.push(`### ${doc.title}\n${doc.content}`);
+      usedTokens += doc.tokenCount;
+    }
+
+    if (docParts.length > 0) {
+      parts.push('## Reference Documents\n\n' + docParts.join('\n\n'));
+    }
+  }
+
+  return parts.join('\n\n');
 }

@@ -107,11 +107,13 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     // Validate conversation ownership if store is configured
     let conversationSystemPrompt: string | undefined;
     let conversationModel: string | undefined;
+    let conversationWorkspaceId: string | undefined;
     if (deps.conversationStore) {
       const conversation = await deps.conversationStore.get(conversationId, req.auth.userId);
       if (!conversation) throw new ApiError(404, 'Conversation not found');
       conversationSystemPrompt = conversation.systemPrompt ?? undefined;
       conversationModel = conversation.model ?? undefined;
+      conversationWorkspaceId = conversation.workspaceId ?? undefined;
     }
 
     const parsed = sendMessageSchema.safeParse(req.body);
@@ -137,6 +139,7 @@ export function createSendMessageHandler(deps: HandlerDeps) {
       metadata,
       systemPrompt: conversationSystemPrompt,
       model: conversationModel,
+      workspaceId: conversationWorkspaceId,
     }, req.signal)) {
       events.push(event);
       if (event.type === 'text') {
