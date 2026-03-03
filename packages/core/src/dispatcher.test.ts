@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { ToolDispatcher, type PermissionChecker } from './dispatcher.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ToolDispatcher, type PermissionChecker, type ToolExecutionContext } from './dispatcher.js';
 import type { Permission } from './types.js';
 
 describe('ToolDispatcher', () => {
@@ -236,5 +236,59 @@ describe('ToolDispatcher structured responses', () => {
 
     const result = await dispatcher.dispatch({ id: '1', name: 'multi', input: {} });
     expect(result.blocks).toHaveLength(3);
+  });
+});
+
+describe('ToolDispatcher execution context', () => {
+  let dispatcher: ToolDispatcher;
+
+  beforeEach(() => {
+    dispatcher = new ToolDispatcher();
+  });
+
+  it('forwards context to handler', async () => {
+    const handler = vi.fn().mockResolvedValue('ok');
+    dispatcher.register(
+      { name: 'ctx-tool', description: 'Ctx', parameters: { type: 'object', properties: {} } },
+      handler,
+    );
+
+    const ctx: ToolExecutionContext = { conversationId: 'conv-1', workspaceId: 'ws-1', userId: 'u1', teamId: 't1' };
+    await dispatcher.dispatch({ id: '1', name: 'ctx-tool', input: { x: 1 } }, undefined, ctx);
+
+    expect(handler).toHaveBeenCalledWith({ x: 1 }, ctx);
+  });
+
+  it('works without context (backward compat)', async () => {
+    const handler = vi.fn().mockResolvedValue('ok');
+    dispatcher.register(
+      { name: 'no-ctx', description: 'No ctx', parameters: { type: 'object', properties: {} } },
+      handler,
+    );
+
+    await dispatcher.dispatch({ id: '1', name: 'no-ctx', input: {} });
+    expect(handler).toHaveBeenCalledWith({}, undefined);
+  });
+
+  it('string handler works with context', async () => {
+    dispatcher.register(
+      { name: 'str', description: 'Str', parameters: { type: 'object', properties: {} } },
+      async () => 'plain',
+    );
+
+    const ctx: ToolExecutionContext = { conversationId: 'c' };
+    const result = await dispatcher.dispatch({ id: '1', name: 'str', input: {} }, undefined, ctx);
+    expect(result.content).toBe('plain');
+  });
+
+  it('object handler works with context', async () => {
+    dispatcher.register(
+      { name: 'obj', description: 'Obj', parameters: { type: 'object', properties: {} } },
+      async () => ({ content: 'structured' }),
+    );
+
+    const ctx: ToolExecutionContext = { conversationId: 'c' };
+    const result = await dispatcher.dispatch({ id: '1', name: 'obj', input: {} }, undefined, ctx);
+    expect(result.content).toBe('structured');
   });
 });

@@ -6,7 +6,14 @@ export interface ToolHandlerResponse {
   artifacts?: ArtifactOperation[];
 }
 
-export type ToolHandler = (input: Record<string, unknown>) => Promise<string | ToolHandlerResponse>;
+export interface ToolExecutionContext {
+  conversationId: string;
+  workspaceId?: string;
+  userId?: string;
+  teamId?: string;
+}
+
+export type ToolHandler = (input: Record<string, unknown>, context?: ToolExecutionContext) => Promise<string | ToolHandlerResponse>;
 
 export interface PermissionChecker {
   check(pluginNamespace: string, permission: Permission): boolean;
@@ -45,7 +52,7 @@ export class ToolDispatcher {
     this.tools.delete(name);
   }
 
-  async dispatch(toolCall: ToolCall, callerNamespace?: string): Promise<ToolResult> {
+  async dispatch(toolCall: ToolCall, callerNamespace?: string, context?: ToolExecutionContext): Promise<ToolResult> {
     const tool = this.tools.get(toolCall.name);
     if (!tool) {
       return {
@@ -70,7 +77,7 @@ export class ToolDispatcher {
     }
 
     try {
-      const raw = await tool.handler(toolCall.input);
+      const raw = await tool.handler(toolCall.input, context);
       if (typeof raw === 'string') {
         return { toolUseId: toolCall.id, content: raw };
       }

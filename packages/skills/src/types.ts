@@ -21,9 +21,22 @@ export interface SkillDefinition {
 
 export type SkillCodeHandler = (context: SkillContext) => Promise<SkillResult>;
 
+export interface WorkspaceDocument {
+  id: string;
+  title: string;
+  content: string;
+  priority: number;
+}
+
+export interface WorkspaceAccessor {
+  getDocument(id: string): Promise<WorkspaceDocument | null>;
+  listDocuments(): Promise<WorkspaceDocument[]>;
+}
+
 export interface SkillContext {
   input: Record<string, unknown>;
   config: Record<string, unknown>;
+  workspace?: WorkspaceAccessor;
   invoke(skillName: string, input: Record<string, unknown>): Promise<SkillResult>;
 }
 

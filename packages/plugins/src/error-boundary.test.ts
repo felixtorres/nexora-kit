@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { wrapWithErrorBoundary } from './error-boundary.js';
+import type { ToolExecutionContext } from '@nexora-kit/core';
 
 describe('wrapWithErrorBoundary', () => {
   it('passes through successful calls', async () => {
@@ -7,7 +8,7 @@ describe('wrapWithErrorBoundary', () => {
     const wrapped = wrapWithErrorBoundary('test-tool', handler);
     const result = await wrapped({ key: 'value' });
     expect(result).toBe('ok');
-    expect(handler).toHaveBeenCalledWith({ key: 'value' });
+    expect(handler).toHaveBeenCalledWith({ key: 'value' }, undefined);
   });
 
   it('resets failure count on success', async () => {
@@ -84,5 +85,15 @@ describe('wrapWithErrorBoundary', () => {
 
     await expect(wrapped({})).rejects.toThrow('fail');
     await expect(wrapped({})).rejects.toThrow("'my-special-tool' is disabled");
+  });
+
+  it('forwards execution context to handler', async () => {
+    const handler = vi.fn().mockResolvedValue('ok');
+    const wrapped = wrapWithErrorBoundary('ctx-tool', handler);
+    const ctx: ToolExecutionContext = { conversationId: 'conv-1', workspaceId: 'ws-1', userId: 'u', teamId: 't' };
+
+    await wrapped({ x: 1 }, ctx);
+
+    expect(handler).toHaveBeenCalledWith({ x: 1 }, ctx);
   });
 });

@@ -1,72 +1,103 @@
 import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
-import type { AgentLoop, ChatEvent } from '@nexora-kit/core';
-import type { AuthProvider, AuthIdentity } from './types.js';
+import type { AgentLoop } from '@nexora-kit/core';
+import type { IAgentStore, IEndUserStore, IConversationStore } from '@nexora-kit/storage';
+import { authenticateEndUser, type EndUserIdentity } from './end-user-auth.js';
+import { computeAcceptKey, decodeFrame, encodeFrame, sendJsonFrame } from './ws-utils.js';
 import { wsChatMessageSchema, wsPingMessageSchema, wsCancelMessageSchema } from './types.js';
-import { computeAcceptKey, decodeFrame, encodeFrame, sendJsonFrame, type DecodedFrame } from './ws-utils.js';
 
-export interface WsConnection {
+export interface ClientWsConnection {
   id: string;
   socket: Socket;
-  auth: AuthIdentity;
+  agentId: string;
+  teamId: string;
+  endUser: EndUserIdentity;
   alive: boolean;
   messageTimestamps: number[];
   activeChats: number;
   activeAbortControllers: Map<string, AbortController>;
 }
 
-export interface WsRateLimitConfig {
-  maxMessagesPerMinute?: number;
-  maxConcurrentChats?: number;
-  maxConnectionsPerUser?: number;
+export interface ClientWsManagerDeps {
+  agentLoop: AgentLoop;
+  agentStore: IAgentStore;
+  endUserStore: IEndUserStore;
+  conversationStore?: IConversationStore;
+  heartbeatMs?: number;
+  rateLimits?: {
+    maxMessagesPerMinute?: number;
+    maxConcurrentChats?: number;
+    maxConnectionsPerEndUser?: number;
+  };
 }
 
-export class WebSocketManager {
-  private connections = new Map<string, WsConnection>();
-  private userConnectionCount = new Map<string, number>();
+export class ClientWebSocketManager {
+  private connections = new Map<string, ClientWsConnection>();
+  private endUserConnectionCount = new Map<string, number>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private readonly agentLoop: AgentLoop;
-  private readonly auth: AuthProvider;
+  private readonly agentStore: IAgentStore;
+  private readonly endUserStore: IEndUserStore;
+  private readonly conversationStore?: IConversationStore;
   private readonly heartbeatMs: number;
-  private readonly rateLimits: WsRateLimitConfig;
+  private readonly rateLimits: NonNullable<ClientWsManagerDeps['rateLimits']>;
   private nextId = 1;
 
-  constructor(options: {
-    agentLoop: AgentLoop;
-    auth: AuthProvider;
-    heartbeatMs?: number;
-    rateLimits?: WsRateLimitConfig;
-  }) {
-    this.agentLoop = options.agentLoop;
-    this.auth = options.auth;
-    this.heartbeatMs = options.heartbeatMs ?? 30_000;
-    this.rateLimits = options.rateLimits ?? {};
+  constructor(deps: ClientWsManagerDeps) {
+    this.agentLoop = deps.agentLoop;
+    this.agentStore = deps.agentStore;
+    this.endUserStore = deps.endUserStore;
+    this.conversationStore = deps.conversationStore;
+    this.heartbeatMs = deps.heartbeatMs ?? 30_000;
+    this.rateLimits = deps.rateLimits ?? {};
   }
 
   async handleUpgrade(req: IncomingMessage, socket: Socket): Promise<void> {
-    // Authenticate
-    const headers: Record<string, string | string[] | undefined> = {};
-    for (const [key, value] of Object.entries(req.headers)) {
-      headers[key] = value;
+    // Extract agent slug from URL: /v1/agents/:slug/ws
+    const urlPath = req.url ?? '/';
+    const slugMatch = urlPath.match(/\/v1\/agents\/([^/]+)\/ws/);
+    if (!slugMatch) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      socket.destroy();
+      return;
     }
-    const identity = await this.auth.authenticate({
-      method: 'GET',
-      url: req.url ?? '/',
-      headers,
-      params: {},
-      query: {},
-    });
 
-    if (!identity) {
+    const slug = slugMatch[1];
+
+    // Resolve agent by slug
+    const agentRecord = this.agentStore.getBySlugGlobal
+      ? await this.agentStore.getBySlugGlobal(slug)
+      : undefined;
+
+    if (!agentRecord || !agentRecord.enabled) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    // Authenticate end user
+    let endUser: EndUserIdentity;
+    try {
+      const headers: Record<string, string | string[] | undefined> = {};
+      for (const [key, value] of Object.entries(req.headers)) {
+        headers[key] = value;
+      }
+      endUser = await authenticateEndUser(
+        { method: 'GET', url: urlPath, headers, params: {}, query: {} },
+        agentRecord.id,
+        agentRecord.endUserAuth,
+        this.endUserStore,
+      );
+    } catch {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
 
-    // Per-user connection limit
-    if (this.rateLimits.maxConnectionsPerUser) {
-      const currentCount = this.userConnectionCount.get(identity.userId) ?? 0;
-      if (currentCount >= this.rateLimits.maxConnectionsPerUser) {
+    // Per end-user connection limit
+    if (this.rateLimits.maxConnectionsPerEndUser) {
+      const currentCount = this.endUserConnectionCount.get(endUser.endUserId) ?? 0;
+      if (currentCount >= this.rateLimits.maxConnectionsPerEndUser) {
         socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
         socket.destroy();
         return;
@@ -91,11 +122,13 @@ export class WebSocketManager {
       '\r\n',
     );
 
-    const connId = `ws-${this.nextId++}`;
-    const conn: WsConnection = {
+    const connId = `client-ws-${this.nextId++}`;
+    const conn: ClientWsConnection = {
       id: connId,
       socket,
-      auth: identity,
+      agentId: agentRecord.id,
+      teamId: agentRecord.teamId,
+      endUser,
       alive: true,
       messageTimestamps: [],
       activeChats: 0,
@@ -103,10 +136,9 @@ export class WebSocketManager {
     };
     this.connections.set(connId, conn);
 
-    // Track per-user connections
-    this.userConnectionCount.set(
-      identity.userId,
-      (this.userConnectionCount.get(identity.userId) ?? 0) + 1,
+    this.endUserConnectionCount.set(
+      endUser.endUserId,
+      (this.endUserConnectionCount.get(endUser.endUserId) ?? 0) + 1,
     );
 
     socket.on('data', (data: Buffer) => {
@@ -115,11 +147,11 @@ export class WebSocketManager {
 
     const removeConnection = () => {
       this.connections.delete(connId);
-      const count = this.userConnectionCount.get(identity.userId) ?? 1;
+      const count = this.endUserConnectionCount.get(endUser.endUserId) ?? 1;
       if (count <= 1) {
-        this.userConnectionCount.delete(identity.userId);
+        this.endUserConnectionCount.delete(endUser.endUserId);
       } else {
-        this.userConnectionCount.set(identity.userId, count - 1);
+        this.endUserConnectionCount.set(endUser.endUserId, count - 1);
       }
     };
 
@@ -157,21 +189,16 @@ export class WebSocketManager {
     return this.connections.size;
   }
 
-  getUserConnectionCount(userId: string): number {
-    return this.userConnectionCount.get(userId) ?? 0;
-  }
-
   closeAll(): void {
     for (const conn of this.connections.values()) {
-      // Send close frame
       conn.socket.write(encodeFrame(Buffer.alloc(0), 0x8));
       conn.socket.destroy();
     }
     this.connections.clear();
-    this.userConnectionCount.clear();
+    this.endUserConnectionCount.clear();
   }
 
-  private handleData(conn: WsConnection, data: Buffer): void {
+  private handleData(conn: ClientWsConnection, data: Buffer): void {
     const frame = decodeFrame(data);
     if (!frame) return;
 
@@ -233,7 +260,6 @@ export class WebSocketManager {
     // Chat message
     const chatResult = wsChatMessageSchema.safeParse(message);
     if (chatResult.success) {
-      // Per-connection concurrent chat cap
       if (this.rateLimits.maxConcurrentChats && conn.activeChats >= this.rateLimits.maxConcurrentChats) {
         sendJsonFrame(conn.socket, { type: 'error', message: 'Too many concurrent chats' });
         return;
@@ -248,16 +274,24 @@ export class WebSocketManager {
   }
 
   private async handleChat(
-    conn: WsConnection,
+    conn: ClientWsConnection,
     msg: { conversationId?: string; input: string | { type: string; [key: string]: unknown }; pluginNamespaces?: string[]; metadata?: Record<string, unknown> },
   ): Promise<void> {
     conn.activeChats++;
-    const conversationId = msg.conversationId ?? `ws-conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const conversationId = msg.conversationId ?? `client-ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const abortController = new AbortController();
     conn.activeAbortControllers.set(conversationId, abortController);
 
     try {
-      // Normalize input: string shorthand → ChatInputText
+      // Verify conversation ownership if conversationStore available and conversationId provided
+      if (this.conversationStore && msg.conversationId) {
+        const conv = await this.conversationStore.get(msg.conversationId, conn.endUser.endUserId);
+        if (!conv) {
+          sendJsonFrame(conn.socket, { type: 'error', message: 'Conversation not found', conversationId });
+          return;
+        }
+      }
+
       const chatInput = typeof msg.input === 'string'
         ? { type: 'text' as const, text: msg.input }
         : msg.input as { type: 'text'; text: string };
@@ -267,13 +301,12 @@ export class WebSocketManager {
       for await (const event of this.agentLoop.run({
         conversationId,
         input: chatInput,
-        teamId: conn.auth.teamId,
-        userId: conn.auth.userId,
+        teamId: conn.teamId,
+        userId: conn.endUser.endUserId,
         pluginNamespaces: msg.pluginNamespaces,
         metadata: msg.metadata,
       }, abortController.signal)) {
         if (conn.socket.destroyed || abortController.signal.aborted) break;
-        // Envelope: { type, conversationId, payload }
         sendJsonFrame(conn.socket, { type: event.type, conversationId, payload: event });
       }
 
@@ -285,10 +318,4 @@ export class WebSocketManager {
       conn.activeAbortControllers.delete(conversationId);
     }
   }
-}
-
-/** Check if an HTTP request is a WebSocket upgrade */
-export function isWebSocketUpgrade(req: IncomingMessage): boolean {
-  const upgrade = req.headers['upgrade'];
-  return upgrade?.toLowerCase() === 'websocket';
 }

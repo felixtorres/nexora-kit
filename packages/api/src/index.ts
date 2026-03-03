@@ -51,6 +51,12 @@ export type { HandlerDeps } from './handlers.js';
 export { WebSocketManager, isWebSocketUpgrade } from './websocket.js';
 export type { WsConnection, WsRateLimitConfig } from './websocket.js';
 
+export { ClientWebSocketManager } from './client-websocket.js';
+export type { ClientWsConnection, ClientWsManagerDeps } from './client-websocket.js';
+
+export { computeAcceptKey, decodeFrame, encodeFrame, sendJsonFrame } from './ws-utils.js';
+export type { DecodedFrame } from './ws-utils.js';
+
 export {
   createAdminPluginEnableHandler,
   createAdminPluginDisableHandler,

@@ -5,6 +5,7 @@ import type { GatewayConfig, AuthIdentity } from './types.js';
 import { Router, parseRequest, sendResponse, errorResponse, ApiError, jsonResponse } from './router.js';
 import { RateLimiter } from './rate-limit.js';
 import { WebSocketManager, isWebSocketUpgrade } from './websocket.js';
+import { ClientWebSocketManager } from './client-websocket.js';
 import {
   createChatHandler,
   createConversationCreateHandler,
@@ -111,6 +112,7 @@ export class Gateway {
   private readonly router: Router;
   private readonly rateLimiter: RateLimiter | null;
   private readonly wsManager: WebSocketManager;
+  private readonly clientWsManager: ClientWebSocketManager | null;
   private readonly config: GatewayConfig;
   readonly metrics: MetricsCollector;
 
@@ -298,6 +300,24 @@ export class Gateway {
         maxConnectionsPerUser: config.wsMaxConnectionsPerUser,
       },
     });
+
+    // Client WebSocket manager (for end-user access via /v1/agents/:slug/ws)
+    if (config.agentStore && config.endUserStore) {
+      this.clientWsManager = new ClientWebSocketManager({
+        agentLoop: config.agentLoop,
+        agentStore: config.agentStore,
+        endUserStore: config.endUserStore,
+        conversationStore: config.conversationStore,
+        heartbeatMs: config.wsHeartbeatMs,
+        rateLimits: {
+          maxMessagesPerMinute: config.clientWsMaxMessagesPerMinute ?? config.wsMaxMessagesPerMinute,
+          maxConcurrentChats: config.clientWsMaxConcurrentChats ?? config.wsMaxConcurrentChats,
+          maxConnectionsPerEndUser: config.clientWsMaxConnectionsPerEndUser,
+        },
+      });
+    } else {
+      this.clientWsManager = null;
+    }
   }
 
   async start(): Promise<void> {
@@ -312,9 +332,17 @@ export class Gateway {
 
       this.server.on('upgrade', (req: IncomingMessage, socket: Socket) => {
         if (isWebSocketUpgrade(req)) {
-          this.wsManager.handleUpgrade(req, socket).catch(() => {
-            socket.destroy();
-          });
+          // Route client WS: /v1/agents/:slug/ws
+          const isClientWs = req.url?.match(/\/v1\/agents\/[^/]+\/ws/) && this.clientWsManager;
+          if (isClientWs) {
+            this.clientWsManager!.handleUpgrade(req, socket).catch(() => {
+              socket.destroy();
+            });
+          } else {
+            this.wsManager.handleUpgrade(req, socket).catch(() => {
+              socket.destroy();
+            });
+          }
         } else {
           socket.destroy();
         }
@@ -325,6 +353,7 @@ export class Gateway {
       const host = this.config.host ?? '127.0.0.1';
       this.server.listen(this.config.port, host, () => {
         this.wsManager.startHeartbeat();
+        this.clientWsManager?.startHeartbeat();
         this.rateLimiter?.startCleanup();
         resolve();
       });
@@ -334,6 +363,8 @@ export class Gateway {
   async stop(): Promise<void> {
     this.wsManager.stopHeartbeat();
     this.wsManager.closeAll();
+    this.clientWsManager?.stopHeartbeat();
+    this.clientWsManager?.closeAll();
     this.rateLimiter?.stopCleanup();
 
     return new Promise((resolve) => {

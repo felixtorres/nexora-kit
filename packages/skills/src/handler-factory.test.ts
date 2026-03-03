@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SkillHandlerFactory } from './handler-factory.js';
-import type { SkillDefinition } from './types.js';
+import { SkillHandlerFactory, type WorkspaceContextSource } from './handler-factory.js';
+import type { SkillDefinition, SkillContext } from './types.js';
 import type { LlmProvider } from '@nexora-kit/llm';
+import type { ToolExecutionContext } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 
 function createMockLlm(responseText: string): LlmProvider {
@@ -276,5 +277,175 @@ describe('SkillHandlerFactory', () => {
 
     const handler = factory.createHandler('ns:fail-blocks', skillDef, 'ns');
     await expect(handler({})).rejects.toThrow();
+  });
+});
+
+describe('SkillHandlerFactory workspace context', () => {
+  it('provides workspace accessor when source and workspaceId present', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const mockSource: WorkspaceContextSource = {
+      getDocument: vi.fn().mockResolvedValue({ id: 'doc-1', title: 'FAQ', content: 'content', priority: 1 }),
+      listDocuments: vi.fn().mockResolvedValue([
+        { id: 'doc-1', title: 'FAQ', content: 'content', priority: 1 },
+      ]),
+    };
+
+    const factory = new SkillHandlerFactory({
+      llmProvider: llm,
+      configResolver: config,
+      workspaceSource: mockSource,
+    });
+
+    let capturedCtx: SkillContext | undefined;
+    const skillDef: SkillDefinition = {
+      name: 'ws-skill',
+      description: 'Workspace',
+      invocation: 'model',
+      parameters: {},
+      handler: async (ctx) => {
+        capturedCtx = ctx;
+        return { output: 'ok' };
+      },
+    };
+
+    const handler = factory.createHandler('ns:ws-skill', skillDef, 'ns');
+    const execCtx: ToolExecutionContext = { conversationId: 'c-1', workspaceId: 'ws-42' };
+    await handler({}, execCtx);
+
+    expect(capturedCtx?.workspace).toBeDefined();
+
+    const doc = await capturedCtx!.workspace!.getDocument('doc-1');
+    expect(doc).toEqual({ id: 'doc-1', title: 'FAQ', content: 'content', priority: 1 });
+    expect(mockSource.getDocument).toHaveBeenCalledWith('ws-42', 'doc-1');
+
+    const docs = await capturedCtx!.workspace!.listDocuments();
+    expect(docs).toHaveLength(1);
+    expect(mockSource.listDocuments).toHaveBeenCalledWith('ws-42');
+  });
+
+  it('workspace is undefined when no workspaceId', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const mockSource: WorkspaceContextSource = {
+      getDocument: vi.fn(),
+      listDocuments: vi.fn(),
+    };
+
+    const factory = new SkillHandlerFactory({
+      llmProvider: llm,
+      configResolver: config,
+      workspaceSource: mockSource,
+    });
+
+    let capturedCtx: SkillContext | undefined;
+    const skillDef: SkillDefinition = {
+      name: 'ws-skill',
+      description: 'Workspace',
+      invocation: 'model',
+      parameters: {},
+      handler: async (ctx) => {
+        capturedCtx = ctx;
+        return { output: 'ok' };
+      },
+    };
+
+    const handler = factory.createHandler('ns:ws-skill', skillDef, 'ns');
+    await handler({}, { conversationId: 'c-1' });
+
+    expect(capturedCtx?.workspace).toBeUndefined();
+    expect(mockSource.getDocument).not.toHaveBeenCalled();
+  });
+
+  it('workspace is undefined when no source configured', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+    let capturedCtx: SkillContext | undefined;
+    const skillDef: SkillDefinition = {
+      name: 'ws-skill',
+      description: 'Workspace',
+      invocation: 'model',
+      parameters: {},
+      handler: async (ctx) => {
+        capturedCtx = ctx;
+        return { output: 'ok' };
+      },
+    };
+
+    const handler = factory.createHandler('ns:ws-skill', skillDef, 'ns');
+    await handler({}, { conversationId: 'c-1', workspaceId: 'ws-1' });
+
+    expect(capturedCtx?.workspace).toBeUndefined();
+  });
+
+  it('workspace is undefined when no execution context', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const mockSource: WorkspaceContextSource = {
+      getDocument: vi.fn(),
+      listDocuments: vi.fn(),
+    };
+
+    const factory = new SkillHandlerFactory({
+      llmProvider: llm,
+      configResolver: config,
+      workspaceSource: mockSource,
+    });
+
+    let capturedCtx: SkillContext | undefined;
+    const skillDef: SkillDefinition = {
+      name: 'ws-skill',
+      description: 'Workspace',
+      invocation: 'model',
+      parameters: {},
+      handler: async (ctx) => {
+        capturedCtx = ctx;
+        return { output: 'ok' };
+      },
+    };
+
+    const handler = factory.createHandler('ns:ws-skill', skillDef, 'ns');
+    await handler({});
+
+    expect(capturedCtx?.workspace).toBeUndefined();
+  });
+
+  it('delegates with correct workspace ID', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const mockSource: WorkspaceContextSource = {
+      getDocument: vi.fn().mockResolvedValue(null),
+      listDocuments: vi.fn().mockResolvedValue([]),
+    };
+
+    const factory = new SkillHandlerFactory({
+      llmProvider: llm,
+      configResolver: config,
+      workspaceSource: mockSource,
+    });
+
+    let capturedCtx: SkillContext | undefined;
+    const skillDef: SkillDefinition = {
+      name: 'ws-skill',
+      description: 'Workspace',
+      invocation: 'model',
+      parameters: {},
+      handler: async (ctx) => {
+        capturedCtx = ctx;
+        if (ctx.workspace) {
+          await ctx.workspace.getDocument('doc-abc');
+          await ctx.workspace.listDocuments();
+        }
+        return { output: 'ok' };
+      },
+    };
+
+    const handler = factory.createHandler('ns:ws-skill', skillDef, 'ns');
+    await handler({}, { conversationId: 'c', workspaceId: 'ws-99' });
+
+    expect(mockSource.getDocument).toHaveBeenCalledWith('ws-99', 'doc-abc');
+    expect(mockSource.listDocuments).toHaveBeenCalledWith('ws-99');
   });
 });

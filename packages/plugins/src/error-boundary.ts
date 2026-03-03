@@ -1,4 +1,4 @@
-import type { ToolHandler, ToolHandlerResponse } from '@nexora-kit/core';
+import type { ToolHandler, ToolHandlerResponse, ToolExecutionContext } from '@nexora-kit/core';
 
 export interface ErrorBoundaryOptions {
   maxConsecutiveFailures: number;
@@ -19,13 +19,13 @@ export function wrapWithErrorBoundary(
   let consecutiveFailures = 0;
   let disabled = false;
 
-  return async (input: Record<string, unknown>): Promise<string | ToolHandlerResponse> => {
+  return async (input: Record<string, unknown>, context?: ToolExecutionContext): Promise<string | ToolHandlerResponse> => {
     if (disabled) {
       throw new Error(`Tool '${toolName}' is disabled after ${opts.maxConsecutiveFailures} consecutive failures`);
     }
 
     try {
-      const result = await handler(input);
+      const result = await handler(input, context);
       consecutiveFailures = 0;
       return result;
     } catch (error) {

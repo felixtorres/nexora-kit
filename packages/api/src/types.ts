@@ -93,6 +93,9 @@ export interface GatewayConfig {
   wsMaxMessagesPerMinute?: number;
   wsMaxConcurrentChats?: number;
   wsMaxConnectionsPerUser?: number;
+  clientWsMaxMessagesPerMinute?: number;
+  clientWsMaxConcurrentChats?: number;
+  clientWsMaxConnectionsPerEndUser?: number;
 }
 
 // --- Input schema (shared) ---

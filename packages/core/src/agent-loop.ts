@@ -1,6 +1,6 @@
 import type { LlmProvider, TokenBudget } from '@nexora-kit/llm';
 import { ContextManager } from './context.js';
-import { ToolDispatcher } from './dispatcher.js';
+import { ToolDispatcher, type ToolExecutionContext } from './dispatcher.js';
 import { InMemoryMessageStore, type MessageStore } from './memory.js';
 import { NoopObservability } from './observability.js';
 import { ActionRouter } from './action-router.js';
@@ -38,6 +38,7 @@ export interface ArtifactStoreInterface {
     metadata?: Record<string, unknown>;
   }): { id: string; currentVersion: number; content: string; [k: string]: unknown } | Promise<{ id: string; currentVersion: number; content: string; [k: string]: unknown }>;
   update(id: string, content: string): { id: string; currentVersion: number; content: string; [k: string]: unknown } | undefined | Promise<{ id: string; currentVersion: number; content: string; [k: string]: unknown } | undefined>;
+  listByConversation?(conversationId: string): { id: string; title: string; type?: string; language?: string | null; currentVersion: number }[] | Promise<{ id: string; title: string; type?: string; language?: string | null; currentVersion: number }[]>;
 }
 
 export interface AgentLoopOptions {
@@ -57,6 +58,8 @@ export interface AgentLoopOptions {
   artifactStore?: ArtifactStoreInterface;
   workspaceContextProvider?: WorkspaceContextProvider;
   workspaceTokenBudget?: number;
+  artifactStreamChunkSize?: number;
+  artifactTokenBudget?: number;
 }
 
 export class AgentLoop {
@@ -76,6 +79,8 @@ export class AgentLoop {
   private readonly artifactStore?: ArtifactStoreInterface;
   private readonly workspaceContextProvider?: WorkspaceContextProvider;
   private readonly workspaceTokenBudget: number;
+  private readonly artifactStreamChunkSize: number;
+  private readonly artifactTokenBudget: number;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -96,6 +101,8 @@ export class AgentLoop {
     this.artifactStore = options.artifactStore;
     this.workspaceContextProvider = options.workspaceContextProvider;
     this.workspaceTokenBudget = options.workspaceTokenBudget ?? 2000;
+    this.artifactStreamChunkSize = options.artifactStreamChunkSize ?? 500;
+    this.artifactTokenBudget = options.artifactTokenBudget ?? 500;
   }
 
   /**
@@ -160,6 +167,14 @@ export class AgentLoop {
         this.actionRouter.rebuildFromMessages(request.conversationId, existingMessages);
       }
 
+      // Build execution context for tool dispatch
+      const executionContext: ToolExecutionContext = {
+        conversationId: request.conversationId,
+        workspaceId: request.workspaceId,
+        userId: request.userId,
+        teamId: request.teamId,
+      };
+
       // Append user message
       const userMessage: Message = { role: 'user', content: messageText };
       this.context.append(conversation, userMessage);
@@ -179,7 +194,7 @@ export class AgentLoop {
             name: mapping.toolName,
             input: actionInput,
           };
-          const result = await this.dispatcher.dispatch(toolCall);
+          const result = await this.dispatcher.dispatch(toolCall, undefined, executionContext);
 
           if (result.content) {
             yield { type: 'text', content: result.content };
@@ -254,6 +269,13 @@ export class AgentLoop {
         workspacePromptPrefix = buildWorkspacePrompt(wsCtx, this.workspaceTokenBudget);
       }
 
+      // Resolve artifact context (once per run, appended after system prompt)
+      let artifactPromptSuffix = '';
+      if (this.artifactStore?.listByConversation) {
+        const artifacts = await this.artifactStore.listByConversation(request.conversationId);
+        artifactPromptSuffix = buildArtifactPrompt(artifacts, this.artifactTokenBudget);
+      }
+
       // Agent loop: LLM call → tool execution → repeat
       let turn = 0;
       let cumulativeInputTokens = 0;
@@ -286,9 +308,12 @@ export class AgentLoop {
         }
 
         const baseSystemPrompt = request.systemPrompt ?? this.systemPrompt;
-        const effectiveSystemPrompt = workspacePromptPrefix
+        let effectiveSystemPrompt = workspacePromptPrefix
           ? workspacePromptPrefix + '\n\n' + baseSystemPrompt
           : baseSystemPrompt;
+        if (artifactPromptSuffix) {
+          effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + artifactPromptSuffix;
+        }
         const ctx = this.context.assemble(conversation, tools, effectiveSystemPrompt);
 
         // Check token budget before LLM call
@@ -419,7 +444,7 @@ export class AgentLoop {
           if (controller.signal.aborted) break;
 
           const toolStartTime = performance.now();
-          const result = await this.dispatcher.dispatch(toolCall);
+          const result = await this.dispatcher.dispatch(toolCall, undefined, executionContext);
           const toolDurationMs = performance.now() - toolStartTime;
 
           this.observability.onToolCall({
@@ -455,13 +480,21 @@ export class AgentLoop {
                   language: op.language,
                   content: op.content,
                 });
-                yield { type: 'artifact_create', artifactId: created.id, title: op.title, content: op.content };
+                yield { type: 'artifact_create', artifactId: created.id, title: op.title, content: '' };
+                const chunks = chunkArtifactContent(op.content, this.artifactStreamChunkSize);
+                for (const chunk of chunks) {
+                  yield { type: 'artifact_stream', artifactId: created.id, delta: chunk };
+                }
                 yield { type: 'artifact_done', artifactId: created.id };
                 artifactContents.push({ type: 'artifact', artifactId: created.id, operation: op });
               } else if (op.type === 'update' && op.content) {
                 const updated = await this.artifactStore.update(op.artifactId, op.content);
                 if (updated) {
-                  yield { type: 'artifact_update', artifactId: op.artifactId, title: op.title, content: op.content };
+                  yield { type: 'artifact_update', artifactId: op.artifactId, title: op.title, content: '' };
+                  const chunks = chunkArtifactContent(op.content, this.artifactStreamChunkSize);
+                  for (const chunk of chunks) {
+                    yield { type: 'artifact_stream', artifactId: op.artifactId, delta: chunk };
+                  }
                   yield { type: 'artifact_done', artifactId: op.artifactId };
                   artifactContents.push({ type: 'artifact', artifactId: op.artifactId, operation: op });
                 }
@@ -555,6 +588,46 @@ function extractText(input: ChatInput): string {
     case 'file':
       return input.text ?? `[file:${input.fileId}]`;
   }
+}
+
+export function chunkArtifactContent(content: string, chunkSize: number): string[] {
+  if (!content) return [];
+  const chunks: string[] = [];
+  let offset = 0;
+  while (offset < content.length) {
+    let end = Math.min(offset + chunkSize, content.length);
+    // Prefer splitting at a newline boundary within the chunk
+    if (end < content.length) {
+      const newlineIdx = content.lastIndexOf('\n', end);
+      if (newlineIdx > offset) {
+        end = newlineIdx + 1; // include the newline
+      }
+    }
+    chunks.push(content.slice(offset, end));
+    offset = end;
+  }
+  return chunks;
+}
+
+export function buildArtifactPrompt(
+  artifacts: { id: string; title: string; type?: string; language?: string | null; currentVersion: number }[],
+  tokenBudget: number,
+): string {
+  if (artifacts.length === 0) return '';
+
+  const lines: string[] = ['## Artifacts'];
+  let estimatedTokens = 4; // heading
+  for (const a of artifacts) {
+    const typeLabel = a.type ?? 'document';
+    const langPart = a.language ? `, ${a.language}` : '';
+    const line = `- [${typeLabel}${langPart}] ${a.title} (v${a.currentVersion})`;
+    const lineTokens = Math.ceil(line.length / 4);
+    if (estimatedTokens + lineTokens > tokenBudget) break;
+    lines.push(line);
+    estimatedTokens += lineTokens;
+  }
+
+  return lines.length > 1 ? lines.join('\n') : '';
 }
 
 function buildWorkspacePrompt(
