@@ -136,6 +136,55 @@ curl http://localhost:3000/v1/plugins \
   -H "Authorization: Bearer my-secret-key"
 ```
 
+## Set Up Bots and Agents
+
+After starting the server, create bots (capability profiles) and agents (deployment endpoints) via the admin API. See [Agents and Bots](agents-and-bots.md) for the full concept guide.
+
+### Create a Bot
+
+```bash
+curl -X POST http://localhost:3000/v1/bots \
+  -H "Authorization: Bearer admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Bot",
+    "systemPrompt": "You are a helpful assistant.",
+    "model": "claude-sonnet-4-6"
+  }'
+```
+
+### Create an Agent
+
+```bash
+curl -X POST http://localhost:3000/v1/agents \
+  -H "Authorization: Bearer admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "my-agent",
+    "name": "My Agent",
+    "orchestrationStrategy": "single",
+    "botId": "<bot-id-from-above>",
+    "endUserAuth": { "mode": "anonymous" }
+  }'
+```
+
+### Chat as an End User
+
+```bash
+# Create a conversation
+curl -X POST http://localhost:3000/v1/agents/my-agent/conversations \
+  -H "X-End-User-Id: test-user" \
+  -H "Content-Type: application/json"
+
+# Send a message
+curl -X POST http://localhost:3000/v1/agents/my-agent/conversations/<conv-id>/messages \
+  -H "X-End-User-Id: test-user" \
+  -H "Content-Type: application/json" \
+  -d '{ "input": { "type": "text", "text": "Hello!" } }'
+```
+
+For multi-bot orchestration setup, see the [example walkthrough](agents-and-bots.md#example-setting-up-a-multi-bot-agent).
+
 ## Add a Plugin
 
 ```bash

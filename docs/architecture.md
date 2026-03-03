@@ -62,10 +62,10 @@
 | Orchestration | `cli` | All packages |
 | Testing | `testing` | core, llm, plugins |
 
-## Request Lifecycle (HTTP)
+## Request Lifecycle (HTTP — Operator)
 
 ```
-Client Request
+Operator Request
      │
      ▼
 Gateway.handleRequest()
@@ -91,13 +91,53 @@ Gateway.handleRequest()
      │     │     ├─ LlmProvider.chat() → stream tokens
      │     │     ├─ ToolDispatcher → execute tool calls
      │     │     │     └─ ToolSelector → rank + select tools
-     │     │     └─ MemoryStore → persist messages
+     │     │     └─ MessageStore → persist messages
      │     │
      │     └─ Collect events → ApiResponse
      │
      ├─ MetricsCollector.recordRequest()
      │
      └─ sendResponse() → HTTP response
+```
+
+## Request Lifecycle (HTTP — Client API)
+
+```
+End-User Request
+     │  POST /v1/agents/:slug/conversations/:id/messages
+     ▼
+Gateway.handleRequest()
+     │
+     ├─ isClientApiRoute() → true
+     ├─ Skip operator auth
+     │
+     ├─ Client Handler
+     │     │
+     │     ├─ agentStore.getBySlugGlobal(slug)
+     │     ├─ authenticateEndUser(agent.endUserAuth)
+     │     │     ├─ anonymous: X-End-User-Id header
+     │     │     ├─ token: Bearer prefix + externalId
+     │     │     └─ jwt: HS256 verify, sub claim
+     │     │
+     │     ├─ AgentRateLimiter.check(endUserId)
+     │     │
+     │     ├─ Resolve orchestration strategy
+     │     │     │
+     │     │     ├─ [single] → BotRunner(agent.botId)
+     │     │     │                 └─ AgentLoop.run()
+     │     │     │
+     │     │     ├─ [route] → Keyword match bindings
+     │     │     │              └─ BotRunner(bestMatch)
+     │     │     │
+     │     │     └─ [orchestrate] → Orchestrator LLM
+     │     │           ├─ Creates ask_<bot> tools
+     │     │           ├─ LLM decides which bot(s)
+     │     │           ├─ Fan-out: parallel BotRunner calls
+     │     │           └─ Synthesize responses
+     │     │
+     │     └─ Stream events → Response
+     │
+     └─ sendResponse()
 ```
 
 ## Request Lifecycle (WebSocket)
@@ -173,7 +213,11 @@ AdminService wraps these transitions with audit logging.
         └──────────┘   └──────────┘   └──────────┘
 ```
 
-All backends implement 6 store interfaces: `IMemoryStore`, `IConfigStore`, `IPluginStateStore`, `ITokenUsageStore`, `IUsageEventStore`, `IAuditEventStore`.
+All backends implement store interfaces:
+
+**Platform stores:** `IMessageStore`, `IConfigStore`, `IPluginStateStore`, `ITokenUsageStore`, `IUsageEventStore`, `IAuditEventStore`
+
+**Deployment stores:** `IBotStore`, `IAgentStore`, `IAgentBotBindingStore`, `IEndUserStore`, `IConversationStore`
 
 **SQLite** — default, zero-config. Uses `better-sqlite3` with WAL mode. Single-file database.
 
@@ -199,3 +243,27 @@ The ToolSelector uses a weighted scoring algorithm to select the most relevant t
 Supported embedding providers:
 - `TransformerEmbeddingProvider` — local inference via `@xenova/transformers` (MiniLM-L6-v2)
 - `LlmEmbeddingProvider` — wraps any `(text) => Promise<number[]>` callback
+
+## Agent / Bot Orchestration
+
+Bots are capability profiles (system prompt, model, plugins). Agents are deployment profiles (slug, auth, rate limits) that reference bots. See [Agents and Bots](agents-and-bots.md) for full details.
+
+```
+                    ┌──────────────────────────┐
+                    │         Agent             │
+                    │  slug, auth, rate limits  │
+                    └────────────┬─────────────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              │                  │                   │
+         [single]            [route]          [orchestrate]
+              │                  │                   │
+              ▼                  ▼                   ▼
+         BotRunner          Keyword Match      Orchestrator LLM
+         (1 bot)            → BotRunner        → N × BotRunner
+                            (best match)       → Synthesize
+```
+
+**BotRunner** wraps `AgentLoop` with bot-specific config (model, prompt, plugins, temperature). It preserves streaming and provides `runToCompletion()` for orchestrator fan-out.
+
+**Orchestrator** creates `ask_<botname>` tools from bindings, lets the LLM decide which bots to invoke, runs them in parallel via `Promise.all()`, and synthesizes multi-bot responses.

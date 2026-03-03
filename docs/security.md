@@ -32,6 +32,43 @@ For programmatic/service-to-service auth. Hardened with:
 const auth = new JwtAuth(['current-secret', 'previous-secret']);
 ```
 
+## End-User Authentication
+
+Agents have their own auth layer for end users (customers), separate from operator auth. Each agent configures one of three modes:
+
+### Anonymous
+
+No credentials required. The client sends `X-End-User-Id` header with any identifier string.
+
+```yaml
+endUserAuth:
+  mode: anonymous
+```
+
+### Token
+
+Requires `Authorization: Bearer <prefix><externalId>`. The prefix defaults to `nk_`.
+
+```yaml
+endUserAuth:
+  mode: token
+  tokenPrefix: nk_
+```
+
+### JWT (End-User)
+
+Requires a signed JWT (HMAC-SHA256). The `sub` claim becomes the external ID.
+
+```yaml
+endUserAuth:
+  mode: jwt
+  jwtSecret: your-end-user-secret
+```
+
+Claims: `sub` (required), `name` (optional), `exp` (optional).
+
+End-user records are auto-created on first contact and scoped per agent. See [Agents and Bots](agents-and-bots.md#end-user-authentication) for details and examples.
+
 ## Authorization
 
 Two roles: `user` and `admin`.
@@ -39,7 +76,7 @@ Two roles: `user` and `admin`.
 | Role | Access |
 |------|--------|
 | `user` | Chat, list plugins, view plugin details |
-| `admin` | All user endpoints + enable/disable/uninstall plugins, audit log, usage analytics |
+| `admin` | All user endpoints + bot/agent CRUD, plugin management, audit log, usage analytics |
 
 Admin endpoints (`/v1/admin/*`) check `auth.role === 'admin'` and return 403 if insufficient.
 
@@ -139,6 +176,7 @@ Metrics include: uptime, total requests, status/method breakdown, active connect
 
 ## Checklist
 
+- [ ] Configure end-user auth mode for each agent (avoid anonymous in production)
 - [ ] Change default API keys before deploying to production
 - [ ] Configure `allowedOrigins` for your frontend domains
 - [ ] Set `maxBodyBytes` appropriate for your use case
