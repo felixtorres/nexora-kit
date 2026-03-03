@@ -12,15 +12,18 @@ import { SkillRegistry, SkillHandlerFactory } from '@nexora-kit/skills';
 import { CommandRegistry, CommandDispatcher } from '@nexora-kit/commands';
 import { McpManager } from '@nexora-kit/mcp';
 import {
-  StorageDatabase, initSchema,
-  SqliteMessageStore, SqliteConfigStore,
-  SqliteAuditEventStore, SqliteUsageEventStore,
+  StorageDatabase,
+  initSchema,
+  SqliteMessageStore,
+  SqliteConfigStore,
+  SqliteAuditEventStore,
+  SqliteUsageEventStore,
   createStorageBackend,
   type StorageBackend,
 } from '@nexora-kit/storage';
 import { AuditLogger, UsageAnalytics, AdminService } from '@nexora-kit/admin';
 import { Gateway, ApiKeyAuth } from '@nexora-kit/api';
-import type { LlmProvider } from '@nexora-kit/llm';
+import { createProviderFromConfig, type LlmConfig } from '@nexora-kit/llm';
 
 interface InstanceConfig {
   name: string;
@@ -30,10 +33,15 @@ interface InstanceConfig {
     type: 'api-key';
     keys: Array<{ key: string; userId: string; teamId: string; role: 'admin' | 'user' }>;
   };
-  storage?: { backend?: 'sqlite' | 'postgres'; path?: string; connectionString?: string; poolSize?: number };
+  storage?: {
+    backend?: 'sqlite' | 'postgres';
+    path?: string;
+    connectionString?: string;
+    poolSize?: number;
+  };
   plugins?: { directory?: string };
   sandbox?: { defaultTier?: 'none' | 'basic' | 'strict' };
-  llm?: { provider?: string; apiKey?: string; model?: string };
+  llm?: LlmConfig;
   rateLimit?: { windowMs?: number; maxRequests?: number };
 }
 
@@ -57,7 +65,9 @@ export const serveCommand: CliCommand = {
     const raw = await readFile(configPath, 'utf-8');
     const config: InstanceConfig = parseYaml(raw);
 
-    const port = (args.flags['port'] as string) ? Number(args.flags['port']) : config.port ?? 3000;
+    const port = (args.flags['port'] as string)
+      ? Number(args.flags['port'])
+      : (config.port ?? 3000);
     const host = (args.flags['host'] as string) ?? config.host ?? '127.0.0.1';
     const instanceDir = resolve(configPath, '..');
 
@@ -94,8 +104,9 @@ export const serveCommand: CliCommand = {
     const commandDispatcher = new CommandDispatcher(commandRegistry);
     const mcpManager = new McpManager();
 
-    // --- LLM provider (stub — users configure real providers via plugin or env) ---
-    const llmProvider = createStubLlmProvider();
+    // --- LLM provider ---
+    const llmProvider = createProviderFromConfig(config.llm);
+    info(`LLM provider: ${llmProvider.name}`);
 
     // --- Skill handler factory ---
     const skillHandlerFactory = new SkillHandlerFactory({
@@ -133,7 +144,9 @@ export const serveCommand: CliCommand = {
         }
         lifecycle.registerPluginDir(result.plugin.manifest.namespace, pluginsDir);
         lifecycle.enable(result.plugin.manifest.namespace);
-        success(`Plugin loaded: ${result.plugin.manifest.namespace} (${result.plugin.tools.length} tools)`);
+        success(
+          `Plugin loaded: ${result.plugin.manifest.namespace} (${result.plugin.tools.length} tools)`,
+        );
       }
     } catch {
       // Plugins dir may not exist yet — that's fine
@@ -171,7 +184,10 @@ export const serveCommand: CliCommand = {
       plugins: lifecycle,
       admin: adminService,
       rateLimit: config.rateLimit
-        ? { windowMs: config.rateLimit.windowMs ?? 60_000, maxRequests: config.rateLimit.maxRequests ?? 100 }
+        ? {
+            windowMs: config.rateLimit.windowMs ?? 60_000,
+            maxRequests: config.rateLimit.maxRequests ?? 100,
+          }
         : undefined,
     });
 
@@ -205,23 +221,4 @@ function buildAuth(config: InstanceConfig): ApiKeyAuth {
     keyRecord[k.key] = { userId: k.userId, teamId: k.teamId, role: k.role };
   }
   return new ApiKeyAuth(keyRecord);
-}
-
-function createStubLlmProvider(): LlmProvider {
-  return {
-    name: 'stub',
-    models: [{
-      id: 'stub',
-      name: 'Stub Provider',
-      provider: 'stub',
-      contextWindow: 100_000,
-      maxOutputTokens: 4_096,
-    }],
-    async *chat() {
-      yield { type: 'text' as const, content: 'LLM provider not configured. Set llm.provider in nexora.yaml.' };
-    },
-    async countTokens() {
-      return 0;
-    },
-  };
 }

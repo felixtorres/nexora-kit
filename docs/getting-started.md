@@ -22,6 +22,7 @@ cd my-bot
 ```
 
 This creates a directory with:
+
 - `nexora.yaml` — instance configuration
 - `plugins/` — plugin directory
 
@@ -48,12 +49,6 @@ storage:
 plugins:
   directory: ./plugins
 
-# Optional: LLM provider
-# llm:
-#   provider: anthropic
-#   apiKey: sk-...
-#   model: claude-sonnet-4-20250514
-
 # Optional: rate limiting
 # rateLimit:
 #   windowMs: 60000
@@ -63,12 +58,14 @@ plugins:
 ### Storage Backends
 
 **SQLite (default)** — zero config, single-file database:
+
 ```yaml
 storage:
   path: ./data/nexora.db
 ```
 
 **PostgreSQL** — for multi-instance / high-scale deployments:
+
 ```yaml
 storage:
   backend: postgres
@@ -78,6 +75,36 @@ storage:
 
 PostgreSQL requires `pg` as a dependency: `npm install pg`.
 
+### LLM Providers
+
+The provider is selected automatically based on `llm.provider` in `nexora.yaml`. No code changes required.
+
+#### Anthropic
+
+```yaml
+llm:
+  provider: anthropic
+  apiKey: sk-... # or set ANTHROPIC_API_KEY env var
+  model: claude-sonnet-4-20250514
+```
+
+#### WSO2-proxied Azure OpenAI
+
+```yaml
+llm:
+  provider: wso2-azure-openai
+  wso2AuthUrl: https://api-gateway.example.com:443/token
+  wso2ClientId: <your-client-id>
+  wso2ClientSecret: <your-client-secret>
+  wso2BaseUrl: https://api-gateway.example.com:443/t/org/openaiendpoint/1
+  wso2DeploymentId: gpt-4o-deployment
+  wso2ApiVersion: '2024-12-01-preview'
+```
+
+All credential fields fall through to environment variables (`WSO2_AUTH_URL`, `WSO2_CLIENT_ID`, `WSO2_CLIENT_SECRET`, `WSO2_BASE_URL`, `WSO2_DEPLOYMENT_ID`, `WSO2_API_VERSION`), so secrets can be kept out of the YAML file entirely.
+
+If `llm` is omitted, the server starts with a stub provider that returns a configuration reminder instead of real responses.
+
 ## Start the Server
 
 ```bash
@@ -85,6 +112,7 @@ npx nexora-kit serve
 ```
 
 Or with Docker:
+
 ```bash
 docker compose up
 ```
@@ -120,15 +148,15 @@ See [Plugin Authoring](plugin-authoring.md) for details.
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `nexora-kit init <name>` | Scaffold a new instance |
-| `nexora-kit serve` | Start the server |
-| `nexora-kit plugin init <name>` | Scaffold a new plugin |
-| `nexora-kit plugin add <path>` | Install a plugin |
-| `nexora-kit plugin dev <path>` | Watch plugin for hot-reload |
-| `nexora-kit plugin test <path>` | Run plugin validation |
-| `nexora-kit plugin validate <path>` | Validate plugin manifest |
-| `nexora-kit config get <key>` | Read a config value |
-| `nexora-kit config set <key> <value>` | Set a config value |
-| `nexora-kit admin usage` | Show usage analytics |
+| Command                               | Description                 |
+| ------------------------------------- | --------------------------- |
+| `nexora-kit init <name>`              | Scaffold a new instance     |
+| `nexora-kit serve`                    | Start the server            |
+| `nexora-kit plugin init <name>`       | Scaffold a new plugin       |
+| `nexora-kit plugin add <path>`        | Install a plugin            |
+| `nexora-kit plugin dev <path>`        | Watch plugin for hot-reload |
+| `nexora-kit plugin test <path>`       | Run plugin validation       |
+| `nexora-kit plugin validate <path>`   | Validate plugin manifest    |
+| `nexora-kit config get <key>`         | Read a config value         |
+| `nexora-kit config set <key> <value>` | Set a config value          |
+| `nexora-kit admin usage`              | Show usage analytics        |

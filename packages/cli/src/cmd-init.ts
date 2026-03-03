@@ -26,6 +26,24 @@ plugins:
 
 sandbox:
   defaultTier: basic
+
+# LLM provider configuration (uncomment and fill in one block)
+#
+# Anthropic (Claude):
+# llm:
+#   provider: anthropic
+#   apiKey: \${ANTHROPIC_API_KEY}
+#   model: claude-3-5-sonnet-20241022
+#
+# WSO2 / Azure OpenAI (corporate gateway):
+# llm:
+#   provider: wso2
+#   clientId: \${WSO2_CLIENT_ID}
+#   clientSecret: \${WSO2_CLIENT_SECRET}
+#   tokenUrl: \${WSO2_TOKEN_URL}
+#   baseUrl: \${WSO2_BASE_URL}
+#   deployment: \${WSO2_DEPLOYMENT}
+#   apiVersion: "2024-12-01-preview"
 `;
 
 const PLUGIN_GITKEEP = '';
