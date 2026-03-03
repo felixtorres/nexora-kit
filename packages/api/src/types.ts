@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AgentLoop, MessageStore } from '@nexora-kit/core';
 import type { PluginLifecycleManager } from '@nexora-kit/plugins';
 import type { AdminService } from '@nexora-kit/admin';
-import type { IConversationStore } from '@nexora-kit/storage';
+import type { IConversationStore, IBotStore, IAgentStore, IAgentBotBindingStore, IEndUserStore, IFeedbackStore, IUserMemoryStore, IConversationTemplateStore, IFileStore, IWorkspaceStore, IContextDocumentStore, IArtifactStore } from '@nexora-kit/storage';
 
 // --- Auth ---
 
@@ -39,6 +39,7 @@ export interface ApiRequest {
   params: Record<string, string>;
   query: Record<string, string>;
   auth?: AuthIdentity;
+  signal?: AbortSignal;
 }
 
 export interface ApiResponse {
@@ -69,6 +70,21 @@ export interface GatewayConfig {
   messageStore?: MessageStore;
   plugins?: PluginLifecycleManager;
   admin?: AdminService;
+  botStore?: IBotStore;
+  agentStore?: IAgentStore;
+  agentBotBindingStore?: IAgentBotBindingStore;
+  endUserStore?: IEndUserStore;
+  feedbackStore?: IFeedbackStore;
+  userMemoryStore?: IUserMemoryStore;
+  templateStore?: IConversationTemplateStore;
+  fileStore?: IFileStore;
+  fileBackend?: import('./file-handlers.js').FileBackend;
+  workspaceStore?: IWorkspaceStore;
+  contextDocumentStore?: IContextDocumentStore;
+  artifactStore?: IArtifactStore;
+  fileBasePath?: string;
+  maxFileSize?: number;
+  allowedMimeTypes?: string[];
   rateLimit?: RateLimitConfig;
   wsHeartbeatMs?: number;
   allowedOrigins?: string[];
@@ -120,6 +136,14 @@ export const sendMessageSchema = z.object({
 
 export type SendMessageBody = z.infer<typeof sendMessageSchema>;
 
+// --- Edit message schema ---
+
+export const editMessageSchema = z.object({
+  input: chatInputSchema,
+});
+
+export type EditMessageBody = z.infer<typeof editMessageSchema>;
+
 // --- Legacy chat request (kept for backward compat) ---
 
 export const chatRequestSchema = z.object({
@@ -168,3 +192,116 @@ export const wsCancelMessageSchema = z.object({
   type: z.literal('cancel'),
   conversationId: z.string(),
 });
+
+// --- Bot schemas ---
+
+const slugPattern = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+export const createBotSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  systemPrompt: z.string().min(1).max(50_000),
+  pluginNamespaces: z.array(z.string()).optional(),
+  model: z.string().min(1).max(100),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTurns: z.number().int().min(1).max(100).optional(),
+  workspaceId: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type CreateBotBody = z.infer<typeof createBotSchema>;
+
+export const updateBotSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  systemPrompt: z.string().min(1).max(50_000).optional(),
+  pluginNamespaces: z.array(z.string()).optional(),
+  model: z.string().min(1).max(100).optional(),
+  temperature: z.number().min(0).max(2).nullable().optional(),
+  maxTurns: z.number().int().min(1).max(100).nullable().optional(),
+  workspaceId: z.string().nullable().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type UpdateBotBody = z.infer<typeof updateBotSchema>;
+
+// --- Agent schemas ---
+
+const orchestrationStrategySchema = z.enum(['single', 'orchestrate', 'route']);
+
+const appearanceSchema = z.object({
+  displayName: z.string().max(100).optional(),
+  avatarUrl: z.string().url().optional(),
+  description: z.string().max(500).optional(),
+  welcomeMessage: z.string().max(2000).optional(),
+  placeholder: z.string().max(200).optional(),
+}).optional();
+
+const endUserAuthSchema = z.object({
+  mode: z.enum(['anonymous', 'token', 'jwt']).optional(),
+  jwtSecret: z.string().optional(),
+  tokenPrefix: z.string().optional(),
+}).optional();
+
+const rateLimitsSchema = z.object({
+  messagesPerMinute: z.number().int().min(1).optional(),
+  conversationsPerDay: z.number().int().min(1).optional(),
+}).optional();
+
+const featuresSchema = z.object({
+  artifacts: z.boolean().optional(),
+  fileUpload: z.boolean().optional(),
+  feedback: z.boolean().optional(),
+  memory: z.boolean().optional(),
+}).optional();
+
+export const createAgentSchema = z.object({
+  slug: z.string().min(1).max(60).regex(slugPattern, 'Slug must be lowercase alphanumeric with hyphens'),
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  orchestrationStrategy: orchestrationStrategySchema.optional(),
+  orchestratorModel: z.string().optional(),
+  orchestratorPrompt: z.string().max(50_000).optional(),
+  botId: z.string().optional(),
+  fallbackBotId: z.string().optional(),
+  appearance: appearanceSchema,
+  endUserAuth: endUserAuthSchema,
+  rateLimits: rateLimitsSchema,
+  features: featuresSchema,
+  enabled: z.boolean().optional(),
+});
+
+export type CreateAgentBody = z.infer<typeof createAgentSchema>;
+
+export const updateAgentSchema = z.object({
+  slug: z.string().min(1).max(60).regex(slugPattern, 'Slug must be lowercase alphanumeric with hyphens').optional(),
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  orchestrationStrategy: orchestrationStrategySchema.optional(),
+  orchestratorModel: z.string().nullable().optional(),
+  orchestratorPrompt: z.string().max(50_000).nullable().optional(),
+  botId: z.string().nullable().optional(),
+  fallbackBotId: z.string().nullable().optional(),
+  appearance: appearanceSchema,
+  endUserAuth: endUserAuthSchema,
+  rateLimits: rateLimitsSchema,
+  features: featuresSchema,
+  enabled: z.boolean().optional(),
+});
+
+export type UpdateAgentBody = z.infer<typeof updateAgentSchema>;
+
+// --- Binding schema ---
+
+const bindingSchema = z.object({
+  botId: z.string().min(1),
+  priority: z.number().int().min(0).optional(),
+  description: z.string().max(500).optional(),
+  keywords: z.array(z.string()).optional(),
+});
+
+export const replaceBindingsSchema = z.object({
+  bindings: z.array(bindingSchema),
+});
+
+export type ReplaceBindingsBody = z.infer<typeof replaceBindingsSchema>;

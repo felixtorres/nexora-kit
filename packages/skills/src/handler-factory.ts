@@ -1,4 +1,4 @@
-import type { ToolHandler } from '@nexora-kit/core';
+import type { ToolHandler, ToolHandlerResponse } from '@nexora-kit/core';
 import type { LlmProvider } from '@nexora-kit/llm';
 import type { ConfigResolver, ConfigContext } from '@nexora-kit/config';
 import type { SkillDefinition, SkillContext, SkillResult } from './types.js';
@@ -34,7 +34,7 @@ export class SkillHandlerFactory {
   private createCodeHandler(skillDef: SkillDefinition, namespace: string): ToolHandler {
     const configResolver = this.config;
 
-    return async (input: Record<string, unknown>): Promise<string> => {
+    return async (input: Record<string, unknown>): Promise<string | ToolHandlerResponse> => {
       const configContext: ConfigContext = { pluginNamespace: namespace };
       const configValues = configResolver.getAll(configContext);
 
@@ -47,11 +47,22 @@ export class SkillHandlerFactory {
       };
 
       const result: SkillResult = await skillDef.handler!(context);
-      const outputText = typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
-      if (result.isError) {
-        throw new Error(outputText);
+
+      if (typeof result.output !== 'string') {
+        // Blocks output — pass structured response
+        if (result.isError) {
+          throw new Error(JSON.stringify(result.output));
+        }
+        return { content: '', blocks: result.output, artifacts: result.artifacts };
       }
-      return outputText;
+
+      if (result.isError) {
+        throw new Error(result.output);
+      }
+      if (result.artifacts && result.artifacts.length > 0) {
+        return { content: result.output, artifacts: result.artifacts };
+      }
+      return result.output;
     };
   }
 

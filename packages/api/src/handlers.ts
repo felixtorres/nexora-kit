@@ -1,4 +1,4 @@
-import type { AgentLoop, MessageStore } from '@nexora-kit/core';
+import type { AgentLoop, MessageStore, ResponseBlock } from '@nexora-kit/core';
 import type { PluginLifecycleManager } from '@nexora-kit/plugins';
 import type { IConversationStore } from '@nexora-kit/storage';
 import type { ApiRequest, ApiResponse } from './types.js';
@@ -105,9 +105,13 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     const conversationId = req.params.id;
 
     // Validate conversation ownership if store is configured
+    let conversationSystemPrompt: string | undefined;
+    let conversationModel: string | undefined;
     if (deps.conversationStore) {
       const conversation = await deps.conversationStore.get(conversationId, req.auth.userId);
       if (!conversation) throw new ApiError(404, 'Conversation not found');
+      conversationSystemPrompt = conversation.systemPrompt ?? undefined;
+      conversationModel = conversation.model ?? undefined;
     }
 
     const parsed = sendMessageSchema.safeParse(req.body);
@@ -122,6 +126,7 @@ export function createSendMessageHandler(deps: HandlerDeps) {
 
     const events: unknown[] = [];
     let fullText = '';
+    const allBlocks: ResponseBlock[] = [];
 
     for await (const event of deps.agentLoop.run({
       conversationId,
@@ -130,10 +135,14 @@ export function createSendMessageHandler(deps: HandlerDeps) {
       userId: req.auth.userId,
       pluginNamespaces,
       metadata,
-    })) {
+      systemPrompt: conversationSystemPrompt,
+      model: conversationModel,
+    }, req.signal)) {
       events.push(event);
       if (event.type === 'text') {
         fullText += event.content;
+      } else if (event.type === 'blocks') {
+        allBlocks.push(...event.blocks);
       }
     }
 
@@ -160,6 +169,7 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     return jsonResponse(200, {
       conversationId,
       message: fullText,
+      ...(allBlocks.length > 0 ? { blocks: allBlocks } : {}),
       events,
     });
   };
@@ -184,6 +194,7 @@ export function createChatHandler(deps: HandlerDeps) {
 
     const events: unknown[] = [];
     let fullText = '';
+    const allBlocks: ResponseBlock[] = [];
 
     for await (const event of deps.agentLoop.run({
       conversationId: resolvedConversationId,
@@ -192,16 +203,19 @@ export function createChatHandler(deps: HandlerDeps) {
       userId: req.auth.userId,
       pluginNamespaces,
       metadata,
-    })) {
+    }, req.signal)) {
       events.push(event);
       if (event.type === 'text') {
         fullText += event.content;
+      } else if (event.type === 'blocks') {
+        allBlocks.push(...event.blocks);
       }
     }
 
     return jsonResponse(200, {
       conversationId: resolvedConversationId,
       message: fullText,
+      ...(allBlocks.length > 0 ? { blocks: allBlocks } : {}),
       events,
     });
   };

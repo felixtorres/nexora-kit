@@ -210,4 +210,71 @@ describe('SkillHandlerFactory', () => {
     expect(invokeError).toBeDefined();
     expect(invokeError!.message).toContain('not yet implemented');
   });
+
+  it('code handler returns structured response with blocks', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+    const skillDef: SkillDefinition = {
+      name: 'card-skill',
+      description: 'Returns blocks',
+      invocation: 'model',
+      parameters: {},
+      handler: async () => ({
+        output: [
+          { type: 'card', title: 'Order #1', body: 'Ready for pickup' },
+          { type: 'action', actions: [{ id: 'confirm', label: 'Confirm' }] },
+        ],
+      }),
+    };
+
+    const handler = factory.createHandler('ns:card-skill', skillDef, 'ns');
+    const result = await handler({});
+
+    // Should return structured response, not stringified JSON
+    expect(typeof result).toBe('object');
+    expect((result as any).blocks).toHaveLength(2);
+    expect((result as any).blocks[0].type).toBe('card');
+    expect((result as any).content).toBe('');
+  });
+
+  it('code handler preserves string return (backward compat)', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+    const skillDef: SkillDefinition = {
+      name: 'text-skill',
+      description: 'Returns text',
+      invocation: 'model',
+      parameters: {},
+      handler: async () => ({ output: 'plain text result' }),
+    };
+
+    const handler = factory.createHandler('ns:text-skill', skillDef, 'ns');
+    const result = await handler({});
+
+    expect(result).toBe('plain text result');
+  });
+
+  it('code handler throws on error with blocks output', async () => {
+    const llm = createMockLlm('unused');
+    const config = new ConfigResolver();
+    const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+    const skillDef: SkillDefinition = {
+      name: 'fail-blocks',
+      description: 'Fails with blocks',
+      invocation: 'model',
+      parameters: {},
+      handler: async () => ({
+        output: [{ type: 'text', content: 'error info' }],
+        isError: true,
+      }),
+    };
+
+    const handler = factory.createHandler('ns:fail-blocks', skillDef, 'ns');
+    await expect(handler({})).rejects.toThrow();
+  });
 });

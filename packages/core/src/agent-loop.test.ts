@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { AgentLoop } from './agent-loop.js';
 import { ToolDispatcher } from './dispatcher.js';
+import { InMemoryMessageStore } from './memory.js';
 import type { LlmProvider, LlmEvent, LlmRequest } from '@nexora-kit/llm';
-import type { ChatEvent } from './types.js';
+import type { ChatEvent, ResponseBlock } from './types.js';
 
 /** Mock LLM provider that returns canned responses */
 function createMockLlm(responses: LlmEvent[][]): LlmProvider {
@@ -270,5 +271,497 @@ describe('AgentLoop', () => {
       (e) => e.type === 'text' && e.content === 'Should not reach',
     );
     expect(hasSecondText).toBe(false);
+  });
+
+  it('yields blocks event when tool returns blocks', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'card-tool', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Done' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'card-tool', description: 'Card', parameters: { type: 'object', properties: {} } },
+      async () => ({
+        content: 'card data',
+        blocks: [{ type: 'card' as const, title: 'Order #1' }],
+      }),
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+    const events = await collectEvents(loop, baseRequest);
+
+    const blocksEvent = events.find((e) => e.type === 'blocks');
+    expect(blocksEvent).toBeDefined();
+    if (blocksEvent?.type === 'blocks') {
+      expect(blocksEvent.blocks).toHaveLength(1);
+      expect(blocksEvent.blocks[0].type).toBe('card');
+    }
+  });
+
+  it('does not yield blocks event when tool returns no blocks', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'plain', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Done' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'plain', description: 'Plain', parameters: { type: 'object', properties: {} } },
+      async () => 'just text',
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+    const events = await collectEvents(loop, baseRequest);
+
+    expect(events.some((e) => e.type === 'blocks')).toBe(false);
+  });
+
+  it('filters ProgressBlock from storage but yields in event', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'progress-tool', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Done' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'progress-tool', description: 'Progress', parameters: { type: 'object', properties: {} } },
+      async () => ({
+        content: 'processing',
+        blocks: [
+          { type: 'progress' as const, label: 'Working...' },
+          { type: 'text' as const, content: 'Result ready' },
+        ],
+      }),
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+    const events = await collectEvents(loop, baseRequest);
+
+    // Both blocks yielded as event (including progress)
+    const blocksEvent = events.find((e) => e.type === 'blocks');
+    expect(blocksEvent).toBeDefined();
+    if (blocksEvent?.type === 'blocks') {
+      expect(blocksEvent.blocks).toHaveLength(2);
+    }
+  });
+
+  it('handles multiple tool calls with blocks', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'tool-a', input: {} },
+        { type: 'tool_call', id: 'tc-2', name: 'tool-b', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Both done' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'tool-a', description: 'A', parameters: { type: 'object', properties: {} } },
+      async () => ({ content: 'a', blocks: [{ type: 'text' as const, content: 'from A' }] }),
+    );
+    dispatcher.register(
+      { name: 'tool-b', description: 'B', parameters: { type: 'object', properties: {} } },
+      async () => 'b-text',
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+    const events = await collectEvents(loop, baseRequest);
+
+    const blocksEvents = events.filter((e) => e.type === 'blocks');
+    expect(blocksEvents).toHaveLength(1); // only tool-a has blocks
+  });
+
+  it('routes action input directly to tool when mapping exists', async () => {
+    // First request: tool returns blocks with actions
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'order-tool', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Here is your order' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    let lastInput: Record<string, unknown> = {};
+    dispatcher.register(
+      { name: 'order-tool', description: 'Order', parameters: { type: 'object', properties: {} } },
+      async (input) => {
+        lastInput = input;
+        if (input._action) {
+          return { content: 'Order confirmed', blocks: [{ type: 'text' as const, content: 'Confirmed!' }] };
+        }
+        return {
+          content: 'Order details',
+          blocks: [
+            {
+              type: 'card' as const,
+              title: 'Order #1',
+              actions: [{ id: 'confirm-order', label: 'Confirm' }],
+            },
+          ],
+        };
+      },
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+
+    // First: tool call registers action
+    await collectEvents(loop, baseRequest);
+
+    // Second: action input routes directly to tool
+    const actionEvents = await collectEvents(loop, {
+      ...baseRequest,
+      input: { type: 'action', actionId: 'confirm-order', payload: { note: 'rush' } },
+    });
+
+    expect(lastInput._action).toBe(true);
+    expect(lastInput.actionId).toBe('confirm-order');
+    expect(lastInput.note).toBe('rush');
+    expect(actionEvents).toContainEqual({ type: 'text', content: 'Order confirmed' });
+    expect(actionEvents.some((e) => e.type === 'blocks')).toBe(true);
+    expect(actionEvents[actionEvents.length - 1]).toEqual({ type: 'done' });
+  });
+
+  it('falls through to LLM when no action mapping exists', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'text', content: 'I do not understand that action' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const loop = new AgentLoop({ llm });
+    const events = await collectEvents(loop, {
+      ...baseRequest,
+      input: { type: 'action', actionId: 'unknown-action', payload: {} },
+    });
+
+    expect(events).toContainEqual({ type: 'text', content: 'I do not understand that action' });
+  });
+
+  it('registers actions from action response for chaining', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'wizard', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Step 1' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    let callCount = 0;
+    dispatcher.register(
+      { name: 'wizard', description: 'Wizard', parameters: { type: 'object', properties: {} } },
+      async (input) => {
+        callCount++;
+        if (input._action && input.actionId === 'step-2') {
+          return { content: 'Step 2 done', blocks: [] };
+        }
+        return {
+          content: 'Step 1',
+          blocks: [{ type: 'action' as const, actions: [{ id: 'step-2', label: 'Next' }] }],
+        };
+      },
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+
+    // First call registers step-2 action
+    await collectEvents(loop, baseRequest);
+    expect(callCount).toBe(1);
+
+    // Action routes directly
+    const events2 = await collectEvents(loop, {
+      ...baseRequest,
+      input: { type: 'action', actionId: 'step-2', payload: {} },
+    });
+    expect(callCount).toBe(2);
+    expect(events2).toContainEqual({ type: 'text', content: 'Step 2 done' });
+  });
+
+  it('form submission routes to tool', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'form-tool', input: {} },
+        { type: 'done' },
+      ],
+      [{ type: 'text', content: 'form shown' }, { type: 'done' }],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'form-tool', description: 'Form', parameters: { type: 'object', properties: {} } },
+      async (input) => {
+        if (input._action) {
+          return { content: `Received: ${input.name}`, blocks: [] };
+        }
+        return {
+          content: '',
+          blocks: [{
+            type: 'form' as const,
+            id: 'user-form',
+            fields: [{ name: 'name', label: 'Name', type: 'text' as const }],
+          }],
+        };
+      },
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+
+    await collectEvents(loop, baseRequest);
+
+    const events = await collectEvents(loop, {
+      ...baseRequest,
+      input: { type: 'action', actionId: 'user-form', payload: { name: 'Felix' } },
+    });
+
+    expect(events).toContainEqual({ type: 'text', content: 'Received: Felix' });
+  });
+
+  it('yields cancelled event when aborted mid-stream', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'text', content: 'Partial ' },
+        // Simulate slow stream — abort will fire during this
+        { type: 'text', content: 'response' },
+        { type: 'tool_call', id: 'tc', name: 'slow', input: {} },
+        { type: 'done' },
+      ],
+      [{ type: 'text', content: 'Should not reach' }, { type: 'done' }],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'slow', description: 'Slow', parameters: { type: 'object', properties: {} } },
+      async () => {
+        await new Promise((r) => setTimeout(r, 200));
+        return 'done';
+      },
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+
+    // Abort after tool dispatch starts
+    setTimeout(() => loop.abort('test-conv'), 50);
+
+    const events = await collectEvents(loop, baseRequest);
+
+    // Should have cancelled event
+    expect(events.some((e) => e.type === 'cancelled')).toBe(true);
+    // Should NOT have 'done' event after cancelled
+    const cancelledIdx = events.findIndex((e) => e.type === 'cancelled');
+    expect(events.slice(cancelledIdx + 1).some((e) => e.type === 'done')).toBe(false);
+  });
+
+  it('stores partial text when cancelled', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'text', content: 'Partial text here' },
+        { type: 'tool_call', id: 'tc', name: 'slow', input: {} },
+        { type: 'done' },
+      ],
+      [{ type: 'text', content: 'Should not reach' }, { type: 'done' }],
+    ]);
+
+    const store = new InMemoryMessageStore();
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'slow', description: 'Slow', parameters: { type: 'object', properties: {} } },
+      async () => {
+        await new Promise((r) => setTimeout(r, 200));
+        return 'done';
+      },
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher, messageStore: store });
+
+    setTimeout(() => loop.abort('test-conv'), 50);
+    await collectEvents(loop, baseRequest);
+
+    // Partial text should be stored
+    const messages = await store.get('test-conv');
+    const assistantMsgs = messages.filter((m) => m.role === 'assistant');
+    expect(assistantMsgs.length).toBeGreaterThan(0);
+    // The partial text should include what was accumulated
+    const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+    const content = typeof lastAssistant.content === 'string'
+      ? lastAssistant.content
+      : (lastAssistant.content as any[]).find((c: any) => c.type === 'text')?.text ?? '';
+    expect(content).toContain('Partial text here');
+  });
+
+  it('rejects concurrent generation on same conversation', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'text', content: 'Slow response' },
+        { type: 'done' },
+      ],
+    ]);
+
+    // Override LLM to be slow
+    const slowLlm: LlmProvider = {
+      ...llm,
+      async *chat() {
+        await new Promise((r) => setTimeout(r, 200));
+        yield { type: 'text' as const, content: 'Slow' };
+        yield { type: 'done' as const };
+      },
+    };
+
+    const loop = new AgentLoop({ llm: slowLlm });
+
+    // Start first generation (don't await)
+    const firstGen = collectEvents(loop, baseRequest);
+
+    // Wait a tick so the first run starts
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Second generation should be rejected
+    const secondEvents = await collectEvents(loop, baseRequest);
+
+    expect(secondEvents).toContainEqual(
+      expect.objectContaining({ type: 'error', code: 'CONFLICT' }),
+    );
+    expect(secondEvents[secondEvents.length - 1]).toEqual({ type: 'done' });
+
+    // Clean up first generation
+    loop.abort('test-conv');
+    await firstGen;
+  });
+
+  it('allows new generation after cancellation', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'text', content: 'First' },
+        { type: 'tool_call', id: 'tc', name: 'slow', input: {} },
+        { type: 'done' },
+      ],
+      // Second run
+      [
+        { type: 'text', content: 'Regenerated response' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'slow', description: 'Slow', parameters: { type: 'object', properties: {} } },
+      async () => {
+        await new Promise((r) => setTimeout(r, 200));
+        return 'done';
+      },
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher });
+
+    // Abort first run
+    setTimeout(() => loop.abort('test-conv'), 50);
+    await collectEvents(loop, baseRequest);
+
+    // After abort completes, should be able to start new generation
+    const events2 = await collectEvents(loop, baseRequest);
+    expect(events2).toContainEqual({ type: 'text', content: 'Regenerated response' });
+    expect(events2[events2.length - 1]).toEqual({ type: 'done' });
+  });
+
+  it('isActive returns true during generation', async () => {
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'mock-1', name: 'Mock', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat() {
+        await new Promise((r) => setTimeout(r, 100));
+        yield { type: 'text' as const, content: 'Hi' };
+        yield { type: 'done' as const };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const loop = new AgentLoop({ llm });
+    expect(loop.isActive('test-conv')).toBe(false);
+
+    const gen = collectEvents(loop, baseRequest);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(loop.isActive('test-conv')).toBe(true);
+
+    loop.abort('test-conv');
+    await gen;
+    expect(loop.isActive('test-conv')).toBe(false);
+  });
+
+  it('uses request.systemPrompt override', async () => {
+    let capturedMessages: unknown[] = [];
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'mock-1', name: 'Mock', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+        capturedMessages = request.messages;
+        yield { type: 'text', content: 'ok' };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const loop = new AgentLoop({ llm, systemPrompt: 'Default prompt' });
+    await collectEvents(loop, {
+      ...baseRequest,
+      conversationId: 'prompt-override',
+      systemPrompt: 'Custom per-conversation prompt',
+    });
+
+    // System prompt in assembled context should be the override
+    const systemMsg = (capturedMessages as any[]).find((m) => m.content === 'Custom per-conversation prompt');
+    expect(systemMsg).toBeDefined();
+  });
+
+  it('uses request.model override for LLM calls', async () => {
+    let capturedModel = '';
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'default-model', name: 'Default', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+        capturedModel = request.model;
+        yield { type: 'text', content: 'ok' };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const loop = new AgentLoop({ llm, model: 'default-model' });
+    await collectEvents(loop, {
+      ...baseRequest,
+      conversationId: 'model-override',
+      model: 'custom-model',
+    });
+
+    expect(capturedModel).toBe('custom-model');
   });
 });

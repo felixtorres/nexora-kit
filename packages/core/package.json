@@ -15,6 +15,7 @@
   "dependencies": {
     "@nexora-kit/llm": "*",
     "@nexora-kit/config": "*",
-    "@nexora-kit/sandbox": "*"
+    "@nexora-kit/sandbox": "*",
+    "zod": "^3.25.76"
   }
 }

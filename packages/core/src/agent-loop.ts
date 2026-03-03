@@ -3,7 +3,10 @@ import { ContextManager } from './context.js';
 import { ToolDispatcher } from './dispatcher.js';
 import { InMemoryMessageStore, type MessageStore } from './memory.js';
 import { NoopObservability } from './observability.js';
+import { ActionRouter } from './action-router.js';
+import { filterPersistableBlocks } from './blocks.js';
 import type {
+  ArtifactContent,
   ChatEvent,
   ChatInput,
   ChatRequest,
@@ -15,6 +18,19 @@ import type {
   ToolSelectorInterface,
   ObservabilityHooks,
 } from './types.js';
+
+/** Minimal artifact store interface to avoid circular core→storage dependency. */
+export interface ArtifactStoreInterface {
+  create(input: {
+    conversationId: string;
+    title: string;
+    type?: string;
+    language?: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }): { id: string; currentVersion: number; content: string; [k: string]: unknown } | Promise<{ id: string; currentVersion: number; content: string; [k: string]: unknown }>;
+  update(id: string, content: string): { id: string; currentVersion: number; content: string; [k: string]: unknown } | undefined | Promise<{ id: string; currentVersion: number; content: string; [k: string]: unknown } | undefined>;
+}
 
 export interface AgentLoopOptions {
   llm: LlmProvider;
@@ -30,6 +46,7 @@ export interface AgentLoopOptions {
   tokenBudget?: TokenBudget;
   pluginNamespace?: string;
   commandDispatcher?: CommandDispatcherInterface;
+  artifactStore?: ArtifactStoreInterface;
 }
 
 export class AgentLoop {
@@ -46,6 +63,8 @@ export class AgentLoop {
   private readonly tokenBudget?: TokenBudget;
   private readonly pluginNamespace: string;
   private readonly commandDispatcher?: CommandDispatcherInterface;
+  private readonly artifactStore?: ArtifactStoreInterface;
+  private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
   constructor(options: AgentLoopOptions) {
@@ -62,9 +81,24 @@ export class AgentLoop {
     this.tokenBudget = options.tokenBudget;
     this.pluginNamespace = options.pluginNamespace ?? '';
     this.commandDispatcher = options.commandDispatcher;
+    this.artifactStore = options.artifactStore;
+  }
+
+  /**
+   * Check if a generation is currently active for a conversation.
+   */
+  isActive(conversationId: string): boolean {
+    return this.abortControllers.has(conversationId);
   }
 
   async *run(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatEvent> {
+    // Concurrency guard: one active generation per conversation
+    if (this.abortControllers.has(request.conversationId)) {
+      yield { type: 'error', message: 'A generation is already in progress for this conversation', code: 'CONFLICT' };
+      yield { type: 'done' };
+      return;
+    }
+
     const controller = new AbortController();
     this.abortControllers.set(request.conversationId, controller);
 
@@ -106,10 +140,72 @@ export class AgentLoop {
         deletedAt: null,
       };
 
+      // Rebuild action router from loaded messages
+      if (existingMessages.length > 0) {
+        this.actionRouter.rebuildFromMessages(request.conversationId, existingMessages);
+      }
+
       // Append user message
       const userMessage: Message = { role: 'user', content: messageText };
       this.context.append(conversation, userMessage);
       await this.memory.append(request.conversationId, [userMessage]);
+
+      // Action routing: dispatch directly to tool that produced the action
+      if (request.input.type === 'action') {
+        const mapping = this.actionRouter.resolve(request.conversationId, request.input.actionId);
+        if (mapping) {
+          const actionInput: Record<string, unknown> = {
+            _action: true,
+            actionId: request.input.actionId,
+            ...request.input.payload,
+          };
+          const toolCall = {
+            id: `action-${Date.now()}`,
+            name: mapping.toolName,
+            input: actionInput,
+          };
+          const result = await this.dispatcher.dispatch(toolCall);
+
+          if (result.content) {
+            yield { type: 'text', content: result.content };
+          }
+          if (result.blocks && result.blocks.length > 0) {
+            yield { type: 'blocks', blocks: result.blocks };
+            this.actionRouter.registerFromBlocks(request.conversationId, mapping.toolName, result.blocks);
+          }
+
+          // Store as assistant message
+          const assistantContent: MessageContent[] = [];
+          if (result.content) {
+            assistantContent.push({ type: 'text', text: result.content });
+          }
+          if (result.blocks && result.blocks.length > 0) {
+            const persistable = filterPersistableBlocks(result.blocks);
+            if (persistable.length > 0) {
+              assistantContent.push({ type: 'blocks', blocks: persistable });
+            }
+          }
+          if (assistantContent.length > 0) {
+            const assistantMessage: Message = {
+              role: 'assistant',
+              content: assistantContent.length === 1 && assistantContent[0].type === 'text'
+                ? assistantContent[0].text
+                : assistantContent,
+            };
+            this.context.append(conversation, assistantMessage);
+            await this.memory.append(request.conversationId, [assistantMessage]);
+          }
+
+          this.observability.onTraceEnd(traceId, {
+            totalTokens: 0,
+            turns: 0,
+            durationMs: performance.now() - traceStartTime,
+          });
+          yield { type: 'done' };
+          return;
+        }
+        // No mapping found — fall through to LLM
+      }
 
       // Command pre-processing: if message starts with / and matches a command, dispatch directly
       if (this.commandDispatcher && messageText.startsWith('/') && this.commandDispatcher.isCommand(messageText)) {
@@ -167,7 +263,8 @@ export class AgentLoop {
           tools = this.dispatcher.listTools();
         }
 
-        const ctx = this.context.assemble(conversation, tools, this.systemPrompt);
+        const effectiveSystemPrompt = request.systemPrompt ?? this.systemPrompt;
+        const ctx = this.context.assemble(conversation, tools, effectiveSystemPrompt);
 
         // Check token budget before LLM call
         if (this.tokenBudget && this.pluginNamespace) {
@@ -190,10 +287,15 @@ export class AgentLoop {
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
 
+        const effectiveModel = request.model ?? this.model;
         const llmStartTime = performance.now();
+        const llmMessages = [
+          { role: 'system' as const, content: ctx.systemPrompt },
+          ...ctx.messages,
+        ];
         const llmStream = this.llm.chat({
-          model: this.model,
-          messages: ctx.messages as any[], // MessageContent union is a superset of LlmContentBlock
+          model: effectiveModel,
+          messages: llmMessages as any[], // MessageContent union is a superset of LlmContentBlock
           tools: ctx.tools.length > 0 ? ctx.tools : undefined,
           stream: true,
         });
@@ -244,7 +346,7 @@ export class AgentLoop {
         }
 
         this.observability.onGeneration({
-          model: this.model,
+          model: effectiveModel,
           input: ctx.messages,
           output: textAccumulator || undefined,
           usage: { input: totalInputTokens, output: totalOutputTokens },
@@ -310,16 +412,63 @@ export class AgentLoop {
             isError: result.isError,
           };
 
+          // Yield blocks event if tool returned structured blocks
+          if (result.blocks && result.blocks.length > 0) {
+            yield { type: 'blocks', blocks: result.blocks };
+            this.actionRouter.registerFromBlocks(request.conversationId, toolCall.name, result.blocks);
+          }
+
+          // Process artifact operations
+          const artifactContents: ArtifactContent[] = [];
+          if (result.artifacts && result.artifacts.length > 0 && this.artifactStore) {
+            for (const op of result.artifacts) {
+              if (op.type === 'create' && op.title && op.content) {
+                const created = await this.artifactStore.create({
+                  conversationId: request.conversationId,
+                  title: op.title,
+                  type: op.artifactType,
+                  language: op.language,
+                  content: op.content,
+                });
+                yield { type: 'artifact_create', artifactId: created.id, title: op.title, content: op.content };
+                yield { type: 'artifact_done', artifactId: created.id };
+                artifactContents.push({ type: 'artifact', artifactId: created.id, operation: op });
+              } else if (op.type === 'update' && op.content) {
+                const updated = await this.artifactStore.update(op.artifactId, op.content);
+                if (updated) {
+                  yield { type: 'artifact_update', artifactId: op.artifactId, title: op.title, content: op.content };
+                  yield { type: 'artifact_done', artifactId: op.artifactId };
+                  artifactContents.push({ type: 'artifact', artifactId: op.artifactId, operation: op });
+                }
+              }
+            }
+          }
+
+          const toolMessageContent: MessageContent[] = [
+            {
+              type: 'tool_result',
+              toolUseId: result.toolUseId,
+              content: result.content,
+              isError: result.isError,
+            },
+          ];
+
+          // Store persistable blocks alongside tool result (ProgressBlock filtered out)
+          if (result.blocks && result.blocks.length > 0) {
+            const persistable = filterPersistableBlocks(result.blocks);
+            if (persistable.length > 0) {
+              toolMessageContent.push({ type: 'blocks', blocks: persistable });
+            }
+          }
+
+          // Store artifact content references in message
+          for (const ac of artifactContents) {
+            toolMessageContent.push(ac);
+          }
+
           const toolMessage: Message = {
             role: 'tool',
-            content: [
-              {
-                type: 'tool_result',
-                toolUseId: result.toolUseId,
-                content: result.content,
-                isError: result.isError,
-              },
-            ],
+            content: toolMessageContent,
           };
           this.context.append(conversation, toolMessage);
           await this.memory.append(request.conversationId, [toolMessage]);
@@ -329,14 +478,19 @@ export class AgentLoop {
         // Continue loop — LLM will see tool results and respond
       }
 
-      // Max turns reached
+      // Loop ended — either abort or max turns
       this.observability.onTraceEnd(traceId, {
         totalTokens: cumulativeInputTokens + cumulativeOutputTokens,
         turns: turn,
         durationMs: performance.now() - traceStartTime,
       });
-      yield { type: 'error', message: `Max turns (${this.maxTurns}) reached`, code: 'MAX_TURNS' };
-      yield { type: 'done' };
+
+      if (controller.signal.aborted) {
+        yield { type: 'cancelled' };
+      } else {
+        yield { type: 'error', message: `Max turns (${this.maxTurns}) reached`, code: 'MAX_TURNS' };
+        yield { type: 'done' };
+      }
     } finally {
       this.abortControllers.delete(request.conversationId);
     }

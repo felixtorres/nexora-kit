@@ -7,6 +7,17 @@ export { SqlitePluginStateStore, type PluginStateRecord } from './plugin-state-s
 export { SqliteTokenUsageStore, type TokenUsageRecord } from './token-usage-store.js';
 export { SqliteUsageEventStore, type UsageEvent, type UsageEventFilter } from './usage-event-store.js';
 export { SqliteAuditEventStore, type AuditEvent, type AuditEventFilter } from './audit-event-store.js';
+export { SqliteBotStore } from './bot-store.js';
+export { SqliteAgentStore } from './agent-store.js';
+export { SqliteAgentBotBindingStore } from './agent-bot-binding-store.js';
+export { SqliteEndUserStore } from './end-user-store.js';
+export { SqliteFeedbackStore } from './feedback-store.js';
+export { SqliteUserMemoryStore } from './user-memory-store.js';
+export { SqliteConversationTemplateStore } from './conversation-template-store.js';
+export { SqliteFileStore } from './file-store.js';
+export { SqliteWorkspaceStore } from './workspace-store.js';
+export { SqliteContextDocumentStore } from './context-document-store.js';
+export { SqliteArtifactStore } from './artifact-store.js';
 
 // Interfaces
 export type {
@@ -22,6 +33,50 @@ export type {
   ITokenUsageStore,
   IUsageEventStore,
   IAuditEventStore,
+  IBotStore,
+  BotRecord,
+  CreateBotInput,
+  BotPatch,
+  IAgentStore,
+  AgentRecord,
+  CreateAgentInput,
+  AgentPatch,
+  IAgentBotBindingStore,
+  BindingRecord,
+  BindingInput,
+  IEndUserStore,
+  EndUserRecord,
+  CreateEndUserInput,
+  IFeedbackStore,
+  FeedbackRecord,
+  SubmitFeedbackInput,
+  FeedbackQueryOptions,
+  FeedbackSummaryOptions,
+  FeedbackSummary,
+  IUserMemoryStore,
+  UserFact,
+  SetFactInput,
+  ListFactsOptions,
+  IConversationTemplateStore,
+  ConversationTemplateRecord,
+  CreateConversationTemplateInput,
+  ConversationTemplatePatch,
+  IFileStore,
+  FileRecord,
+  CreateFileInput,
+  IWorkspaceStore,
+  WorkspaceRecord,
+  CreateWorkspaceInput,
+  WorkspacePatch,
+  IContextDocumentStore,
+  ContextDocumentRecord,
+  CreateContextDocumentInput,
+  ContextDocumentPatch,
+  IArtifactStore,
+  ArtifactRecord,
+  ArtifactVersionRecord,
+  CreateArtifactInput,
+  ArtifactType,
 } from './interfaces.js';
 
 // Backend factory
@@ -35,6 +90,17 @@ export { PgPluginStateStore } from './postgres/pg-plugin-state-store.js';
 export { PgTokenUsageStore } from './postgres/pg-token-usage-store.js';
 export { PgUsageEventStore } from './postgres/pg-usage-event-store.js';
 export { PgAuditEventStore } from './postgres/pg-audit-event-store.js';
+export { PgBotStore } from './postgres/pg-bot-store.js';
+export { PgAgentStore } from './postgres/pg-agent-store.js';
+export { PgAgentBotBindingStore } from './postgres/pg-agent-bot-binding-store.js';
+export { PgEndUserStore } from './postgres/pg-end-user-store.js';
+export { PgFeedbackStore } from './postgres/pg-feedback-store.js';
+export { PgUserMemoryStore } from './postgres/pg-user-memory-store.js';
+export { PgConversationTemplateStore } from './postgres/pg-conversation-template-store.js';
+export { PgFileStore } from './postgres/pg-file-store.js';
+export { PgWorkspaceStore } from './postgres/pg-workspace-store.js';
+export { PgContextDocumentStore } from './postgres/pg-context-document-store.js';
+export { PgArtifactStore } from './postgres/pg-artifact-store.js';
 export { initPgSchema } from './postgres/schema.js';
 export type { PgPool } from './postgres/pg-pool.js';
 

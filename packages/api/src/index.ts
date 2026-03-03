@@ -60,6 +60,15 @@ export {
   createAdminAuditPurgeHandler,
 } from './admin-handlers.js';
 
+export {
+  createListArtifactsHandler,
+  createGetArtifactHandler,
+  createListArtifactVersionsHandler,
+  createGetArtifactVersionHandler,
+  createDeleteArtifactHandler,
+} from './artifact-handlers.js';
+export type { ArtifactHandlerDeps } from './artifact-handlers.js';
+
 export { MetricsCollector, type MetricsSnapshot } from './metrics.js';
 
 export { Gateway } from './gateway.js';

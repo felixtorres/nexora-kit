@@ -396,6 +396,7 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           properties: {
             conversationId: { type: 'string' },
             message: { type: 'string' },
+            blocks: { type: 'array', items: { $ref: '#/components/schemas/ResponseBlock' } },
             events: { type: 'array', items: { type: 'object' } },
           },
         },
@@ -427,6 +428,51 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
             state: { type: 'string' },
             tools: { type: 'array', items: { type: 'object' } },
           },
+        },
+        Action: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            label: { type: 'string' },
+            style: { type: 'string', enum: ['primary', 'secondary', 'danger'] },
+            payload: { type: 'object', additionalProperties: true },
+          },
+          required: ['id', 'label'],
+        },
+        FormField: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            label: { type: 'string' },
+            type: { type: 'string', enum: ['text', 'number', 'select', 'checkbox', 'textarea'] },
+            required: { type: 'boolean' },
+            options: { type: 'array', items: { type: 'string' } },
+            default: {},
+          },
+          required: ['name', 'label', 'type'],
+        },
+        TableColumn: {
+          type: 'object',
+          properties: {
+            key: { type: 'string' },
+            label: { type: 'string' },
+          },
+          required: ['key', 'label'],
+        },
+        ResponseBlock: {
+          oneOf: [
+            { type: 'object', properties: { type: { const: 'text' }, content: { type: 'string' } }, required: ['type', 'content'] },
+            { type: 'object', properties: { type: { const: 'card' }, title: { type: 'string' }, body: { type: 'string' }, imageUrl: { type: 'string' }, actions: { type: 'array', items: { $ref: '#/components/schemas/Action' } } }, required: ['type', 'title'] },
+            { type: 'object', properties: { type: { const: 'action' }, actions: { type: 'array', items: { $ref: '#/components/schemas/Action' } } }, required: ['type', 'actions'] },
+            { type: 'object', properties: { type: { const: 'suggested_replies' }, replies: { type: 'array', items: { type: 'string' } } }, required: ['type', 'replies'] },
+            { type: 'object', properties: { type: { const: 'table' }, columns: { type: 'array', items: { $ref: '#/components/schemas/TableColumn' } }, rows: { type: 'array', items: { type: 'object' } } }, required: ['type', 'columns', 'rows'] },
+            { type: 'object', properties: { type: { const: 'image' }, url: { type: 'string' }, alt: { type: 'string' } }, required: ['type', 'url'] },
+            { type: 'object', properties: { type: { const: 'code' }, code: { type: 'string' }, language: { type: 'string' } }, required: ['type', 'code'] },
+            { type: 'object', properties: { type: { const: 'form' }, id: { type: 'string' }, title: { type: 'string' }, fields: { type: 'array', items: { $ref: '#/components/schemas/FormField' } }, submitLabel: { type: 'string' } }, required: ['type', 'id', 'fields'] },
+            { type: 'object', properties: { type: { const: 'progress' }, label: { type: 'string' }, value: { type: 'number' }, max: { type: 'number' } }, required: ['type', 'label'] },
+            { type: 'object', properties: { type: { type: 'string', pattern: '^custom:.+' }, data: {} }, required: ['type', 'data'] },
+          ],
+          discriminator: { propertyName: 'type' },
         },
         Error: {
           type: 'object',

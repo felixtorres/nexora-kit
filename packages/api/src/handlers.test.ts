@@ -64,7 +64,7 @@ describe('createChatHandler', () => {
       input: { type: 'text', text: 'Hi there' },
       teamId: 'team1',
       userId: 'user1',
-    }));
+    }), undefined);
   });
 
   it('generates conversationId when not provided', async () => {
@@ -206,5 +206,61 @@ describe('createHealthHandler', () => {
     const handler = createHealthHandler({ agentLoop: {} as any });
     const res = await handler(makeReq({ auth: undefined }));
     expect(res.status).toBe(200);
+  });
+});
+
+describe('blocks in responses', () => {
+  it('includes blocks in sendMessage response', async () => {
+    const agentLoop = makeMockAgentLoop([
+      { type: 'text', content: 'Here is your order' },
+      { type: 'blocks', blocks: [{ type: 'card', title: 'Order #1' }] },
+      { type: 'done' },
+    ]);
+
+    const { createSendMessageHandler } = await import('./handlers.js');
+    const handler = createSendMessageHandler({ agentLoop } as unknown as HandlerDeps);
+    const res = await handler(makeReq({
+      method: 'POST',
+      params: { id: 'conv-1' },
+      body: { input: 'show order' },
+    }));
+
+    const body = res.body as any;
+    expect(body.message).toBe('Here is your order');
+    expect(body.blocks).toHaveLength(1);
+    expect(body.blocks[0].type).toBe('card');
+  });
+
+  it('omits blocks field when no blocks events', async () => {
+    const agentLoop = makeMockAgentLoop([
+      { type: 'text', content: 'Just text' },
+      { type: 'done' },
+    ]);
+
+    const handler = createChatHandler({ agentLoop } as unknown as HandlerDeps);
+    const res = await handler(makeReq({
+      method: 'POST',
+      body: { input: 'Hello' },
+    }));
+
+    const body = res.body as any;
+    expect(body.message).toBe('Just text');
+    expect(body.blocks).toBeUndefined();
+  });
+
+  it('includes blocks in legacy chat response', async () => {
+    const agentLoop = makeMockAgentLoop([
+      { type: 'blocks', blocks: [{ type: 'text', content: 'Block text' }] },
+      { type: 'done' },
+    ]);
+
+    const handler = createChatHandler({ agentLoop } as unknown as HandlerDeps);
+    const res = await handler(makeReq({
+      method: 'POST',
+      body: { input: 'Hi' },
+    }));
+
+    const body = res.body as any;
+    expect(body.blocks).toHaveLength(1);
   });
 });

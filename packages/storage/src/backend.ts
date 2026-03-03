@@ -1,5 +1,5 @@
 import type { MessageStore } from '@nexora-kit/core';
-import type { IConversationStore, IConfigStore, IPluginStateStore, ITokenUsageStore, IUsageEventStore, IAuditEventStore } from './interfaces.js';
+import type { IConversationStore, IConfigStore, IPluginStateStore, ITokenUsageStore, IUsageEventStore, IAuditEventStore, IBotStore, IAgentStore, IAgentBotBindingStore, IEndUserStore } from './interfaces.js';
 
 export type StorageBackendConfig =
   | { type: 'sqlite'; path: string; walMode?: boolean }
@@ -13,6 +13,10 @@ export interface StorageBackend {
   tokenUsageStore: ITokenUsageStore;
   usageEventStore: IUsageEventStore;
   auditEventStore: IAuditEventStore;
+  botStore: IBotStore;
+  agentStore: IAgentStore;
+  agentBotBindingStore: IAgentBotBindingStore;
+  endUserStore: IEndUserStore;
   close(): Promise<void>;
 }
 
@@ -36,6 +40,10 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
   const { SqliteTokenUsageStore } = await import('./token-usage-store.js');
   const { SqliteUsageEventStore } = await import('./usage-event-store.js');
   const { SqliteAuditEventStore } = await import('./audit-event-store.js');
+  const { SqliteBotStore } = await import('./bot-store.js');
+  const { SqliteAgentStore } = await import('./agent-store.js');
+  const { SqliteAgentBotBindingStore } = await import('./agent-bot-binding-store.js');
+  const { SqliteEndUserStore } = await import('./end-user-store.js');
 
   const storage = new StorageDatabase({ path: config.path, walMode: config.walMode });
   initSchema(storage.db);
@@ -48,6 +56,10 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
     tokenUsageStore: new SqliteTokenUsageStore(storage.db),
     usageEventStore: new SqliteUsageEventStore(storage.db),
     auditEventStore: new SqliteAuditEventStore(storage.db),
+    botStore: new SqliteBotStore(storage.db),
+    agentStore: new SqliteAgentStore(storage.db),
+    agentBotBindingStore: new SqliteAgentBotBindingStore(storage.db),
+    endUserStore: new SqliteEndUserStore(storage.db),
     async close() {
       storage.close();
     },
@@ -81,6 +93,10 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
   const { PgTokenUsageStore } = await import('./postgres/pg-token-usage-store.js');
   const { PgUsageEventStore } = await import('./postgres/pg-usage-event-store.js');
   const { PgAuditEventStore } = await import('./postgres/pg-audit-event-store.js');
+  const { PgBotStore } = await import('./postgres/pg-bot-store.js');
+  const { PgAgentStore } = await import('./postgres/pg-agent-store.js');
+  const { PgAgentBotBindingStore } = await import('./postgres/pg-agent-bot-binding-store.js');
+  const { PgEndUserStore } = await import('./postgres/pg-end-user-store.js');
 
   return {
     messageStore: new PgMessageStore(pool),
@@ -90,6 +106,10 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
     tokenUsageStore: new PgTokenUsageStore(pool),
     usageEventStore: new PgUsageEventStore(pool),
     auditEventStore: new PgAuditEventStore(pool),
+    botStore: new PgBotStore(pool),
+    agentStore: new PgAgentStore(pool),
+    agentBotBindingStore: new PgAgentBotBindingStore(pool),
+    endUserStore: new PgEndUserStore(pool),
     async close() {
       await pool.end();
     },

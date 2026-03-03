@@ -48,4 +48,22 @@ describe('buildOpenApiSpec', () => {
     expect(schemas.HealthResponse).toBeDefined();
     expect(schemas.Error).toBeDefined();
   });
+
+  it('includes ResponseBlock schema with all block types', () => {
+    const spec = buildOpenApiSpec();
+    const schemas = (spec.components as any).schemas;
+    expect(schemas.ResponseBlock).toBeDefined();
+    expect(schemas.ResponseBlock.oneOf).toHaveLength(10); // 9 standard + custom
+    expect(schemas.Action).toBeDefined();
+    expect(schemas.FormField).toBeDefined();
+    expect(schemas.TableColumn).toBeDefined();
+  });
+
+  it('MessageResponse includes optional blocks field', () => {
+    const spec = buildOpenApiSpec();
+    const schemas = (spec.components as any).schemas;
+    const messageResponse = schemas.MessageResponse;
+    expect(messageResponse.properties.blocks).toBeDefined();
+    expect(messageResponse.properties.blocks.items.$ref).toContain('ResponseBlock');
+  });
 });

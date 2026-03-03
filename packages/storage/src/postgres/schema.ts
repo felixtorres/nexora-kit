@@ -87,37 +87,46 @@ export const PG_TABLES = [
     id TEXT PRIMARY KEY,
     team_id TEXT NOT NULL,
     name TEXT NOT NULL,
-    description TEXT,
-    system_prompt TEXT,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL,
     plugin_namespaces JSONB NOT NULL DEFAULT '[]',
-    model TEXT,
-    config JSONB NOT NULL DEFAULT '{}',
+    model TEXT NOT NULL,
+    temperature REAL,
+    max_turns INTEGER,
+    workspace_id TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(team_id, name)
   )`,
 
   `CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY,
     team_id TEXT NOT NULL,
-    slug TEXT NOT NULL UNIQUE,
+    slug TEXT NOT NULL,
     name TEXT NOT NULL,
-    description TEXT,
+    description TEXT NOT NULL DEFAULT '',
     orchestration_strategy TEXT NOT NULL DEFAULT 'single',
     orchestrator_model TEXT,
     orchestrator_prompt TEXT,
+    bot_id TEXT,
+    fallback_bot_id TEXT,
     appearance JSONB NOT NULL DEFAULT '{}',
-    auth_config JSONB NOT NULL DEFAULT '{}',
-    rate_limit_config JSONB NOT NULL DEFAULT '{}',
+    end_user_auth JSONB NOT NULL DEFAULT '{}',
+    rate_limits JSONB NOT NULL DEFAULT '{}',
+    features JSONB NOT NULL DEFAULT '{}',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(team_id, slug)
   )`,
 
   `CREATE TABLE IF NOT EXISTS agent_bot_bindings (
     agent_id TEXT NOT NULL,
     bot_id TEXT NOT NULL,
     priority INTEGER NOT NULL DEFAULT 0,
-    config JSONB NOT NULL DEFAULT '{}',
+    description TEXT NOT NULL DEFAULT '',
+    keywords JSONB NOT NULL DEFAULT '[]',
     PRIMARY KEY (agent_id, bot_id)
   )`,
 
@@ -127,19 +136,26 @@ export const PG_TABLES = [
     external_id TEXT,
     display_name TEXT,
     metadata JSONB NOT NULL DEFAULT '{}',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ
   )`,
+
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_end_users_agent_external
+    ON end_users(agent_id, external_id) WHERE external_id IS NOT NULL`,
 
   `CREATE TABLE IF NOT EXISTS artifacts (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     title TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'document',
+    language TEXT,
     current_version INTEGER NOT NULL DEFAULT 1,
     metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_artifacts_conversation ON artifacts(conversation_id)`,
 
   `CREATE TABLE IF NOT EXISTS artifact_versions (
     artifact_id TEXT NOT NULL,
@@ -153,12 +169,16 @@ export const PG_TABLES = [
     id TEXT PRIMARY KEY,
     team_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     system_prompt TEXT,
     plugin_namespaces JSONB NOT NULL DEFAULT '[]',
     model TEXT,
+    temperature REAL,
+    max_turns INTEGER,
     metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(team_id, name)
   )`,
 
   `CREATE TABLE IF NOT EXISTS workspaces (
@@ -166,6 +186,7 @@ export const PG_TABLES = [
     team_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
+    system_prompt TEXT,
     metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -176,32 +197,47 @@ export const PG_TABLES = [
     workspace_id TEXT NOT NULL,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    token_count INTEGER NOT NULL DEFAULT 0,
     metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 
   `CREATE TABLE IF NOT EXISTS feedback (
-    id SERIAL PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     message_seq INTEGER NOT NULL,
     user_id TEXT NOT NULL,
-    bot_id TEXT,
-    rating INTEGER NOT NULL,
+    rating TEXT NOT NULL CHECK (rating IN ('positive', 'negative')),
     comment TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    tags JSONB NOT NULL DEFAULT '[]',
+    plugin_namespace TEXT,
+    model TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(conversation_id, message_seq, user_id)
   )`,
 
+  `CREATE INDEX IF NOT EXISTS idx_feedback_conversation ON feedback(conversation_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_feedback_plugin ON feedback(plugin_namespace)`,
+  `CREATE INDEX IF NOT EXISTS idx_feedback_rating ON feedback(rating, created_at)`,
+
   `CREATE TABLE IF NOT EXISTS user_memory (
-    id SERIAL PRIMARY KEY,
     user_id TEXT NOT NULL,
-    namespace TEXT NOT NULL DEFAULT '',
-    bot_id TEXT,
+    agent_id TEXT NOT NULL DEFAULT '',
     key TEXT NOT NULL,
     value TEXT NOT NULL,
+    namespace TEXT NOT NULL DEFAULT 'global',
+    source TEXT NOT NULL DEFAULT 'plugin',
+    plugin_namespace TEXT,
+    confidence REAL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, agent_id, key)
   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_user_memory_user ON user_memory(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_user_memory_agent ON user_memory(agent_id)`,
 
   `CREATE TABLE IF NOT EXISTS files (
     id TEXT PRIMARY KEY,

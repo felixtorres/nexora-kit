@@ -362,7 +362,7 @@ describe('createSendMessageHandler', () => {
       input: { type: 'text', text: 'Hi there' },
       teamId: 'team-1',
       userId: 'user-1',
-    }));
+    }), undefined);
   });
 
   it('returns 404 for nonexistent conversation', async () => {

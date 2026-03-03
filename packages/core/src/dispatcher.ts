@@ -1,6 +1,12 @@
-import type { Permission, ToolCall, ToolDefinition, ToolResult } from './types.js';
+import type { ArtifactOperation, Permission, ResponseBlock, ToolCall, ToolDefinition, ToolResult } from './types.js';
 
-export type ToolHandler = (input: Record<string, unknown>) => Promise<string>;
+export interface ToolHandlerResponse {
+  content: string;
+  blocks?: ResponseBlock[];
+  artifacts?: ArtifactOperation[];
+}
+
+export type ToolHandler = (input: Record<string, unknown>) => Promise<string | ToolHandlerResponse>;
 
 export interface PermissionChecker {
   check(pluginNamespace: string, permission: Permission): boolean;
@@ -64,8 +70,11 @@ export class ToolDispatcher {
     }
 
     try {
-      const content = await tool.handler(toolCall.input);
-      return { toolUseId: toolCall.id, content };
+      const raw = await tool.handler(toolCall.input);
+      if (typeof raw === 'string') {
+        return { toolUseId: toolCall.id, content: raw };
+      }
+      return { toolUseId: toolCall.id, content: raw.content, blocks: raw.blocks, artifacts: raw.artifacts };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

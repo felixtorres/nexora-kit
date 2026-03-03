@@ -165,3 +165,76 @@ describe('ToolDispatcher permission checks', () => {
     expect(result.isError).toBeUndefined();
   });
 });
+
+describe('ToolDispatcher structured responses', () => {
+  let dispatcher: ToolDispatcher;
+
+  beforeEach(() => {
+    dispatcher = new ToolDispatcher();
+  });
+
+  it('passes through blocks from ToolHandlerResponse', async () => {
+    dispatcher.register(
+      { name: 'card-tool', description: 'Returns card', parameters: { type: 'object', properties: {} } },
+      async () => ({
+        content: 'Here is a card',
+        blocks: [{ type: 'card' as const, title: 'Order #1' }],
+      }),
+    );
+
+    const result = await dispatcher.dispatch({ id: '1', name: 'card-tool', input: {} });
+    expect(result.content).toBe('Here is a card');
+    expect(result.blocks).toHaveLength(1);
+    expect(result.blocks![0].type).toBe('card');
+  });
+
+  it('handles string return (backward compat)', async () => {
+    dispatcher.register(
+      { name: 'text-tool', description: 'Returns string', parameters: { type: 'object', properties: {} } },
+      async () => 'plain text',
+    );
+
+    const result = await dispatcher.dispatch({ id: '1', name: 'text-tool', input: {} });
+    expect(result.content).toBe('plain text');
+    expect(result.blocks).toBeUndefined();
+  });
+
+  it('returns ToolHandlerResponse without blocks', async () => {
+    dispatcher.register(
+      { name: 'no-blocks', description: 'Structured but no blocks', parameters: { type: 'object', properties: {} } },
+      async () => ({ content: 'just content' }),
+    );
+
+    const result = await dispatcher.dispatch({ id: '1', name: 'no-blocks', input: {} });
+    expect(result.content).toBe('just content');
+    expect(result.blocks).toBeUndefined();
+  });
+
+  it('catches errors from structured handler', async () => {
+    dispatcher.register(
+      { name: 'fail', description: 'Fails', parameters: { type: 'object', properties: {} } },
+      async () => { throw new Error('structured fail'); },
+    );
+
+    const result = await dispatcher.dispatch({ id: '1', name: 'fail', input: {} });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('structured fail');
+  });
+
+  it('passes multiple blocks', async () => {
+    dispatcher.register(
+      { name: 'multi', description: 'Multi block', parameters: { type: 'object', properties: {} } },
+      async () => ({
+        content: '',
+        blocks: [
+          { type: 'text' as const, content: 'First' },
+          { type: 'text' as const, content: 'Second' },
+          { type: 'progress' as const, label: 'Loading' },
+        ],
+      }),
+    );
+
+    const result = await dispatcher.dispatch({ id: '1', name: 'multi', input: {} });
+    expect(result.blocks).toHaveLength(3);
+  });
+});

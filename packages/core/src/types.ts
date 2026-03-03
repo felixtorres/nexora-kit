@@ -57,20 +57,113 @@ export interface Message {
   content: string | MessageContent[];
 }
 
-// --- Response Blocks (F3 placeholder) ---
+// --- Response Blocks ---
 
-export interface ResponseBlock {
-  type: string;
-  [key: string]: unknown;
+export interface Action {
+  id: string;
+  label: string;
+  style?: 'primary' | 'secondary' | 'danger';
+  payload?: Record<string, unknown>;
 }
 
-// --- Artifacts (F7 placeholder) ---
+export interface FormField {
+  name: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'checkbox' | 'textarea';
+  required?: boolean;
+  options?: string[];
+  default?: unknown;
+}
+
+export interface TableColumn {
+  key: string;
+  label: string;
+}
+
+export interface TextBlock {
+  type: 'text';
+  content: string;
+}
+
+export interface CardBlock {
+  type: 'card';
+  title: string;
+  body?: string;
+  imageUrl?: string;
+  actions?: Action[];
+}
+
+export interface ActionBlock {
+  type: 'action';
+  actions: Action[];
+}
+
+export interface SuggestedRepliesBlock {
+  type: 'suggested_replies';
+  replies: string[];
+}
+
+export interface TableBlock {
+  type: 'table';
+  columns: TableColumn[];
+  rows: Record<string, unknown>[];
+}
+
+export interface ImageBlock {
+  type: 'image';
+  url: string;
+  alt?: string;
+}
+
+export interface CodeBlock {
+  type: 'code';
+  code: string;
+  language?: string;
+}
+
+export interface FormBlock {
+  type: 'form';
+  id: string;
+  title?: string;
+  fields: FormField[];
+  submitLabel?: string;
+}
+
+export interface ProgressBlock {
+  type: 'progress';
+  label: string;
+  value?: number;
+  max?: number;
+}
+
+export interface CustomBlock {
+  type: `custom:${string}`;
+  data: unknown;
+}
+
+export type ResponseBlock =
+  | TextBlock
+  | CardBlock
+  | ActionBlock
+  | SuggestedRepliesBlock
+  | TableBlock
+  | ImageBlock
+  | CodeBlock
+  | FormBlock
+  | ProgressBlock
+  | CustomBlock;
+
+// --- Artifacts ---
+
+export type ArtifactType = 'code' | 'document' | 'diagram' | 'data' | 'image';
 
 export interface ArtifactOperation {
   type: 'create' | 'update';
   artifactId: string;
   title?: string;
   content?: string;
+  artifactType?: ArtifactType;
+  language?: string;
 }
 
 // --- Tools ---
@@ -105,6 +198,8 @@ export interface ToolResult {
   toolUseId: string;
   content: string;
   isError?: boolean;
+  blocks?: ResponseBlock[];
+  artifacts?: ArtifactOperation[];
 }
 
 // --- Conversations (was Sessions) ---
@@ -166,6 +261,8 @@ export interface ChatRequest {
   userId: string;
   pluginNamespaces?: string[];
   metadata?: Record<string, unknown>;
+  systemPrompt?: string;
+  model?: string;
 }
 
 export type ChatEvent =
@@ -181,6 +278,102 @@ export type ChatEvent =
   | { type: 'artifact_update'; artifactId: string; title?: string; content?: string }
   | { type: 'artifact_done'; artifactId: string }
   | { type: 'cancelled' };
+
+// --- Bots ---
+
+export interface Bot {
+  id: string;
+  teamId: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  pluginNamespaces: string[];
+  model: string;
+  temperature?: number;
+  maxTurns?: number;
+  workspaceId?: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BotResponse {
+  botId: string;
+  botName: string;
+  content: string;
+  tokensUsed?: number;
+  durationMs?: number;
+}
+
+// --- Agents ---
+
+export type OrchestrationStrategy = 'single' | 'orchestrate' | 'route';
+
+export interface AgentAppearance {
+  displayName?: string;
+  avatarUrl?: string;
+  description?: string;
+  welcomeMessage?: string;
+  placeholder?: string;
+}
+
+export interface EndUserAuthConfig {
+  mode?: 'anonymous' | 'token' | 'jwt';
+  jwtSecret?: string;
+  tokenPrefix?: string;
+}
+
+export interface AgentRateLimits {
+  messagesPerMinute?: number;
+  conversationsPerDay?: number;
+}
+
+export interface AgentFeatures {
+  artifacts?: boolean;
+  fileUpload?: boolean;
+  feedback?: boolean;
+  memory?: boolean;
+}
+
+export interface Agent {
+  id: string;
+  teamId: string;
+  slug: string;
+  name: string;
+  description: string;
+  orchestrationStrategy: OrchestrationStrategy;
+  orchestratorModel?: string;
+  orchestratorPrompt?: string;
+  botId?: string;
+  fallbackBotId?: string;
+  appearance: AgentAppearance;
+  endUserAuth: EndUserAuthConfig;
+  rateLimits: AgentRateLimits;
+  features: AgentFeatures;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentBotBinding {
+  agentId: string;
+  botId: string;
+  priority: number;
+  description: string;
+  keywords: string[];
+}
+
+// --- End Users ---
+
+export interface EndUser {
+  id: string;
+  agentId: string;
+  externalId: string | null;
+  displayName: string | null;
+  metadata: Record<string, unknown>;
+  firstSeenAt: string;
+  lastSeenAt: string | null;
+}
 
 // --- Permissions ---
 

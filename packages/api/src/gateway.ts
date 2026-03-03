@@ -26,6 +26,83 @@ import {
   createAdminUsageHandler,
   createAdminAuditPurgeHandler,
 } from './admin-handlers.js';
+import {
+  createBotCreateHandler,
+  createBotListHandler,
+  createBotGetHandler,
+  createBotUpdateHandler,
+  createBotDeleteHandler,
+  createAgentCreateHandler,
+  createAgentListHandler,
+  createAgentGetHandler,
+  createAgentUpdateHandler,
+  createAgentDeleteHandler,
+  createReplaceBindingsHandler,
+  createEndUserListHandler,
+  type BotAgentAdminDeps,
+} from './bot-agent-admin-handlers.js';
+import {
+  createListMemoryHandler,
+  createDeleteMemoryFactHandler,
+  createDeleteAllMemoryHandler,
+  type UserMemoryHandlerDeps,
+} from './user-memory-handlers.js';
+import {
+  createTemplateCreateHandler,
+  createTemplateListHandler,
+  createTemplateGetHandler,
+  createTemplateUpdateHandler,
+  createTemplateDeleteHandler,
+  type TemplateHandlerDeps,
+} from './template-handlers.js';
+import {
+  createSubmitFeedbackHandler,
+  createAdminFeedbackQueryHandler,
+  createAdminFeedbackSummaryHandler,
+  type FeedbackHandlerDeps,
+} from './feedback-handlers.js';
+import {
+  createEditMessageHandler,
+  createRegenerateMessageHandler,
+  type MessageEditDeps,
+} from './message-handlers.js';
+import {
+  createWorkspaceCreateHandler,
+  createWorkspaceListHandler,
+  createWorkspaceGetHandler,
+  createWorkspaceUpdateHandler,
+  createWorkspaceDeleteHandler,
+  createDocumentCreateHandler,
+  createDocumentListHandler,
+  createDocumentUpdateHandler,
+  createDocumentDeleteHandler,
+  type WorkspaceHandlerDeps,
+} from './workspace-handlers.js';
+import {
+  createFileUploadHandler,
+  createFileGetHandler,
+  createFileDownloadHandler,
+  createFileDeleteHandler,
+  createConversationFilesHandler,
+  type FileHandlerDeps,
+  type FileBackend,
+} from './file-handlers.js';
+import {
+  createAgentAppearanceHandler,
+  createClientConversationCreateHandler,
+  createClientConversationListHandler,
+  createClientConversationGetHandler,
+  createClientSendMessageHandler,
+  type ClientHandlerDeps,
+} from './client-handlers.js';
+import {
+  createListArtifactsHandler,
+  createGetArtifactHandler,
+  createListArtifactVersionsHandler,
+  createGetArtifactVersionHandler,
+  createDeleteArtifactHandler,
+  type ArtifactHandlerDeps,
+} from './artifact-handlers.js';
 import { MetricsCollector } from './metrics.js';
 import { buildOpenApiSpec } from './openapi.js';
 
@@ -61,6 +138,89 @@ export class Gateway {
     this.router.add('DELETE', `${prefix}/conversations/:id`, createConversationDeleteHandler(deps));
     this.router.post(`${prefix}/conversations/:id/messages`, createSendMessageHandler(deps));
 
+    // Message edit/regenerate endpoints (require conversationStore + messageStore)
+    if (config.conversationStore && config.messageStore) {
+      const msgEditDeps: MessageEditDeps = {
+        agentLoop: config.agentLoop,
+        conversationStore: config.conversationStore,
+        messageStore: config.messageStore,
+        feedbackStore: config.feedbackStore,
+      };
+      this.router.add('PUT', `${prefix}/conversations/:id/messages/:seq`, createEditMessageHandler(msgEditDeps));
+      this.router.post(`${prefix}/conversations/:id/messages/:seq/regenerate`, createRegenerateMessageHandler(msgEditDeps));
+    }
+
+    // Feedback endpoints
+    if (config.feedbackStore) {
+      const fbDeps: FeedbackHandlerDeps = { feedbackStore: config.feedbackStore };
+      this.router.post(`${prefix}/conversations/:id/messages/:seq/feedback`, createSubmitFeedbackHandler(fbDeps));
+      this.router.get(`${prefix}/admin/feedback`, createAdminFeedbackQueryHandler(fbDeps));
+      this.router.get(`${prefix}/admin/feedback/summary`, createAdminFeedbackSummaryHandler(fbDeps));
+    }
+
+    // User memory endpoints
+    if (config.userMemoryStore) {
+      const umDeps: UserMemoryHandlerDeps = { userMemoryStore: config.userMemoryStore };
+      this.router.get(`${prefix}/me/memory`, createListMemoryHandler(umDeps));
+      this.router.add('DELETE', `${prefix}/me/memory/:key`, createDeleteMemoryFactHandler(umDeps));
+      this.router.add('DELETE', `${prefix}/me/memory`, createDeleteAllMemoryHandler(umDeps));
+    }
+
+    // File endpoints
+    if (config.fileStore && config.fileBackend) {
+      const fileDeps: FileHandlerDeps = {
+        fileStore: config.fileStore,
+        conversationStore: config.conversationStore,
+        fileBasePath: config.fileBasePath ?? 'data/files',
+        maxFileSize: config.maxFileSize,
+        allowedMimeTypes: config.allowedMimeTypes,
+      };
+      this.router.post(`${prefix}/files`, createFileUploadHandler(fileDeps, config.fileBackend));
+      this.router.get(`${prefix}/files/:id`, createFileGetHandler(fileDeps));
+      this.router.get(`${prefix}/files/:id/content`, createFileDownloadHandler(fileDeps, config.fileBackend));
+      this.router.add('DELETE', `${prefix}/files/:id`, createFileDeleteHandler(fileDeps, config.fileBackend));
+      this.router.get(`${prefix}/conversations/:id/files`, createConversationFilesHandler(fileDeps));
+    }
+
+    // Workspace endpoints
+    if (config.workspaceStore && config.contextDocumentStore) {
+      const wsDeps: WorkspaceHandlerDeps = {
+        workspaceStore: config.workspaceStore,
+        contextDocumentStore: config.contextDocumentStore,
+      };
+      this.router.post(`${prefix}/admin/workspaces`, createWorkspaceCreateHandler(wsDeps));
+      this.router.get(`${prefix}/workspaces`, createWorkspaceListHandler(wsDeps));
+      this.router.get(`${prefix}/workspaces/:id`, createWorkspaceGetHandler(wsDeps));
+      this.router.add('PATCH', `${prefix}/admin/workspaces/:id`, createWorkspaceUpdateHandler(wsDeps));
+      this.router.add('DELETE', `${prefix}/admin/workspaces/:id`, createWorkspaceDeleteHandler(wsDeps));
+      this.router.post(`${prefix}/workspaces/:id/documents`, createDocumentCreateHandler(wsDeps));
+      this.router.get(`${prefix}/workspaces/:id/documents`, createDocumentListHandler(wsDeps));
+      this.router.add('PATCH', `${prefix}/workspaces/:id/documents/:docId`, createDocumentUpdateHandler(wsDeps));
+      this.router.add('DELETE', `${prefix}/workspaces/:id/documents/:docId`, createDocumentDeleteHandler(wsDeps));
+    }
+
+    if (config.templateStore) {
+      const tplDeps: TemplateHandlerDeps = { templateStore: config.templateStore };
+      this.router.post(`${prefix}/admin/templates`, createTemplateCreateHandler(tplDeps));
+      this.router.get(`${prefix}/templates`, createTemplateListHandler(tplDeps));
+      this.router.get(`${prefix}/templates/:id`, createTemplateGetHandler(tplDeps));
+      this.router.add('PATCH', `${prefix}/admin/templates/:id`, createTemplateUpdateHandler(tplDeps));
+      this.router.add('DELETE', `${prefix}/admin/templates/:id`, createTemplateDeleteHandler(tplDeps));
+    }
+
+    // Artifact endpoints
+    if (config.artifactStore) {
+      const artDeps: ArtifactHandlerDeps = {
+        artifactStore: config.artifactStore,
+        conversationStore: config.conversationStore,
+      };
+      this.router.get(`${prefix}/conversations/:id/artifacts`, createListArtifactsHandler(artDeps));
+      this.router.get(`${prefix}/conversations/:id/artifacts/:artifactId`, createGetArtifactHandler(artDeps));
+      this.router.get(`${prefix}/conversations/:id/artifacts/:artifactId/versions`, createListArtifactVersionsHandler(artDeps));
+      this.router.get(`${prefix}/conversations/:id/artifacts/:artifactId/versions/:version`, createGetArtifactVersionHandler(artDeps));
+      this.router.add('DELETE', `${prefix}/conversations/:id/artifacts/:artifactId`, createDeleteArtifactHandler(artDeps));
+    }
+
     // Legacy chat endpoint
     this.router.post(`${prefix}/chat`, createChatHandler(deps));
 
@@ -78,6 +238,48 @@ export class Gateway {
       this.router.get(`${prefix}/admin/audit-log`, createAdminAuditLogHandler(config.admin));
       this.router.post(`${prefix}/admin/audit-log/purge`, createAdminAuditPurgeHandler(config.admin));
       this.router.get(`${prefix}/admin/usage`, createAdminUsageHandler(config.admin));
+    }
+
+    // Bot & Agent admin routes
+    if (config.botStore && config.agentStore && config.agentBotBindingStore && config.endUserStore) {
+      const baDeps: BotAgentAdminDeps = {
+        botStore: config.botStore,
+        agentStore: config.agentStore,
+        agentBotBindingStore: config.agentBotBindingStore,
+        endUserStore: config.endUserStore,
+      };
+
+      this.router.post(`${prefix}/admin/bots`, createBotCreateHandler(baDeps));
+      this.router.get(`${prefix}/admin/bots`, createBotListHandler(baDeps));
+      this.router.get(`${prefix}/admin/bots/:id`, createBotGetHandler(baDeps));
+      this.router.add('PATCH', `${prefix}/admin/bots/:id`, createBotUpdateHandler(baDeps));
+      this.router.add('DELETE', `${prefix}/admin/bots/:id`, createBotDeleteHandler(baDeps));
+
+      this.router.post(`${prefix}/admin/agents`, createAgentCreateHandler(baDeps));
+      this.router.get(`${prefix}/admin/agents`, createAgentListHandler(baDeps));
+      this.router.get(`${prefix}/admin/agents/:id`, createAgentGetHandler(baDeps));
+      this.router.add('PATCH', `${prefix}/admin/agents/:id`, createAgentUpdateHandler(baDeps));
+      this.router.add('DELETE', `${prefix}/admin/agents/:id`, createAgentDeleteHandler(baDeps));
+      this.router.add('PUT', `${prefix}/admin/agents/:id/bindings`, createReplaceBindingsHandler(baDeps));
+      this.router.get(`${prefix}/admin/agents/:id/end-users`, createEndUserListHandler(baDeps));
+
+      // Client API routes (if conversationStore + messageStore also available)
+      if (config.conversationStore && config.messageStore) {
+        const clientDeps: ClientHandlerDeps = {
+          agentStore: config.agentStore,
+          agentBotBindingStore: config.agentBotBindingStore,
+          endUserStore: config.endUserStore,
+          conversationStore: config.conversationStore,
+          messageStore: config.messageStore,
+          agentLoop: config.agentLoop,
+        };
+
+        this.router.get(`${prefix}/agents/:slug`, createAgentAppearanceHandler(clientDeps));
+        this.router.post(`${prefix}/agents/:slug/conversations`, createClientConversationCreateHandler(clientDeps));
+        this.router.get(`${prefix}/agents/:slug/conversations`, createClientConversationListHandler(clientDeps));
+        this.router.get(`${prefix}/agents/:slug/conversations/:id`, createClientConversationGetHandler(clientDeps));
+        this.router.post(`${prefix}/agents/:slug/conversations/:id/messages`, createClientSendMessageHandler(clientDeps));
+      }
     }
 
     // Rate limiter
@@ -149,6 +351,18 @@ export class Gateway {
     return { host: addr.address, port: addr.port };
   }
 
+  private async resolveAgentBySlug(slug: string): Promise<{ id: string; teamId: string } | null> {
+    const store = this.config.agentStore;
+    if (!store) return null;
+
+    if (store.getBySlugGlobal) {
+      const agent = await store.getBySlugGlobal(slug);
+      return agent ? { id: agent.id, teamId: agent.teamId } : null;
+    }
+
+    return null;
+  }
+
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const requestStart = Date.now();
 
@@ -161,7 +375,7 @@ export class Gateway {
     const corsOrigin = resolveCorsOrigin(this.config, req);
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id, X-End-User-Id');
     if (this.config.allowedOrigins && this.config.allowedOrigins.length > 0) {
       res.setHeader('Vary', 'Origin');
     }
@@ -183,12 +397,14 @@ export class Gateway {
     }
 
     // Auth — skip for health; skip for metrics only if publicMetrics is true
+    // Client API routes (/v1/agents/:slug/*) handle their own end-user auth
     let auth: AuthIdentity | undefined;
     const prefix = this.config.apiPrefix ?? '/v1';
     const isHealthEndpoint = url.pathname === `${prefix}/health`;
     const isMetricsEndpoint = url.pathname === `${prefix}/metrics`;
     const isOpenApiEndpoint = url.pathname === `${prefix}/openapi.json`;
-    const isPublicEndpoint = isHealthEndpoint || isOpenApiEndpoint || (isMetricsEndpoint && (this.config.publicMetrics ?? false));
+    const isClientApiRoute = url.pathname.startsWith(`${prefix}/agents/`) && !url.pathname.startsWith(`${prefix}/admin/`);
+    const isPublicEndpoint = isHealthEndpoint || isOpenApiEndpoint || isClientApiRoute || (isMetricsEndpoint && (this.config.publicMetrics ?? false));
     if (!isPublicEndpoint) {
       auth = (await this.config.auth.authenticate({
         method,
@@ -222,6 +438,21 @@ export class Gateway {
     // Parse and handle
     try {
       const apiReq = await parseRequest(req, match.params, auth, this.config.maxBodyBytes);
+
+      // Wire client disconnect to AbortSignal for long-running requests
+      const ac = new AbortController();
+      req.socket.on('close', () => ac.abort());
+      apiReq.signal = ac.signal;
+
+      // For client API routes, resolve the agent by slug and inject into params
+      if (isClientApiRoute && match.params.slug && this.config.agentStore) {
+        const agent = await this.resolveAgentBySlug(match.params.slug);
+        if (agent) {
+          apiReq.params._agentId = agent.id;
+          apiReq.params._teamId = agent.teamId;
+        }
+      }
+
       const apiRes = await match.handler(apiReq);
       sendResponse(res, apiRes);
       this.metrics.recordRequest(method, apiRes.status, Date.now() - requestStart);
