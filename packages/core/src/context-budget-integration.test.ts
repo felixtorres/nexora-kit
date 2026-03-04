@@ -24,7 +24,7 @@ function createMockLlm(
 
 async function collectEvents(loop: AgentLoop, conversationId = 'test'): Promise<ChatEvent[]> {
   const events: ChatEvent[] = [];
-  for await (const event of loop.run({ conversationId, input: { type: 'text', text: 'Hello' } })) {
+  for await (const event of loop.run({ conversationId, input: { type: 'text', text: 'Hello' }, teamId: 't', userId: 'u' })) {
     events.push(event);
   }
   return events;
