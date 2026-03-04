@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, readFile, writeFile, mkdir, access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pluginInitCommand, pluginValidateCommand, pluginAddCommand } from './cmd-plugin.js';
 
@@ -209,6 +209,162 @@ sandbox:
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await pluginAddCommand.run({ positionals: [], flags: {} });
     expect(process.exitCode).toBe(1);
+    spy.mockRestore();
+  });
+
+  it('downloads and installs a plugin from a GitHub URL', async () => {
+    // Build a valid plugin ZIP in memory
+    const { zipSync } = await import('fflate');
+    const pluginYaml = `name: url-plugin\nversion: 1.0.0\nnamespace: url-plugin\npermissions: []\nsandbox:\n  tier: basic\n`;
+    const zipData = zipSync({ 'url-plugin/plugin.yaml': Buffer.from(pluginYaml) });
+
+    // Stub global fetch to return the ZIP
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => zipData.buffer,
+    } as unknown as Response);
+
+    const pluginsDir = join(tempDir, 'plugins');
+    await pluginAddCommand.run({
+      positionals: ['https://github.com/ki-kyvos/kyvos-plugins'],
+      flags: { 'plugins-dir': pluginsDir },
+    });
+
+    // Verify it fetched the GitHub archive ZIP URL
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://github.com/ki-kyvos/kyvos-plugins/archive/refs/heads/main.zip',
+      expect.anything(),
+    );
+    await access(join(pluginsDir, 'url-plugin', 'plugin.yaml'));
+    fetchSpy.mockRestore();
+  });
+
+  it('downloads a plugin from a generic .zip URL', async () => {
+    const { zipSync } = await import('fflate');
+    const pluginYaml = `name: zip-plugin\nversion: 1.0.0\nnamespace: zip-plugin\npermissions: []\nsandbox:\n  tier: basic\n`;
+    const zipData = zipSync({ 'plugin.yaml': Buffer.from(pluginYaml) });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => zipData.buffer,
+    } as unknown as Response);
+
+    const pluginsDir = join(tempDir, 'plugins');
+    await pluginAddCommand.run({
+      positionals: ['https://example.com/plugin.zip'],
+      flags: { 'plugins-dir': pluginsDir },
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith('https://example.com/plugin.zip', expect.anything());
+    await access(join(pluginsDir, 'zip-plugin', 'plugin.yaml'));
+    fetchSpy.mockRestore();
+  });
+
+  it('reports error when URL download fails', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      arrayBuffer: async () => new ArrayBuffer(0),
+    } as unknown as Response);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await pluginAddCommand.run({
+      positionals: ['https://github.com/nobody/no-such-plugin'],
+      flags: { 'plugins-dir': join(tempDir, 'plugins') },
+    });
+
+    expect(process.exitCode).toBe(1);
+    fetchSpy.mockRestore();
+    spy.mockRestore();
+  });
+
+  it('installs an MCP-native plugin (GitHub ZIP with .mcp.json)', async () => {
+    const { zipSync } = await import('fflate');
+    const mcpJson = JSON.stringify({
+      mcpServers: { kyvos: { type: 'stdio', command: 'node', args: ['dist/index.js'] } },
+    });
+    const pkgJson = JSON.stringify({ name: '@ki-kyvos/kyvos-plugins', version: '2.1.0' });
+    const zipData = zipSync({
+      'kyvos-plugins/.mcp.json': Buffer.from(mcpJson),
+      'kyvos-plugins/package.json': Buffer.from(pkgJson),
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => zipData.buffer,
+    } as unknown as Response);
+
+    const pluginsDir = join(tempDir, 'plugins');
+    await pluginAddCommand.run({
+      positionals: ['https://github.com/ki-kyvos/kyvos-plugins'],
+      flags: { 'plugins-dir': pluginsDir },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    await access(join(pluginsDir, 'kyvos-plugins', '.mcp.json'));
+    fetchSpy.mockRestore();
+  });
+
+  it('installs plugin from a plugin repository (plugins in subdirectory)', async () => {
+    // Mirrors ki-kyvos/kyvos-plugins: root has no plugin format, actual plugin at plugins/kyvos/
+    const { zipSync } = await import('fflate');
+    const pluginJson = JSON.stringify({ name: 'kyvos', version: '1.0.0', description: 'Kyvos MCP' });
+    const mcpJson = JSON.stringify({
+      mcpServers: { kyvos: { type: 'sse', url: 'https://mcp.kyvos.ai/sse' } },
+    });
+    const zipData = zipSync({
+      // root-level marketplace metadata — NOT a plugin
+      'kyvos-plugins-main/.claude-plugin/marketplace.json': Buffer.from('{}'),
+      'kyvos-plugins-main/README.md': Buffer.from('# Kyvos Plugins'),
+      // actual plugin in subdirectory
+      'kyvos-plugins-main/plugins/kyvos/.claude-plugin/plugin.json': Buffer.from(pluginJson),
+      'kyvos-plugins-main/plugins/kyvos/.mcp.json': Buffer.from(mcpJson),
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => zipData.buffer,
+    } as unknown as Response);
+
+    const pluginsDir = join(tempDir, 'plugins');
+    await pluginAddCommand.run({
+      positionals: ['https://github.com/ki-kyvos/kyvos-plugins'],
+      flags: { 'plugins-dir': pluginsDir },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    await access(join(pluginsDir, 'kyvos', '.claude-plugin', 'plugin.json'));
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects ZIP entries with path traversal (Zip Slip)', async () => {
+    // Create a ZIP with a ../../../evil.txt entry using fflate
+    const { zipSync } = await import('fflate');
+    const malicious = zipSync({
+      '../../../evil.txt': new Uint8Array([0x41, 0x42]),
+    });
+    const zipPath = join(tempDir, 'malicious.zip');
+    await writeFile(zipPath, malicious);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await pluginAddCommand.run({
+      positionals: [zipPath],
+      flags: { 'plugins-dir': join(tempDir, 'plugins') },
+    });
+
+    expect(process.exitCode).toBe(1);
+    // Evil file should not exist outside the target directory
+    const evilPath = resolve(tempDir, '..', '..', '..', 'evil.txt');
+    await expect(access(evilPath)).rejects.toThrow();
     spy.mockRestore();
   });
 });

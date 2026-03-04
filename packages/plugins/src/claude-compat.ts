@@ -28,7 +28,98 @@ interface ClaudeMcpJson {
 }
 
 export function isClaudePlugin(dir: string): boolean {
-  return fs.existsSync(path.join(dir, '.claude-plugin'));
+  return fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'));
+}
+
+export function isMcpPlugin(dir: string): boolean {
+  return fs.existsSync(path.join(dir, '.mcp.json'));
+}
+
+export function loadMcpPlugin(pluginDir: string): LoadResult {
+  const errors: string[] = [];
+
+  const mcpJsonPath = path.join(pluginDir, '.mcp.json');
+  let mcpJson: ClaudeMcpJson;
+  try {
+    mcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      plugin: {
+        manifest: { name: '', version: '0.0.0', namespace: '', permissions: [], dependencies: [], sandbox: { tier: 'basic' } },
+        state: 'errored',
+        tools: [],
+        error: `Invalid .mcp.json: ${msg}`,
+      },
+      errors: [`Invalid .mcp.json: ${msg}`],
+      skillDefinitions: new Map(),
+      commandDefinitions: new Map(),
+      mcpServerConfigs: [],
+    };
+  }
+
+  // Derive name/version/description from package.json if available
+  let name = path.basename(pluginDir);
+  let version = '0.0.0';
+  let description: string | undefined;
+  const pkgPath = path.join(pluginDir, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as {
+        name?: string; version?: string; description?: string;
+      };
+      if (pkg.name) name = pkg.name.replace(/^@[^/]+\//, ''); // strip npm scope
+      if (pkg.version) version = pkg.version;
+      if (pkg.description) description = pkg.description;
+    } catch { /* ignore, use defaults */ }
+  }
+
+  const namespace = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  const manifest: PluginManifest = {
+    name,
+    version,
+    namespace,
+    description,
+    permissions: ['mcp:connect', 'network:connect'] as Permission[],
+    dependencies: [],
+    sandbox: { tier: 'basic' },
+  };
+
+  const mcpServerConfigs: McpServerConfig[] = [];
+  if (mcpJson.mcpServers) {
+    for (const [serverName, config] of Object.entries(mcpJson.mcpServers)) {
+      const transport =
+        config.type === 'http' ? ('http' as const)
+        : config.type === 'stdio' ? ('stdio' as const)
+        : ('sse' as const);
+      mcpServerConfigs.push({
+        name: serverName,
+        transport,
+        url: config.url,
+        command: config.command,
+        args: config.args,
+        env: config.env,
+        headers: config.headers,
+      });
+    }
+  }
+
+  if (mcpServerConfigs.length === 0) {
+    errors.push('No MCP servers defined in .mcp.json');
+  }
+
+  return {
+    plugin: {
+      manifest,
+      state: errors.length > 0 ? 'errored' : 'installed',
+      tools: [], // MCP tools are discovered at runtime when the server starts
+      error: errors.length > 0 ? errors.join('; ') : undefined,
+    },
+    errors,
+    skillDefinitions: new Map(),
+    commandDefinitions: new Map(),
+    mcpServerConfigs,
+  };
 }
 
 export function loadClaudePlugin(pluginDir: string): LoadResult {

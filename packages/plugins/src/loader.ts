@@ -9,7 +9,7 @@ import { parseYamlCommand } from '@nexora-kit/commands';
 import { parseMcpYaml } from '@nexora-kit/mcp';
 import { parseManifest } from './manifest.js';
 import { qualifyName, validateNamespace } from './namespace.js';
-import { isClaudePlugin, loadClaudePlugin } from './claude-compat.js';
+import { isClaudePlugin, loadClaudePlugin, isMcpPlugin, loadMcpPlugin } from './claude-compat.js';
 
 export interface LoadResult {
   plugin: PluginInstance;
@@ -186,6 +186,8 @@ export function discoverPlugins(baseDir: string): LoadResult[] {
       results.push(loadPlugin(pluginDir));
     } else if (isClaudePlugin(pluginDir)) {
       results.push(loadClaudePlugin(pluginDir));
+    } else if (isMcpPlugin(pluginDir)) {
+      results.push(loadMcpPlugin(pluginDir));
     }
   }
 

@@ -1,6 +1,6 @@
 import { mkdir, writeFile, readFile, readdir, access, cp, rm, mkdtemp } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { resolve, join, basename, extname } from 'node:path';
+import { resolve, join, relative, basename, extname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
 import type { CliCommand } from './commands.js';
@@ -10,6 +10,8 @@ import {
   loadPlugin,
   loadClaudePlugin,
   isClaudePlugin,
+  loadMcpPlugin,
+  isMcpPlugin,
   discoverPlugins,
 } from '@nexora-kit/plugins';
 import { parse as parseYaml } from 'yaml';
@@ -164,38 +166,123 @@ async function extractZip(zipPath: string, destDir: string): Promise<void> {
 
     if (!strippedPath) continue; // was the root folder entry itself
 
-    const outPath = join(destDir, strippedPath);
+    const outPath = resolve(destDir, strippedPath);
+
+    // Zip Slip guard: ensure resolved path stays within destDir
+    if (!outPath.startsWith(destDir + '/') && outPath !== destDir) {
+      throw new Error(`Zip entry escapes target directory: ${filePath}`);
+    }
 
     if (filePath.endsWith('/')) {
       // Directory entry
       await mkdir(outPath, { recursive: true });
     } else {
       await mkdir(join(outPath, '..'), { recursive: true });
-      const { writeFile: wf } = await import('node:fs/promises');
-      await wf(outPath, data);
+      await writeFile(outPath, data);
     }
   }
 }
 
 // --- plugin add ---
 
+/**
+ * Convert a GitHub repo URL to its archive ZIP download URL.
+ * Supports: https://github.com/owner/repo[/tree/branch]
+ */
+function toGithubZipUrl(url: string): string {
+  const m = url.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\/tree\/([^/]+))?(?:\/.*)?$/);
+  if (!m) throw new Error(`Cannot parse GitHub URL: ${url}`);
+  const [, owner, repo, branch = 'main'] = m;
+  return `https://github.com/${owner}/${repo}/archive/refs/heads/${branch}.zip`;
+}
+
+/** Download a URL to a temporary .zip file, returning the file path. */
+async function downloadToTempFile(url: string): Promise<string> {
+  const destPath = join(tmpdir(), `nexora-plugin-${Date.now()}.zip`);
+  const response = await fetch(url, { redirect: 'follow' } as RequestInit);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+  const buffer = await response.arrayBuffer();
+  await writeFile(destPath, Buffer.from(buffer));
+  return destPath;
+}
+
+/**
+ * Scan subdirectories (up to depth 2) for plugin roots when the top-level
+ * directory is a plugin repository rather than a single plugin.
+ */
+async function findPluginDirs(baseDir: string): Promise<string[]> {
+  const results: string[] = [];
+
+  async function scan(dir: string, depth: number): Promise<void> {
+    if (depth > 2) return;
+    // If this dir is itself a plugin, record it and don't recurse further
+    try { await access(join(dir, 'plugin.yaml')); results.push(dir); return; } catch {}
+    if (isClaudePlugin(dir) || isMcpPlugin(dir)) { results.push(dir); return; }
+    // Recurse into non-hidden subdirectories
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      await Promise.all(
+        entries
+          .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+          .map((e) => scan(join(dir, e.name), depth + 1)),
+      );
+    } catch { /* ignore permission errors */ }
+  }
+
+  // Start from children of baseDir — the root was already checked by the caller
+  try {
+    const entries = await readdir(baseDir, { withFileTypes: true });
+    await Promise.all(
+      entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+        .map((e) => scan(join(baseDir, e.name), 1)),
+    );
+  } catch { /* ignore */ }
+
+  return results;
+}
+
 export const pluginAddCommand: CliCommand = {
   name: 'plugin:add',
-  description: 'Install a plugin from a local path or ZIP file',
+  description: 'Install a plugin from a local path, ZIP file, or GitHub URL',
   usage: 'nexora-kit plugin add <source> [--plugins-dir <dir>]',
 
   async run(args) {
     const source = args.positionals[0];
     if (!source) {
-      error('Source path is required: nexora-kit plugin add <path>');
+      error('Source path is required: nexora-kit plugin add <path|url>');
       process.exitCode = 1;
       return;
     }
 
-    const sourcePath = resolve(source);
     const pluginsDir = resolve((args.flags['plugins-dir'] as string) ?? './plugins');
 
     let tempDir: string | undefined;
+    let downloadedZip: string | undefined;
+    let sourcePath: string;
+
+    // Handle URL sources (GitHub or generic ZIP URL)
+    const isUrl = source.startsWith('http://') || source.startsWith('https://');
+    if (isUrl) {
+      const zipUrl =
+        /github\.com\/[^/]+\/[^/]/.test(source) && !source.endsWith('.zip')
+          ? toGithubZipUrl(source)
+          : source;
+      info(`Downloading plugin from ${zipUrl}...`);
+      try {
+        downloadedZip = await downloadToTempFile(zipUrl);
+        sourcePath = downloadedZip;
+      } catch (err) {
+        error(`Failed to download plugin: ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+        return;
+      }
+    } else {
+      sourcePath = resolve(source);
+    }
+
     let pluginSourcePath = sourcePath;
 
     // Extract ZIP archives to a temp directory before loading
@@ -213,43 +300,64 @@ export const pluginAddCommand: CliCommand = {
       }
     }
 
-    try {
-      let result = loadPlugin(pluginSourcePath);
+    // Resolve the best LoadResult for a given plugin directory
+    function resolvePlugin(dir: string) {
+      let result = loadPlugin(dir);
+      if (result.errors.length > 0 && isClaudePlugin(dir)) result = loadClaudePlugin(dir);
+      else if (result.errors.length > 0 && isMcpPlugin(dir)) result = loadMcpPlugin(dir);
+      return result;
+    }
 
-      // Fall back to Claude-format plugin if no plugin.yaml is present
-      if (result.errors.length > 0 && isClaudePlugin(pluginSourcePath)) {
-        result = loadClaudePlugin(pluginSourcePath);
-      }
-
+    // Install one resolved LoadResult; returns false if already installed or errored
+    async function installOne(result: ReturnType<typeof loadPlugin>, srcDir: string): Promise<boolean> {
       if (result.errors.length > 0) {
         error(`Plugin has errors:`);
-        for (const err of result.errors) {
-          console.error(`  - ${err}`);
-        }
-        process.exitCode = 1;
-        return;
+        for (const err of result.errors) console.error(`  - ${err}`);
+        return false;
       }
-
       const namespace = result.plugin.manifest.namespace;
       const destDir = join(pluginsDir, namespace);
-
-      // Check if already installed
       try {
         await access(destDir);
         error(`Plugin "${namespace}" is already installed at ${destDir}`);
-        process.exitCode = 1;
+        return false;
+      } catch { /* not installed yet */ }
+      await mkdir(pluginsDir, { recursive: true });
+      await cp(srcDir, destDir, { recursive: true });
+      success(`Plugin "${result.plugin.manifest.name}" installed to ${destDir}`);
+      info(`Tools: ${result.plugin.tools.length}, Skills: ${result.skillDefinitions.size}, Commands: ${result.commandDefinitions.size}`);
+      return true;
+    }
+
+    try {
+      const result = resolvePlugin(pluginSourcePath);
+
+      if (result.errors.length > 0) {
+        // No format at root — this may be a plugin repository; scan subdirectories
+        const subDirs = await findPluginDirs(pluginSourcePath);
+        if (subDirs.length === 0) {
+          error(`No recognized plugin format found in the extracted directory.`);
+          console.error(`  Expected one of:`);
+          console.error(`    - plugin.yaml                 (Nexora plugin format)`);
+          console.error(`    - .claude-plugin/plugin.json  (Claude plugin format)`);
+          console.error(`    - .mcp.json                   (MCP-native plugin format)`);
+          process.exitCode = 1;
+          return;
+        }
+        if (subDirs.length > 1) {
+          info(`Found ${subDirs.length} plugins in repository:`);
+          for (const d of subDirs) info(`  ${relative(pluginSourcePath, d)}`);
+        }
+        let installed = 0;
+        for (const dir of subDirs) {
+          const sub = resolvePlugin(dir);
+          if (await installOne(sub, dir)) installed++;
+        }
+        if (installed === 0) process.exitCode = 1;
         return;
-      } catch {
-        // Expected
       }
 
-      await mkdir(pluginsDir, { recursive: true });
-      await cp(pluginSourcePath, destDir, { recursive: true });
-
-      success(`Plugin "${result.plugin.manifest.name}" installed to ${destDir}`);
-      info(
-        `Tools: ${result.plugin.tools.length}, Skills: ${result.skillDefinitions.size}, Commands: ${result.commandDefinitions.size}`,
-      );
+      if (!(await installOne(result, pluginSourcePath))) process.exitCode = 1;
     } catch (err) {
       error(
         `Failed to load plugin from ${sourcePath}: ${err instanceof Error ? err.message : String(err)}`,
@@ -258,6 +366,9 @@ export const pluginAddCommand: CliCommand = {
     } finally {
       if (tempDir) {
         await rm(tempDir, { recursive: true, force: true });
+      }
+      if (downloadedZip) {
+        await rm(downloadedZip, { force: true });
       }
     }
   },
