@@ -5,6 +5,8 @@ import { ConfigResolver } from '@nexora-kit/config';
 import type { PluginInstance, ToolDefinition } from '@nexora-kit/core';
 import { SkillRegistry, SkillHandlerFactory } from '@nexora-kit/skills';
 import type { SkillDefinition } from '@nexora-kit/skills';
+import { CommandRegistry } from '@nexora-kit/commands';
+import type { CommandDefinition } from '@nexora-kit/commands';
 import type { LlmProvider } from '@nexora-kit/llm';
 import { PluginLifecycleManager } from './lifecycle.js';
 
@@ -296,6 +298,140 @@ describe('PluginLifecycleManager', () => {
 
       skillManager.disable('hello');
       expect(skillRegistry.has('hello:greet')).toBe(false);
+    });
+  });
+
+  describe('command integration', () => {
+    it('registers commands into registry during enable', () => {
+      const commandRegistry = new CommandRegistry();
+      const cmdManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('hello');
+      cmdManager.install(plugin);
+
+      const cmdDef: CommandDefinition = {
+        name: 'greet',
+        description: 'Say hello',
+        args: [{ name: 'name', type: 'string', required: false, default: 'World' }],
+        handler: async (ctx) => ({ content: `Hi ${ctx.args['name']}` }),
+      };
+      cmdManager.setCommandDefinitions('hello', new Map([['greet', cmdDef]]));
+      cmdManager.enable('hello');
+
+      expect(commandRegistry.has('hello:greet')).toBe(true);
+      expect(commandRegistry.get('hello:greet')?.handler).toBeDefined();
+    });
+
+    it('unregisters commands during disable', () => {
+      const commandRegistry = new CommandRegistry();
+      const cmdManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('hello');
+      cmdManager.install(plugin);
+
+      const cmdDef: CommandDefinition = {
+        name: 'greet',
+        description: 'Say hello',
+        args: [],
+        handler: async () => ({ content: 'Hi' }),
+      };
+      cmdManager.setCommandDefinitions('hello', new Map([['greet', cmdDef]]));
+      cmdManager.enable('hello');
+      expect(commandRegistry.has('hello:greet')).toBe(true);
+
+      cmdManager.disable('hello');
+      expect(commandRegistry.has('hello:greet')).toBe(false);
+    });
+
+    it('generates handler from prompt template', async () => {
+      const commandRegistry = new CommandRegistry();
+      const cmdManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('hello');
+      cmdManager.install(plugin);
+
+      const cmdDef: CommandDefinition = {
+        name: 'greet',
+        description: 'Say hello',
+        args: [{ name: 'name', type: 'string', required: false, default: 'World' }],
+        prompt: 'Hello, {{name}}! Welcome to NexoraKit.',
+      };
+      cmdManager.setCommandDefinitions('hello', new Map([['greet', cmdDef]]));
+      cmdManager.enable('hello');
+
+      const handler = commandRegistry.get('hello:greet')?.handler;
+      expect(handler).toBeDefined();
+
+      const result = await handler!({ args: { name: 'Felix' }, raw: '/hello:greet Felix' });
+      expect(result.content).toBe('Hello, Felix! Welcome to NexoraKit.');
+    });
+
+    it('preserves unreferenced placeholders in prompt template', async () => {
+      const commandRegistry = new CommandRegistry();
+      const cmdManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('hello');
+      cmdManager.install(plugin);
+
+      const cmdDef: CommandDefinition = {
+        name: 'greet',
+        description: 'Say hello',
+        args: [],
+        prompt: 'Hello, {{name}}!',
+      };
+      cmdManager.setCommandDefinitions('hello', new Map([['greet', cmdDef]]));
+      cmdManager.enable('hello');
+
+      const handler = commandRegistry.get('hello:greet')?.handler;
+      const result = await handler!({ args: {}, raw: '/hello:greet' });
+      expect(result.content).toBe('Hello, {{name}}!');
+    });
+
+    it('re-registers commands after reload', () => {
+      const commandRegistry = new CommandRegistry();
+      const cmdManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('hello');
+      cmdManager.install(plugin);
+
+      const cmdDef: CommandDefinition = {
+        name: 'greet',
+        description: 'Say hello',
+        args: [],
+        prompt: 'Hello!',
+      };
+      cmdManager.setCommandDefinitions('hello', new Map([['greet', cmdDef]]));
+      cmdManager.enable('hello');
+      expect(commandRegistry.has('hello:greet')).toBe(true);
+
+      // Simulate disable + uninstall (reload does this internally)
+      cmdManager.disable('hello');
+      expect(commandRegistry.has('hello:greet')).toBe(false);
     });
   });
 });

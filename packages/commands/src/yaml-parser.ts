@@ -16,6 +16,7 @@ const yamlCommandSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
   args: z.array(argumentSchema).default([]),
+  prompt: z.string().optional(),
 });
 
 export function parseYamlCommand(content: string): CommandDefinition {
@@ -26,5 +27,6 @@ export function parseYamlCommand(content: string): CommandDefinition {
     name: parsed.name,
     description: parsed.description,
     args: parsed.args,
+    prompt: parsed.prompt,
   };
 }

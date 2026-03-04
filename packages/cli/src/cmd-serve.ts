@@ -60,7 +60,15 @@ export const serveCommand: CliCommand = {
     }
 
     const raw = await readFile(configPath, 'utf-8');
-    const interpolated = raw.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? '');
+    const missingEnvVars: string[] = [];
+    const interpolated = raw.replace(/\$\{([^}]+)\}/g, (_, name) => {
+      const value = process.env[name];
+      if (value === undefined) missingEnvVars.push(name);
+      return value ?? '';
+    });
+    if (missingEnvVars.length > 0) {
+      logger.warn('config.env_vars_missing', { vars: missingEnvVars });
+    }
     const config: InstanceConfig = parseYaml(interpolated);
 
     const port = (args.flags['port'] as string)
@@ -111,7 +119,7 @@ export const serveCommand: CliCommand = {
     });
 
     // --- LLM provider ---
-    const llmProvider = createProviderFromConfig(config.llm);
+    const llmProvider = createProviderFromConfig(config.llm, logger.child({ component: 'llm' }));
     logger.info('llm.provider', { name: llmProvider.name });
 
     // --- Skill handler factory ---
@@ -127,6 +135,7 @@ export const serveCommand: CliCommand = {
       toolDispatcher,
       skillHandlerFactory,
       skillRegistry,
+      commandRegistry,
       mcpManager,
       logger: logger.child({ component: 'plugins' }),
     });
@@ -147,6 +156,9 @@ export const serveCommand: CliCommand = {
         if (result.skillDefinitions.size > 0) {
           lifecycle.setSkillDefinitions(result.plugin.manifest.namespace, result.skillDefinitions);
         }
+        if (result.commandDefinitions.size > 0) {
+          lifecycle.setCommandDefinitions(result.plugin.manifest.namespace, result.commandDefinitions);
+        }
         if (result.mcpServerConfigs.length > 0) {
           lifecycle.setMcpConfigs(result.plugin.manifest.namespace, result.mcpServerConfigs);
         }
@@ -156,6 +168,9 @@ export const serveCommand: CliCommand = {
     } catch {
       // Plugins dir may not exist yet — that's fine
     }
+
+    // Sync registered commands into the parser so isCommand() works
+    commandDispatcher.syncFromRegistry();
 
     // --- Agent Loop ---
     const agentLoop = new AgentLoop({
@@ -167,7 +182,7 @@ export const serveCommand: CliCommand = {
     });
 
     // --- Auth ---
-    const auth = buildAuth(config);
+    const auth = buildAuth(config, logger);
 
     // --- Admin ---
     const auditLogger = new AuditLogger(auditEventStore);
@@ -220,7 +235,11 @@ export const serveCommand: CliCommand = {
   },
 };
 
-function buildAuth(config: InstanceConfig): ApiKeyAuth {
+function buildAuth(config: InstanceConfig, logger: { warn: (msg: string, data: Record<string, unknown>) => void }): ApiKeyAuth {
+  if (!config.auth?.keys) {
+    logger.warn('auth.using_dev_key', { message: 'No auth.keys configured — using insecure fallback dev-key. Do NOT use in production.' });
+  }
+
   const keys = config.auth?.keys ?? [
     { key: 'dev-key', userId: 'dev', teamId: 'default', role: 'admin' as const },
   ];

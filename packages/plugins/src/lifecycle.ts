@@ -9,6 +9,7 @@ import type { PermissionGate, PermissionRule } from '@nexora-kit/sandbox';
 import type { ConfigResolver } from '@nexora-kit/config';
 import { ConfigLayer } from '@nexora-kit/config';
 import type { SkillDefinition, SkillHandlerFactory, SkillRegistry } from '@nexora-kit/skills';
+import type { CommandDefinition, CommandRegistry } from '@nexora-kit/commands';
 import type { McpManager, McpServerConfig } from '@nexora-kit/mcp';
 import { resolveDependencies } from './dependency.js';
 import { wrapWithErrorBoundary } from './error-boundary.js';
@@ -21,6 +22,7 @@ export interface LifecycleOptions {
   toolHandlers?: Map<string, ToolHandler>;
   skillHandlerFactory?: SkillHandlerFactory;
   skillRegistry?: SkillRegistry;
+  commandRegistry?: CommandRegistry;
   mcpManager?: McpManager;
   logger?: Logger;
 }
@@ -28,6 +30,7 @@ export interface LifecycleOptions {
 export class PluginLifecycleManager {
   private plugins = new Map<string, PluginInstance>();
   private pluginSkills = new Map<string, Map<string, SkillDefinition>>();
+  private pluginCommands = new Map<string, Map<string, CommandDefinition>>();
   private pluginMcpConfigs = new Map<string, McpServerConfig[]>();
   private pluginDirs = new Map<string, string>();
   private readonly permissionGate: PermissionGate;
@@ -36,6 +39,7 @@ export class PluginLifecycleManager {
   private readonly toolHandlers: Map<string, ToolHandler>;
   private readonly skillHandlerFactory?: SkillHandlerFactory;
   private readonly skillRegistry?: SkillRegistry;
+  private readonly commandRegistry?: CommandRegistry;
   private readonly mcpManager?: McpManager;
   private readonly logger?: Logger;
 
@@ -46,6 +50,7 @@ export class PluginLifecycleManager {
     this.toolHandlers = options.toolHandlers ?? new Map();
     this.skillHandlerFactory = options.skillHandlerFactory;
     this.skillRegistry = options.skillRegistry;
+    this.commandRegistry = options.commandRegistry;
     this.mcpManager = options.mcpManager;
     this.logger = options.logger;
   }
@@ -150,6 +155,28 @@ export class PluginLifecycleManager {
       }
     }
 
+    // Register commands
+    if (this.commandRegistry) {
+      const cmdDefs = this.pluginCommands.get(namespace);
+      if (cmdDefs) {
+        for (const [, cmdDef] of cmdDefs) {
+          this.commandRegistry.register(namespace, cmdDef);
+          const qualifiedName = `${namespace}:${cmdDef.name}`;
+          if (cmdDef.handler) {
+            this.commandRegistry.registerHandler(qualifiedName, cmdDef.handler);
+          } else if (cmdDef.prompt) {
+            const template = cmdDef.prompt;
+            this.commandRegistry.registerHandler(qualifiedName, async (ctx) => {
+              const resolved = template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+                return ctx.args[key] !== undefined ? String(ctx.args[key]) : `{{${key}}}`;
+              });
+              return { content: resolved };
+            });
+          }
+        }
+      }
+    }
+
     this.setState(namespace, 'enabled');
   }
 
@@ -173,6 +200,11 @@ export class PluginLifecycleManager {
     // Unregister skills
     if (this.skillRegistry) {
       this.skillRegistry.unregisterNamespace(namespace);
+    }
+
+    // Unregister commands
+    if (this.commandRegistry) {
+      this.commandRegistry.unregisterNamespace(namespace);
     }
 
     // Revoke permissions
@@ -213,6 +245,10 @@ export class PluginLifecycleManager {
     this.pluginSkills.set(namespace, skills);
   }
 
+  setCommandDefinitions(namespace: string, commands: Map<string, CommandDefinition>): void {
+    this.pluginCommands.set(namespace, commands);
+  }
+
   setMcpConfigs(namespace: string, configs: McpServerConfig[]): void {
     this.pluginMcpConfigs.set(namespace, configs);
   }
@@ -240,6 +276,10 @@ export class PluginLifecycleManager {
 
     if (result.skillDefinitions.size > 0) {
       this.setSkillDefinitions(namespace, result.skillDefinitions);
+    }
+
+    if (result.commandDefinitions.size > 0) {
+      this.setCommandDefinitions(namespace, result.commandDefinitions);
     }
 
     if (result.mcpServerConfigs.length > 0) {

@@ -75,4 +75,26 @@ args:
   it('throws on missing description', () => {
     expect(() => parseYamlCommand('name: no-desc')).toThrow();
   });
+
+  it('parses prompt field', () => {
+    const yaml = `
+name: greet
+description: Greet someone
+prompt: "Hello, {{name}}!"
+args:
+  - name: name
+    type: string
+`;
+    const cmd = parseYamlCommand(yaml);
+    expect(cmd.prompt).toBe('Hello, {{name}}!');
+  });
+
+  it('prompt is undefined when not specified', () => {
+    const yaml = `
+name: status
+description: Show status
+`;
+    const cmd = parseYamlCommand(yaml);
+    expect(cmd.prompt).toBeUndefined();
+  });
 });
