@@ -68,7 +68,9 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
       <div className="min-w-0 flex-1 space-y-2 pt-0.5">
         {message.blocks && message.blocks.length > 0 ? (
-          message.blocks.map((block, i) => <BlockRenderer key={i} block={block} />)
+          message.blocks.map((block, i) => (
+            <BlockRenderer key={i} block={block} allBlocks={message.blocks} index={i} />
+          ))
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown

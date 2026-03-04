@@ -189,20 +189,50 @@ function detectImportedPackages(code: string): { bundled: string[]; micropip: st
   return { bundled, micropip };
 }
 
+// ── df preamble builder ─────────────────────────────────────────────────
+
+const DF_PLACEHOLDER_RE = /^[ \t]*#[ \t]*df[ \t]*=.*$/m;
+
+/**
+ * Build a Python preamble that defines `df` as a pandas DataFrame
+ * populated from the given rows. pandas is added to the bundled package
+ * list automatically when a preamble is injected.
+ */
+function buildDfPreamble(rows: Record<string, unknown>[]): string {
+  const json = JSON.stringify(rows);
+  return `import pandas as _pd\n_nexora_rows = ${json}\ndf = _pd.DataFrame(_nexora_rows)\n`;
+}
+
 // ── Unified runner ──────────────────────────────────────────────────────
 
-export async function runVisualization(code: string): Promise<VizResult> {
+export async function runVisualization(
+  code: string,
+  tableData?: Record<string, unknown>[],
+): Promise<VizResult> {
   await initPyodide();
 
   const kind = detectVizKind(code);
   const py = pyodide as PyodideInstance;
-  const { bundled, micropip } = detectImportedPackages(code);
+
+  // If we have table data, inject a df preamble and strip the placeholder comment.
+  let effectiveCode = code;
+  if (tableData && tableData.length > 0) {
+    const stripped = code.replace(DF_PLACEHOLDER_RE, '');
+    effectiveCode = buildDfPreamble(tableData) + stripped;
+  }
+
+  const { bundled, micropip } = detectImportedPackages(effectiveCode);
+
+  // Ensure pandas is installed when we injected the preamble
+  if (tableData && tableData.length > 0 && !bundled.includes('pandas')) {
+    bundled.push('pandas');
+  }
 
   if (kind === 'plotly') {
     // Always ensure plotly itself is installed even if the regex matched a non-import pattern
     if (!micropip.includes('plotly')) micropip.push('plotly');
     await ensurePackages(bundled, micropip);
-    const wrapped = `${code}\n${PLOTLY_CAPTURE}`;
+    const wrapped = `${effectiveCode}\n${PLOTLY_CAPTURE}`;
     const resultJson = await py.runPythonAsync(wrapped);
     const parsed = JSON.parse(resultJson as string);
     if (parsed.error) throw new Error(parsed.error);
@@ -211,11 +241,11 @@ export async function runVisualization(code: string): Promise<VizResult> {
 
   // matplotlib / seaborn path
   if (!bundled.includes('matplotlib')) bundled.push('matplotlib');
-  if (SNS_RE.test(code) && !micropip.includes('seaborn')) micropip.push('seaborn');
+  if (SNS_RE.test(effectiveCode) && !micropip.includes('seaborn')) micropip.push('seaborn');
   await ensurePackages(bundled, micropip);
 
   await py.runPythonAsync("import matplotlib.pyplot as _plt; _plt.close('all')");
-  const wrapped = `${code}\n${MPL_CAPTURE}`;
+  const wrapped = `${effectiveCode}\n${MPL_CAPTURE}`;
   const result = await py.runPythonAsync(wrapped);
   const dataUrl = result as string;
   if (dataUrl.startsWith('ERROR:')) throw new Error(dataUrl.slice(6));

@@ -1,19 +1,30 @@
 // Mirrors the ResponseBlock union from @nexora-kit/core
 
+export interface TableColumn {
+  key: string;
+  label: string;
+}
+
+export interface TableBlock {
+  type: 'table';
+  columns: TableColumn[];
+  rows: Record<string, unknown>[];
+}
+
 export interface TextBlock {
-  type: "text";
+  type: 'text';
   text: string;
 }
 
 export interface CodeBlock {
-  type: "code";
+  type: 'code';
   language?: string;
   code: string;
   title?: string;
 }
 
 export interface ImageBlock {
-  type: "image";
+  type: 'image';
   url: string;
   alt?: string;
   caption?: string;
@@ -22,25 +33,25 @@ export interface ImageBlock {
 export interface ActionButton {
   actionId: string;
   label: string;
-  style?: "primary" | "secondary" | "destructive";
+  style?: 'primary' | 'secondary' | 'destructive';
 }
 
 export interface ActionBlock {
-  type: "action";
+  type: 'action';
   actions: ActionButton[];
 }
 
 export interface FormField {
   name: string;
   label: string;
-  type: "text" | "number" | "select" | "checkbox" | "textarea";
+  type: 'text' | 'number' | 'select' | 'checkbox' | 'textarea';
   required?: boolean;
   options?: string[];
   defaultValue?: string | number | boolean;
 }
 
 export interface FormBlock {
-  type: "form";
+  type: 'form';
   formId: string;
   title?: string;
   fields: FormField[];
@@ -48,7 +59,7 @@ export interface FormBlock {
 }
 
 export interface ArtifactBlock {
-  type: "artifact";
+  type: 'artifact';
   artifactId: string;
   title: string;
   content: string;
@@ -57,14 +68,14 @@ export interface ArtifactBlock {
 }
 
 export interface ProgressBlock {
-  type: "progress";
+  type: 'progress';
   label: string;
   current?: number;
   total?: number;
 }
 
 export interface ErrorBlock {
-  type: "error";
+  type: 'error';
   message: string;
   code?: string;
 }
@@ -76,6 +87,7 @@ export interface CustomBlock {
 
 export type ResponseBlock =
   | TextBlock
+  | TableBlock
   | CodeBlock
   | ImageBlock
   | ActionBlock
@@ -88,7 +100,7 @@ export type ResponseBlock =
 // ── Message types ──────────────────────────────────────────────────────
 
 export interface Message {
-  role: "user" | "assistant" | "system";
+  role: 'user' | 'assistant' | 'system';
   content: string;
   blocks?: ResponseBlock[];
 }
