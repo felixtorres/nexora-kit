@@ -11,6 +11,7 @@ import {
   BarChart3,
   Settings,
   Hexagon,
+  FlaskConical,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,6 +33,7 @@ import { HealthIndicator } from "@/components/health-indicator";
 
 const mainNav = [
   { title: "Chat", href: "/chat", icon: MessageSquare },
+  { title: "Playground", href: "/playground", icon: FlaskConical },
 ];
 
 const adminNav = [

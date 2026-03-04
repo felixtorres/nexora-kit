@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { Code2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { MessageThread } from '@/components/chat/message-thread';
 import { MessageInput } from '@/components/chat/message-input';
+import { DevPanel } from '@/components/chat/dev-panel';
 import { useConversationStore } from '@/store/conversation';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useSendMessage, normalizeMessage } from '@/hooks/use-conversation';
@@ -17,6 +20,7 @@ export default function ConversationPage() {
   const { setActiveConversation, setMessages, isSending, isStreaming } = useConversationStore();
   const sendMessageRest = useSendMessage();
   const { sendMessage: sendMessageWs, sendAction, cancel, isConnected } = useWebSocket(conversationId);
+  const [showDevPanel, setShowDevPanel] = useState(false);
 
   useEffect(() => {
     setActiveConversation(conversationId);
@@ -63,18 +67,33 @@ export default function ConversationPage() {
   );
 
   return (
-    <div className="flex flex-1 flex-col">
-      <MessageThread
-        conversationId={conversationId}
-        onAction={handleAction}
-        onReply={handleReply}
-      />
-      <MessageInput
-        onSend={handleSend}
-        onCancel={cancel}
-        disabled={isSending}
-        isStreaming={isStreaming}
-      />
+    <div className="flex flex-1">
+      <div className="flex flex-1 flex-col">
+        {/* Dev Panel toggle */}
+        <div className="flex justify-end border-b px-2 py-1">
+          <Button
+            variant={showDevPanel ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => setShowDevPanel(!showDevPanel)}
+          >
+            <Code2 className="size-3.5" />
+            Dev
+          </Button>
+        </div>
+        <MessageThread
+          conversationId={conversationId}
+          onAction={handleAction}
+          onReply={handleReply}
+        />
+        <MessageInput
+          onSend={handleSend}
+          onCancel={cancel}
+          disabled={isSending}
+          isStreaming={isStreaming}
+        />
+      </div>
+      {showDevPanel && <DevPanel isConnected={isConnected} />}
     </div>
   );
 }

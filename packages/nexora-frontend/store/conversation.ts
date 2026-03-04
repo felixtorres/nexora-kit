@@ -1,6 +1,21 @@
 import { create } from "zustand";
 import type { Message, ResponseBlock, StreamingArtifact } from "@/lib/block-types";
 
+// ── Dev Panel types ────────────────────────────────────────────────────
+
+export interface DevEvent {
+  direction: 'sent' | 'received';
+  timestamp: number;
+  data: unknown;
+}
+
+export interface UsageInfo {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+// ── Store ──────────────────────────────────────────────────────────────
+
 interface ConversationState {
   activeConversationId: string | null;
   messagesByConversation: Record<string, Message[]>;
@@ -11,6 +26,10 @@ interface ConversationState {
   streamingText: string;
   streamingBlocks: ResponseBlock[];
   artifacts: Map<string, StreamingArtifact>;
+
+  // Dev panel state
+  devEvents: DevEvent[];
+  lastUsage: UsageInfo | null;
 
   setActiveConversation: (id: string | null) => void;
   setMessages: (conversationId: string, messages: Message[]) => void;
@@ -28,6 +47,11 @@ interface ConversationState {
   initArtifact: (artifactId: string, title: string, content: string) => void;
   appendArtifactDelta: (artifactId: string, delta: string) => void;
   markArtifactDone: (artifactId: string) => void;
+
+  // Dev panel actions
+  addDevEvent: (event: DevEvent) => void;
+  setLastUsage: (usage: UsageInfo) => void;
+  clearDevEvents: () => void;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -38,6 +62,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   streamingText: "",
   streamingBlocks: [],
   artifacts: new Map(),
+  devEvents: [],
+  lastUsage: null,
 
   setActiveConversation: (id) =>
     set({ activeConversationId: id, isSending: false, isStreaming: false }),
@@ -127,4 +153,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       }
       return { artifacts };
     }),
+
+  addDevEvent: (event) =>
+    set((state) => ({
+      // Keep last 200 events to prevent unbounded growth
+      devEvents: [...state.devEvents.slice(-199), event],
+    })),
+
+  setLastUsage: (usage) => set({ lastUsage: usage }),
+
+  clearDevEvents: () => set({ devEvents: [], lastUsage: null }),
 }));

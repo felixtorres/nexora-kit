@@ -32,6 +32,8 @@ export function useWebSocket(conversationId: string | null) {
     initArtifact,
     appendArtifactDelta,
     markArtifactDone,
+    addDevEvent,
+    setLastUsage,
   } = useConversationStore();
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -92,6 +94,11 @@ export function useWebSocket(conversationId: string | null) {
         return;
       }
 
+      // Record all received events for Dev Panel (skip pong/ping noise)
+      if (data.type !== 'pong') {
+        addDevEvent({ direction: 'received', timestamp: Date.now(), data });
+      }
+
       const cid = conversationIdRef.current;
       if (!cid) return;
 
@@ -131,7 +138,13 @@ export function useWebSocket(conversationId: string | null) {
           break;
         }
         case 'usage': {
-          // Token usage info — could display later, ignore for now
+          const p = data.payload as { inputTokens?: number; outputTokens?: number } | undefined;
+          if (p) {
+            setLastUsage({
+              inputTokens: p.inputTokens ?? 0,
+              outputTokens: p.outputTokens ?? 0,
+            });
+          }
           break;
         }
         case 'artifact_create': {
@@ -194,6 +207,8 @@ export function useWebSocket(conversationId: string | null) {
     initArtifact,
     appendArtifactDelta,
     markArtifactDone,
+    addDevEvent,
+    setLastUsage,
   ]);
 
   // Connect when conversationId is set and serverUrl exists
@@ -213,15 +228,15 @@ export function useWebSocket(conversationId: string | null) {
       addMessage(conversationIdRef.current, { role: 'user', content: input });
       startStreaming();
 
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'chat',
-          conversationId: conversationIdRef.current,
-          input,
-        })
-      );
+      const msg = {
+        type: 'chat',
+        conversationId: conversationIdRef.current,
+        input,
+      };
+      addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+      wsRef.current.send(JSON.stringify(msg));
     },
-    [addMessage, startStreaming]
+    [addMessage, startStreaming, addDevEvent]
   );
 
   const sendAction = useCallback(
@@ -231,28 +246,25 @@ export function useWebSocket(conversationId: string | null) {
 
       startStreaming();
 
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'chat',
-          conversationId: conversationIdRef.current,
-          input: { type: 'action', actionId, payload },
-        })
-      );
+      const msg = {
+        type: 'chat',
+        conversationId: conversationIdRef.current,
+        input: { type: 'action', actionId, payload },
+      };
+      addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+      wsRef.current.send(JSON.stringify(msg));
     },
-    [startStreaming]
+    [startStreaming, addDevEvent]
   );
 
   const cancel = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     if (!conversationIdRef.current) return;
 
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'cancel',
-        conversationId: conversationIdRef.current,
-      })
-    );
-  }, []);
+    const msg = { type: 'cancel', conversationId: conversationIdRef.current };
+    addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+    wsRef.current.send(JSON.stringify(msg));
+  }, [addDevEvent]);
 
   const isConnected = statusRef.current === 'connected';
 
