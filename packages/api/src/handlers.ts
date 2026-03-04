@@ -1,8 +1,13 @@
-import type { AgentLoop, MessageStore, ResponseBlock } from '@nexora-kit/core';
+import type { AgentLoop, MessageStore, ResponseBlock, Logger } from '@nexora-kit/core';
 import type { PluginLifecycleManager } from '@nexora-kit/plugins';
 import type { IConversationStore } from '@nexora-kit/storage';
 import type { ApiRequest, ApiResponse } from './types.js';
-import { chatRequestSchema, sendMessageSchema, createConversationSchema, updateConversationSchema } from './types.js';
+import {
+  chatRequestSchema,
+  sendMessageSchema,
+  createConversationSchema,
+  updateConversationSchema,
+} from './types.js';
 import { ApiError, jsonResponse } from './router.js';
 
 export interface HandlerDeps {
@@ -10,6 +15,7 @@ export interface HandlerDeps {
   conversationStore?: IConversationStore;
   messageStore?: MessageStore;
   plugins?: PluginLifecycleManager;
+  logger?: Logger;
 }
 
 // --- POST /v1/conversations ---
@@ -21,7 +27,11 @@ export function createConversationCreateHandler(deps: HandlerDeps) {
 
     const parsed = createConversationSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      throw new ApiError(400, `Invalid request: ${parsed.error.issues[0].message}`, 'VALIDATION_ERROR');
+      throw new ApiError(
+        400,
+        `Invalid request: ${parsed.error.issues[0].message}`,
+        'VALIDATION_ERROR',
+      );
     }
 
     const conversation = await deps.conversationStore.create({
@@ -72,10 +82,18 @@ export function createConversationUpdateHandler(deps: HandlerDeps) {
 
     const parsed = updateConversationSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new ApiError(400, `Invalid request: ${parsed.error.issues[0].message}`, 'VALIDATION_ERROR');
+      throw new ApiError(
+        400,
+        `Invalid request: ${parsed.error.issues[0].message}`,
+        'VALIDATION_ERROR',
+      );
     }
 
-    const updated = await deps.conversationStore.update(req.params.id, req.auth.userId, parsed.data);
+    const updated = await deps.conversationStore.update(
+      req.params.id,
+      req.auth.userId,
+      parsed.data,
+    );
     if (!updated) throw new ApiError(404, 'Conversation not found');
 
     return jsonResponse(200, updated);
@@ -118,7 +136,11 @@ export function createSendMessageHandler(deps: HandlerDeps) {
 
     const parsed = sendMessageSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new ApiError(400, `Invalid request: ${parsed.error.issues[0].message}`, 'VALIDATION_ERROR');
+      throw new ApiError(
+        400,
+        `Invalid request: ${parsed.error.issues[0].message}`,
+        'VALIDATION_ERROR',
+      );
     }
 
     const { input, pluginNamespaces, metadata } = parsed.data;
@@ -126,28 +148,42 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     // Normalize input: string shorthand → ChatInputText
     const chatInput = typeof input === 'string' ? { type: 'text' as const, text: input } : input;
 
-    const events: unknown[] = [];
+    deps.logger?.info('agent_loop.start', {
+      conversationId,
+      userId: req.auth.userId,
+      pluginNamespaces,
+      inputType: chatInput.type,
+    });
+
+    const loopStart = Date.now();
     let fullText = '';
     const allBlocks: ResponseBlock[] = [];
 
-    for await (const event of deps.agentLoop.run({
-      conversationId,
-      input: chatInput,
-      teamId: req.auth.teamId,
-      userId: req.auth.userId,
-      pluginNamespaces,
-      metadata,
-      systemPrompt: conversationSystemPrompt,
-      model: conversationModel,
-      workspaceId: conversationWorkspaceId,
-    }, req.signal)) {
-      events.push(event);
+    for await (const event of deps.agentLoop.run(
+      {
+        conversationId,
+        input: chatInput,
+        teamId: req.auth.teamId,
+        userId: req.auth.userId,
+        pluginNamespaces,
+        metadata,
+      },
+      req.signal,
+    )) {
       if (event.type === 'text') {
         fullText += event.content;
       } else if (event.type === 'blocks') {
         allBlocks.push(...event.blocks);
       }
     }
+
+    deps.logger?.info('agent_loop.done', {
+      conversationId,
+      userId: req.auth.userId,
+      durationMs: Date.now() - loopStart,
+      outputLength: fullText.length,
+      blockCount: allBlocks.length,
+    });
 
     // Update message stats + auto-title
     if (deps.conversationStore) {
@@ -161,7 +197,7 @@ export function createSendMessageHandler(deps: HandlerDeps) {
       // Auto-title from first user message (truncated 80 chars)
       const conversation = await deps.conversationStore.get(conversationId, req.auth.userId);
       if (conversation && !conversation.title) {
-        const inputText = typeof input === 'string' ? input : ('text' in input ? input.text : '');
+        const inputText = typeof input === 'string' ? input : 'text' in input ? input.text : '';
         if (inputText) {
           const title = inputText.length > 80 ? inputText.slice(0, 77) + '...' : inputText;
           await deps.conversationStore.update(conversationId, req.auth.userId, { title });
@@ -173,7 +209,6 @@ export function createSendMessageHandler(deps: HandlerDeps) {
       conversationId,
       message: fullText,
       ...(allBlocks.length > 0 ? { blocks: allBlocks } : {}),
-      events,
     });
   };
 }
@@ -186,28 +221,43 @@ export function createChatHandler(deps: HandlerDeps) {
 
     const parsed = chatRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new ApiError(400, `Invalid request: ${parsed.error.issues[0].message}`, 'VALIDATION_ERROR');
+      throw new ApiError(
+        400,
+        `Invalid request: ${parsed.error.issues[0].message}`,
+        'VALIDATION_ERROR',
+      );
     }
 
     const { input, conversationId, pluginNamespaces, metadata } = parsed.data;
-    const resolvedConversationId = conversationId ?? `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const resolvedConversationId =
+      conversationId ?? `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Normalize input: string shorthand → ChatInputText
     const chatInput = typeof input === 'string' ? { type: 'text' as const, text: input } : input;
 
-    const events: unknown[] = [];
+    deps.logger?.info('agent_loop.start', {
+      conversationId: resolvedConversationId,
+      userId: req.auth.userId,
+      pluginNamespaces,
+      inputType: chatInput.type,
+      endpoint: 'chat',
+    });
+
+    const loopStart = Date.now();
     let fullText = '';
     const allBlocks: ResponseBlock[] = [];
 
-    for await (const event of deps.agentLoop.run({
-      conversationId: resolvedConversationId,
-      input: chatInput,
-      teamId: req.auth.teamId,
-      userId: req.auth.userId,
-      pluginNamespaces,
-      metadata,
-    }, req.signal)) {
-      events.push(event);
+    for await (const event of deps.agentLoop.run(
+      {
+        conversationId: resolvedConversationId,
+        input: chatInput,
+        teamId: req.auth.teamId,
+        userId: req.auth.userId,
+        pluginNamespaces,
+        metadata,
+      },
+      req.signal,
+    )) {
       if (event.type === 'text') {
         fullText += event.content;
       } else if (event.type === 'blocks') {
@@ -215,11 +265,19 @@ export function createChatHandler(deps: HandlerDeps) {
       }
     }
 
+    deps.logger?.info('agent_loop.done', {
+      conversationId: resolvedConversationId,
+      userId: req.auth.userId,
+      durationMs: Date.now() - loopStart,
+      outputLength: fullText.length,
+      blockCount: allBlocks.length,
+      endpoint: 'chat',
+    });
+
     return jsonResponse(200, {
       conversationId: resolvedConversationId,
       message: fullText,
       ...(allBlocks.length > 0 ? { blocks: allBlocks } : {}),
-      events,
     });
   };
 }

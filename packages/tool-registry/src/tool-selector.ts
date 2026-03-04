@@ -55,10 +55,7 @@ export class ToolSelector implements ToolSelectorInterface {
 
     if (this.embeddingProvider && this.weights.embedding > 0) {
       const queryVec = await this.embeddingProvider.embed(request.query);
-      embeddingCandidates = this.index.searchByEmbedding(
-        queryVec,
-        request.namespaces,
-      );
+      embeddingCandidates = this.index.searchByEmbedding(queryVec, request.namespaces);
     }
 
     return this.selectInternal(request, embeddingCandidates);
@@ -69,6 +66,9 @@ export class ToolSelector implements ToolSelectorInterface {
     embeddingCandidates: RankedTool[],
   ): SelectedTools {
     const startTime = performance.now();
+
+    // Empty namespaces = "all namespaces" (no filter).
+    const hasNamespaceFilter = request.namespaces.length > 0;
 
     // 1. Get keyword-scored candidates
     const candidates = this.index.search({
@@ -109,30 +109,44 @@ export class ToolSelector implements ToolSelectorInterface {
       ),
     }));
 
-    // Also include zero-keyword-score tools from active namespaces that are pinned or recent
+    // 4. Also include zero-keyword-score tools that are pinned or recently used.
+    //    When namespaces is empty ("all"), scan the full index.
+    //    When namespaces is specified, scan only those namespaces.
     const candidateNames = new Set(candidateMap.keys());
-    for (const ns of request.namespaces) {
-      const nsTools = this.index.getByNamespace(ns);
-      for (const tool of nsTools) {
-        if (candidateNames.has(tool.name)) continue;
-        if (this.pinnedTools.has(tool.name) || recentSet.has(tool.name)) {
-          scored.push({
-            tool,
-            score: 0,
-            namespace: ns,
-            source: this.pinnedTools.has(tool.name) ? 'pinned' : 'recency',
-            compositeScore: this.pinnedTools.has(tool.name)
-              ? 1.0
-              : this.weights.recency * this.recencyScore(tool.name, recentList),
-          });
+
+    const addPinnedOrRecent = (tool: ToolDefinition, ns: string) => {
+      if (candidateNames.has(tool.name)) return;
+      if (!this.pinnedTools.has(tool.name) && !recentSet.has(tool.name)) return;
+      scored.push({
+        tool,
+        score: 0,
+        namespace: ns,
+        source: this.pinnedTools.has(tool.name) ? 'pinned' : 'recency',
+        compositeScore: this.pinnedTools.has(tool.name)
+          ? 1.0
+          : this.weights.recency * this.recencyScore(tool.name, recentList),
+      });
+    };
+
+    if (hasNamespaceFilter) {
+      for (const ns of request.namespaces) {
+        for (const tool of this.index.getByNamespace(ns)) {
+          addPinnedOrRecent(tool, ns);
         }
+      }
+    } else {
+      // No namespace filter — iterate all registered tools
+      for (const tool of this.index.listAll()) {
+        // namespace is not directly available from listAll(); resolve from candidateMap or fall back to ''
+        const ns = candidateMap.get(tool.name)?.namespace ?? '';
+        addPinnedOrRecent(tool, ns);
       }
     }
 
-    // 4. Sort by composite score
+    // 5. Sort by composite score
     scored.sort((a, b) => b.compositeScore - a.compositeScore);
 
-    // 5. Separate pinned tools (always included)
+    // 6. Separate pinned tools (always included)
     const pinnedResults: ToolDefinition[] = [];
     let pinnedTokens = 0;
     const remaining: typeof scored = [];
@@ -146,7 +160,7 @@ export class ToolSelector implements ToolSelectorInterface {
       }
     }
 
-    // 6. Fill remaining budget
+    // 7. Fill remaining budget
     const selectedTools: ToolDefinition[] = [...pinnedResults];
     let totalTokens = pinnedTokens;
     let droppedCount = 0;
@@ -193,9 +207,11 @@ export class ToolSelector implements ToolSelectorInterface {
     const recencyScore = recentSet.has(candidate.tool.name)
       ? this.recencyScore(candidate.tool.name, recentList) * this.weights.recency
       : 0;
-    const contextScore = activeNamespaces.includes(candidate.namespace)
-      ? this.weights.context
-      : 0;
+    // Empty activeNamespaces = "all namespaces" → always award context score
+    const contextScore =
+      activeNamespaces.length === 0 || activeNamespaces.includes(candidate.namespace)
+        ? this.weights.context
+        : 0;
     const embScore = embeddingScore * this.weights.embedding;
 
     return keywordScore + recencyScore + contextScore + embScore;

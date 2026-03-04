@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Logger } from '@nexora-kit/core';
 
 // --- Server configuration ---
 
@@ -84,33 +85,37 @@ export interface JsonRpcNotification {
 
 // --- Zod schemas for mcp.yaml ---
 
-export const mcpServerConfigSchema = z.object({
-  name: z.string().min(1),
-  transport: z.enum(['stdio', 'sse', 'http']),
-  command: z.string().optional(),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string()).optional(),
-  url: z.string().url().optional(),
-  headers: z.record(z.string()).optional(),
-}).refine(
-  (data) => {
-    if (data.transport === 'stdio') return !!data.command;
-    return true;
-  },
-  { message: 'stdio transport requires "command" field' },
-).refine(
-  (data) => {
-    if (data.transport === 'sse') return !!data.url;
-    return true;
-  },
-  { message: 'sse transport requires "url" field' },
-).refine(
-  (data) => {
-    if (data.transport === 'http') return !!data.url;
-    return true;
-  },
-  { message: 'http transport requires "url" field' },
-);
+export const mcpServerConfigSchema = z
+  .object({
+    name: z.string().min(1),
+    transport: z.enum(['stdio', 'sse', 'http']),
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string()).optional(),
+    url: z.string().url().optional(),
+    headers: z.record(z.string()).optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.transport === 'stdio') return !!data.command;
+      return true;
+    },
+    { message: 'stdio transport requires "command" field' },
+  )
+  .refine(
+    (data) => {
+      if (data.transport === 'sse') return !!data.url;
+      return true;
+    },
+    { message: 'sse transport requires "url" field' },
+  )
+  .refine(
+    (data) => {
+      if (data.transport === 'http') return !!data.url;
+      return true;
+    },
+    { message: 'http transport requires "url" field' },
+  );
 
 export const mcpConfigSchema = z.object({
   servers: z.array(mcpServerConfigSchema).min(1),
@@ -133,6 +138,7 @@ export interface McpManagerConfig {
   maxRestartAttempts: number;
   requestTimeoutMs: number;
   circuitBreaker: CircuitBreakerConfig;
+  logger?: Logger;
 }
 
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {

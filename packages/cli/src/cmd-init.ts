@@ -37,13 +37,13 @@ sandbox:
 #
 # WSO2 / Azure OpenAI (corporate gateway):
 # llm:
-#   provider: wso2
-#   clientId: \${WSO2_CLIENT_ID}
-#   clientSecret: \${WSO2_CLIENT_SECRET}
-#   tokenUrl: \${WSO2_TOKEN_URL}
-#   baseUrl: \${WSO2_BASE_URL}
-#   deployment: \${WSO2_DEPLOYMENT}
-#   apiVersion: "2024-12-01-preview"
+#   provider: wso2-azure-openai
+#   wso2ClientId: \${WSO2_CLIENT_ID}
+#   wso2ClientSecret: \${WSO2_CLIENT_SECRET}
+#   wso2AuthUrl: \${WSO2_AUTH_URL}
+#   wso2BaseUrl: \${WSO2_BASE_URL}
+#   wso2DeploymentId: \${WSO2_DEPLOYMENT_ID}
+#   wso2ApiVersion: "2024-12-01-preview"
 `;
 
 const PLUGIN_GITKEEP = '';

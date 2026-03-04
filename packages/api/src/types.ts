@@ -1,8 +1,21 @@
 import { z } from 'zod';
-import type { AgentLoop, MessageStore } from '@nexora-kit/core';
+import type { AgentLoop, MessageStore, Logger } from '@nexora-kit/core';
 import type { PluginLifecycleManager } from '@nexora-kit/plugins';
 import type { AdminService } from '@nexora-kit/admin';
-import type { IConversationStore, IBotStore, IAgentStore, IAgentBotBindingStore, IEndUserStore, IFeedbackStore, IUserMemoryStore, IConversationTemplateStore, IFileStore, IWorkspaceStore, IContextDocumentStore, IArtifactStore } from '@nexora-kit/storage';
+import type {
+  IConversationStore,
+  IBotStore,
+  IAgentStore,
+  IAgentBotBindingStore,
+  IEndUserStore,
+  IFeedbackStore,
+  IUserMemoryStore,
+  IConversationTemplateStore,
+  IFileStore,
+  IWorkspaceStore,
+  IContextDocumentStore,
+  IArtifactStore,
+} from '@nexora-kit/storage';
 
 // --- Auth ---
 
@@ -64,6 +77,7 @@ export interface GatewayConfig {
   port: number;
   host?: string;
   apiPrefix?: string;
+  logger?: Logger;
   agentLoop: AgentLoop;
   auth: AuthProvider;
   conversationStore?: IConversationStore;
@@ -163,7 +177,11 @@ export type ChatRequestBody = z.infer<typeof chatRequestSchema>;
 export interface WsChatMessage {
   type: 'chat';
   conversationId?: string;
-  input: string | { type: 'text'; text: string } | { type: 'action'; actionId: string; payload: Record<string, unknown> } | { type: 'file'; fileId: string; text?: string };
+  input:
+    | string
+    | { type: 'text'; text: string }
+    | { type: 'action'; actionId: string; payload: Record<string, unknown> }
+    | { type: 'file'; fileId: string; text?: string };
   pluginNamespaces?: string[];
   metadata?: Record<string, unknown>;
 }
@@ -232,34 +250,46 @@ export type UpdateBotBody = z.infer<typeof updateBotSchema>;
 
 const orchestrationStrategySchema = z.enum(['single', 'orchestrate', 'route']);
 
-const appearanceSchema = z.object({
-  displayName: z.string().max(100).optional(),
-  avatarUrl: z.string().url().optional(),
-  description: z.string().max(500).optional(),
-  welcomeMessage: z.string().max(2000).optional(),
-  placeholder: z.string().max(200).optional(),
-}).optional();
+const appearanceSchema = z
+  .object({
+    displayName: z.string().max(100).optional(),
+    avatarUrl: z.string().url().optional(),
+    description: z.string().max(500).optional(),
+    welcomeMessage: z.string().max(2000).optional(),
+    placeholder: z.string().max(200).optional(),
+  })
+  .optional();
 
-const endUserAuthSchema = z.object({
-  mode: z.enum(['anonymous', 'token', 'jwt']).optional(),
-  jwtSecret: z.string().optional(),
-  tokenPrefix: z.string().optional(),
-}).optional();
+const endUserAuthSchema = z
+  .object({
+    mode: z.enum(['anonymous', 'token', 'jwt']).optional(),
+    jwtSecret: z.string().optional(),
+    tokenPrefix: z.string().optional(),
+  })
+  .optional();
 
-const rateLimitsSchema = z.object({
-  messagesPerMinute: z.number().int().min(1).optional(),
-  conversationsPerDay: z.number().int().min(1).optional(),
-}).optional();
+const rateLimitsSchema = z
+  .object({
+    messagesPerMinute: z.number().int().min(1).optional(),
+    conversationsPerDay: z.number().int().min(1).optional(),
+  })
+  .optional();
 
-const featuresSchema = z.object({
-  artifacts: z.boolean().optional(),
-  fileUpload: z.boolean().optional(),
-  feedback: z.boolean().optional(),
-  memory: z.boolean().optional(),
-}).optional();
+const featuresSchema = z
+  .object({
+    artifacts: z.boolean().optional(),
+    fileUpload: z.boolean().optional(),
+    feedback: z.boolean().optional(),
+    memory: z.boolean().optional(),
+  })
+  .optional();
 
 export const createAgentSchema = z.object({
-  slug: z.string().min(1).max(60).regex(slugPattern, 'Slug must be lowercase alphanumeric with hyphens'),
+  slug: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(slugPattern, 'Slug must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   orchestrationStrategy: orchestrationStrategySchema.optional(),
@@ -277,7 +307,12 @@ export const createAgentSchema = z.object({
 export type CreateAgentBody = z.infer<typeof createAgentSchema>;
 
 export const updateAgentSchema = z.object({
-  slug: z.string().min(1).max(60).regex(slugPattern, 'Slug must be lowercase alphanumeric with hyphens').optional(),
+  slug: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(slugPattern, 'Slug must be lowercase alphanumeric with hyphens')
+    .optional(),
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
   orchestrationStrategy: orchestrationStrategySchema.optional(),

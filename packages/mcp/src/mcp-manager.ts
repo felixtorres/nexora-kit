@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolParameterProperty } from '@nexora-kit/core';
+import type { ToolDefinition, ToolParameterProperty, Logger } from '@nexora-kit/core';
 import type { McpTransport } from './transports.js';
 import { StdioTransport, SseTransport, HttpTransport } from './transports.js';
 import { McpServerHandle } from './server-handle.js';
@@ -53,9 +53,11 @@ export class McpManager {
   private healthMonitor: HealthMonitor;
   private readonly config: McpManagerConfig;
   private readonly transportFactory: TransportFactory;
+  private readonly logger?: Logger;
 
   constructor(config?: Partial<McpManagerConfig>, transportFactory?: TransportFactory) {
     this.config = { ...DEFAULT_MCP_MANAGER_CONFIG, ...config };
+    this.logger = config?.logger;
     this.transportFactory = transportFactory ?? defaultTransportFactory;
     this.healthMonitor = new HealthMonitor({
       intervalMs: this.config.healthCheckIntervalMs,
@@ -67,6 +69,12 @@ export class McpManager {
     const handles: McpServerHandle[] = [];
 
     for (const config of configs) {
+      this.logger?.info('mcp.server.starting', {
+        namespace,
+        server: config.name,
+        transport: config.transport,
+      });
+
       const transport = this.transportFactory.create(config, this.config.requestTimeoutMs);
       const handle = new McpServerHandle({
         config,
@@ -75,7 +83,26 @@ export class McpManager {
         circuitBreakerConfig: this.config.circuitBreaker,
       });
 
-      await handle.start();
+      try {
+        await handle.start();
+        const tools = handle.listTools().map((t) => t.name);
+        this.logger?.info('mcp.server.started', {
+          namespace,
+          server: config.name,
+          transport: config.transport,
+          toolCount: tools.length,
+          tools,
+        });
+      } catch (err) {
+        this.logger?.error('mcp.server.start_failed', {
+          namespace,
+          server: config.name,
+          transport: config.transport,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+
       handles.push(handle);
       this.healthMonitor.addHandle(handle);
 
@@ -93,6 +120,8 @@ export class McpManager {
     const handles = this.handles.get(namespace);
     if (!handles) return;
 
+    this.logger?.info('mcp.servers.stopping', { namespace, count: handles.length });
+
     for (const handle of handles) {
       // Remove indexed tools
       for (const tool of handle.listTools()) {
@@ -102,6 +131,7 @@ export class McpManager {
 
       this.healthMonitor.removeHandle(handle.config.name);
       await handle.stop();
+      this.logger?.info('mcp.server.stopped', { namespace, server: handle.config.name });
     }
 
     this.handles.delete(namespace);
@@ -129,9 +159,26 @@ export class McpManager {
   async callTool(qualifiedName: string, input: Record<string, unknown>): Promise<unknown> {
     const entry = this.toolMap.get(qualifiedName);
     if (!entry) {
+      this.logger?.error('mcp.tool.not_found', { tool: qualifiedName });
       throw new Error(`MCP tool not found: ${qualifiedName}`);
     }
-    return entry.handle.callTool(entry.mcpToolName, input);
+
+    const start = Date.now();
+    try {
+      const result = await entry.handle.callTool(entry.mcpToolName, input);
+      this.logger?.debug('mcp.tool.called', {
+        tool: qualifiedName,
+        durationMs: Date.now() - start,
+      });
+      return result;
+    } catch (err) {
+      this.logger?.error('mcp.tool.call_failed', {
+        tool: qualifiedName,
+        durationMs: Date.now() - start,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
   }
 
   health(namespace: string): McpHealthReport[] {
@@ -141,7 +188,12 @@ export class McpManager {
   }
 
   listAll(): Array<{ namespace: string; serverName: string; status: string; toolCount: number }> {
-    const result: Array<{ namespace: string; serverName: string; status: string; toolCount: number }> = [];
+    const result: Array<{
+      namespace: string;
+      serverName: string;
+      status: string;
+      toolCount: number;
+    }> = [];
 
     for (const [namespace, handles] of this.handles) {
       for (const handle of handles) {
@@ -170,6 +222,7 @@ export class McpManager {
   }
 
   async shutdown(): Promise<void> {
+    this.logger?.info('mcp.manager.shutdown', {});
     this.healthMonitor.stop();
     for (const namespace of [...this.handles.keys()]) {
       await this.stopServers(namespace);

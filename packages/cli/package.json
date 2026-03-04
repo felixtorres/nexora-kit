@@ -15,17 +15,18 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@nexora-kit/core": "*",
-    "@nexora-kit/config": "*",
-    "@nexora-kit/plugins": "*",
-    "@nexora-kit/storage": "*",
     "@nexora-kit/admin": "*",
     "@nexora-kit/api": "*",
+    "@nexora-kit/commands": "*",
+    "@nexora-kit/config": "*",
+    "@nexora-kit/core": "*",
+    "@nexora-kit/llm": "*",
+    "@nexora-kit/mcp": "*",
+    "@nexora-kit/plugins": "*",
     "@nexora-kit/sandbox": "*",
     "@nexora-kit/skills": "*",
-    "@nexora-kit/commands": "*",
-    "@nexora-kit/mcp": "*",
-    "@nexora-kit/llm": "*",
+    "@nexora-kit/storage": "*",
+    "fflate": "^0.8.2",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

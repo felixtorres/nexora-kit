@@ -1,5 +1,10 @@
-import type { PluginInstance, PluginState, PluginConfigField, ToolDefinition } from '@nexora-kit/core';
-import type { ToolDispatcher, ToolHandler } from '@nexora-kit/core';
+import type {
+  PluginInstance,
+  PluginState,
+  PluginConfigField,
+  ToolDefinition,
+} from '@nexora-kit/core';
+import type { ToolDispatcher, ToolHandler, Logger } from '@nexora-kit/core';
 import type { PermissionGate, PermissionRule } from '@nexora-kit/sandbox';
 import type { ConfigResolver } from '@nexora-kit/config';
 import { ConfigLayer } from '@nexora-kit/config';
@@ -17,6 +22,7 @@ export interface LifecycleOptions {
   skillHandlerFactory?: SkillHandlerFactory;
   skillRegistry?: SkillRegistry;
   mcpManager?: McpManager;
+  logger?: Logger;
 }
 
 export class PluginLifecycleManager {
@@ -31,6 +37,7 @@ export class PluginLifecycleManager {
   private readonly skillHandlerFactory?: SkillHandlerFactory;
   private readonly skillRegistry?: SkillRegistry;
   private readonly mcpManager?: McpManager;
+  private readonly logger?: Logger;
 
   constructor(options: LifecycleOptions) {
     this.permissionGate = options.permissionGate;
@@ -40,6 +47,7 @@ export class PluginLifecycleManager {
     this.skillHandlerFactory = options.skillHandlerFactory;
     this.skillRegistry = options.skillRegistry;
     this.mcpManager = options.mcpManager;
+    this.logger = options.logger;
   }
 
   install(plugin: PluginInstance): void {
@@ -48,6 +56,7 @@ export class PluginLifecycleManager {
       throw new Error(`Plugin '${ns}' is already installed`);
     }
     this.plugins.set(ns, { ...plugin, state: 'installed' });
+    this.logger?.info('plugin.installed', { namespace: ns, version: plugin.manifest.version });
   }
 
   enable(namespace: string): void {
@@ -63,7 +72,9 @@ export class PluginLifecycleManager {
       const missingDeps = resolution.missing
         .filter((m) => m.from === namespace)
         .map((m) => `${m.requires}@${m.version}`);
-      throw new Error(`Cannot enable '${namespace}': missing dependencies: ${missingDeps.join(', ')}`);
+      throw new Error(
+        `Cannot enable '${namespace}': missing dependencies: ${missingDeps.join(', ')}`,
+      );
     }
     if (resolution.cycles.some((c) => c.includes(namespace))) {
       throw new Error(`Cannot enable '${namespace}': circular dependency detected`);
@@ -76,7 +87,10 @@ export class PluginLifecycleManager {
 
     // Set config defaults
     if (plugin.manifest.config) {
-      for (const [key, field] of Object.entries(plugin.manifest.config.schema) as [string, PluginConfigField][]) {
+      for (const [key, field] of Object.entries(plugin.manifest.config.schema) as [
+        string,
+        PluginConfigField,
+      ][]) {
         if (field.default !== undefined) {
           this.configResolver.set(
             `${namespace}.${key}`,
@@ -104,8 +118,9 @@ export class PluginLifecycleManager {
       if (baseHandler) {
         const wrappedHandler = wrapWithErrorBoundary(tool.name, baseHandler, {
           maxConsecutiveFailures: 5,
-          onDisable: (_name, error) => {
-            this.setState(namespace, 'errored', error);
+          onDisable: (toolName, errMsg) => {
+            this.logger?.error('plugin.tool_disabled', { namespace, tool: toolName, err: errMsg });
+            this.setState(namespace, 'errored', errMsg);
           },
         });
         this.toolDispatcher.register(tool, wrappedHandler);
@@ -164,6 +179,7 @@ export class PluginLifecycleManager {
     this.permissionGate.clearAll(namespace);
 
     this.setState(namespace, 'disabled');
+    this.logger?.info('plugin.disabled', { namespace });
   }
 
   uninstall(namespace: string): void {
@@ -178,6 +194,7 @@ export class PluginLifecycleManager {
     }
 
     this.plugins.delete(namespace);
+    this.logger?.info('plugin.uninstalled', { namespace });
   }
 
   getPlugin(namespace: string): PluginInstance | undefined {
@@ -237,11 +254,17 @@ export class PluginLifecycleManager {
       this.enable(namespace);
     }
 
+    this.logger?.info('plugin.reloaded', { namespace });
     return result;
   }
 
   private async startMcpServers(namespace: string, configs: McpServerConfig[]): Promise<void> {
     if (!this.mcpManager) return;
+
+    this.logger?.info('mcp.starting', {
+      namespace,
+      servers: configs.map((c) => ({ name: c.name, transport: c.transport })),
+    });
 
     try {
       await this.mcpManager.startServers(namespace, configs);
@@ -249,11 +272,19 @@ export class PluginLifecycleManager {
       // Register MCP tools in the dispatcher
       const mcpTools = this.mcpManager.getTools(namespace);
       const plugin = this.plugins.get(namespace);
+
+      this.logger?.info('mcp.started', {
+        namespace,
+        toolCount: mcpTools.length,
+        tools: mcpTools.map((t) => t.definition.name),
+      });
+
       for (const { definition, handler } of mcpTools) {
         const wrappedHandler = wrapWithErrorBoundary(definition.name, handler, {
           maxConsecutiveFailures: 5,
-          onDisable: (_name, error) => {
-            this.setState(namespace, 'errored', error);
+          onDisable: (toolName, errMsg) => {
+            this.logger?.error('mcp.tool_disabled', { namespace, tool: toolName, err: errMsg });
+            this.setState(namespace, 'errored', errMsg);
           },
         });
         this.toolDispatcher.register(definition, wrappedHandler, {
@@ -268,6 +299,7 @@ export class PluginLifecycleManager {
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
+      this.logger?.error('mcp.start_failed', { namespace, err: msg });
       this.setState(namespace, 'errored', `MCP server start failed: ${msg}`);
     }
   }
@@ -275,8 +307,21 @@ export class PluginLifecycleManager {
   private setState(namespace: string, state: PluginState, error?: string): void {
     const plugin = this.plugins.get(namespace);
     if (plugin) {
+      const prev = plugin.state;
       plugin.state = state;
       plugin.error = error;
+      if (prev !== state) {
+        if (state === 'errored') {
+          this.logger?.error('plugin.state_change', {
+            namespace,
+            from: prev,
+            to: state,
+            err: error,
+          });
+        } else {
+          this.logger?.info('plugin.state_change', { namespace, from: prev, to: state });
+        }
+      }
     }
   }
 }

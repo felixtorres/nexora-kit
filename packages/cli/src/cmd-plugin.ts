@@ -1,9 +1,17 @@
-import { mkdir, writeFile, readFile, readdir, access, cp } from 'node:fs/promises';
-import { resolve, join, basename } from 'node:path';
+import { mkdir, writeFile, readFile, readdir, access, cp, rm, mkdtemp } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { resolve, join, basename, extname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
 import type { CliCommand } from './commands.js';
 import { success, error, info, warn, fmt, table } from './output.js';
-import { validateManifest, loadPlugin, discoverPlugins } from '@nexora-kit/plugins';
+import {
+  validateManifest,
+  loadPlugin,
+  loadClaudePlugin,
+  isClaudePlugin,
+  discoverPlugins,
+} from '@nexora-kit/plugins';
 import { parse as parseYaml } from 'yaml';
 
 // --- plugin init ---
@@ -85,18 +93,20 @@ export const pluginInitCommand: CliCommand = {
     await mkdir(join(targetDir, 'tests'), { recursive: true });
 
     // Write manifest
-    const manifest = TEMPLATE_MANIFEST
-      .replace(/\{\{name\}\}/g, name)
-      .replace(/\{\{namespace\}\}/g, namespace);
+    const manifest = TEMPLATE_MANIFEST.replace(/\{\{name\}\}/g, name).replace(
+      /\{\{namespace\}\}/g,
+      namespace,
+    );
     await writeFile(join(targetDir, 'plugin.yaml'), manifest, 'utf-8');
 
     // Write example skill
     await writeFile(join(targetDir, 'skills', 'hello.yaml'), TEMPLATE_SKILL_YAML, 'utf-8');
 
     // Write test file
-    const test = TEMPLATE_TEST
-      .replace(/\{\{name\}\}/g, name)
-      .replace(/\{\{namespace\}\}/g, namespace);
+    const test = TEMPLATE_TEST.replace(/\{\{name\}\}/g, name).replace(
+      /\{\{namespace\}\}/g,
+      namespace,
+    );
     await writeFile(join(targetDir, 'tests', 'plugin.test.ts'), test, 'utf-8');
 
     success(`Plugin "${name}" scaffolded!`);
@@ -113,9 +123,65 @@ export const pluginInitCommand: CliCommand = {
 
 // --- plugin add ---
 
+/**
+ * Extract a ZIP archive to a target directory, skipping macOS junk entries
+ * (__MACOSX/, .DS_Store, ._*) and stripping a common top-level directory
+ * prefix if the entire archive lives inside one folder (the typical case when
+ * a directory is zipped on macOS / GitHub).
+ */
+async function extractZip(zipPath: string, destDir: string): Promise<void> {
+  const { unzipSync } = await import('fflate');
+  const { readFileSync } = await import('node:fs');
+
+  const zipData = readFileSync(zipPath);
+  const files = unzipSync(zipData);
+  // Determine if all non-junk entries share a common top-level prefix to strip
+  const allPaths = Object.keys(files);
+  const meaningfulPaths = allPaths.filter(
+    (p) => !p.startsWith('__MACOSX/') && !p.endsWith('.DS_Store') && !basename(p).startsWith('._'),
+  );
+  const firstSegments = new Set(meaningfulPaths.map((p) => p.split('/')[0]));
+  const commonPrefix =
+    firstSegments.size === 1 ? (firstSegments.values().next().value as string) + '/' : '';
+
+  await mkdir(destDir, { recursive: true });
+
+  for (const [filePath, data] of Object.entries(files)) {
+    // Skip macOS metadata noise
+    if (
+      filePath.startsWith('__MACOSX/') ||
+      filePath.includes('/.DS_Store') ||
+      filePath.endsWith('.DS_Store') ||
+      basename(filePath).startsWith('._')
+    ) {
+      continue;
+    }
+
+    const strippedPath =
+      commonPrefix && filePath.startsWith(commonPrefix)
+        ? filePath.slice(commonPrefix.length)
+        : filePath;
+
+    if (!strippedPath) continue; // was the root folder entry itself
+
+    const outPath = join(destDir, strippedPath);
+
+    if (filePath.endsWith('/')) {
+      // Directory entry
+      await mkdir(outPath, { recursive: true });
+    } else {
+      await mkdir(join(outPath, '..'), { recursive: true });
+      const { writeFile: wf } = await import('node:fs/promises');
+      await wf(outPath, data);
+    }
+  }
+}
+
+// --- plugin add ---
+
 export const pluginAddCommand: CliCommand = {
   name: 'plugin:add',
-  description: 'Install a plugin from a local path',
+  description: 'Install a plugin from a local path or ZIP file',
   usage: 'nexora-kit plugin add <source> [--plugins-dir <dir>]',
 
   async run(args) {
@@ -129,9 +195,32 @@ export const pluginAddCommand: CliCommand = {
     const sourcePath = resolve(source);
     const pluginsDir = resolve((args.flags['plugins-dir'] as string) ?? './plugins');
 
-    // Validate the source plugin first
+    let tempDir: string | undefined;
+    let pluginSourcePath = sourcePath;
+
+    // Extract ZIP archives to a temp directory before loading
+    if (extname(sourcePath).toLowerCase() === '.zip') {
+      tempDir = await mkdtemp(join(tmpdir(), 'nexora-plugin-'));
+      try {
+        info(`Extracting ${basename(sourcePath)}...`);
+        await extractZip(sourcePath, tempDir);
+        pluginSourcePath = tempDir;
+      } catch (err) {
+        await rm(tempDir, { recursive: true, force: true });
+        error(`Failed to extract ZIP: ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+        return;
+      }
+    }
+
     try {
-      const result = loadPlugin(sourcePath);
+      let result = loadPlugin(pluginSourcePath);
+
+      // Fall back to Claude-format plugin if no plugin.yaml is present
+      if (result.errors.length > 0 && isClaudePlugin(pluginSourcePath)) {
+        result = loadClaudePlugin(pluginSourcePath);
+      }
+
       if (result.errors.length > 0) {
         error(`Plugin has errors:`);
         for (const err of result.errors) {
@@ -155,13 +244,21 @@ export const pluginAddCommand: CliCommand = {
       }
 
       await mkdir(pluginsDir, { recursive: true });
-      await cp(sourcePath, destDir, { recursive: true });
+      await cp(pluginSourcePath, destDir, { recursive: true });
 
       success(`Plugin "${result.plugin.manifest.name}" installed to ${destDir}`);
-      info(`Tools: ${result.plugin.tools.length}, Skills: ${result.skillDefinitions.size}, Commands: ${result.commandDefinitions.size}`);
+      info(
+        `Tools: ${result.plugin.tools.length}, Skills: ${result.skillDefinitions.size}, Commands: ${result.commandDefinitions.size}`,
+      );
     } catch (err) {
-      error(`Failed to load plugin from ${sourcePath}: ${err instanceof Error ? err.message : String(err)}`);
+      error(
+        `Failed to load plugin from ${sourcePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       process.exitCode = 1;
+    } finally {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
     }
   },
 };
@@ -217,7 +314,9 @@ export const pluginDevCommand: CliCommand = {
       lifecycle.registerPluginDir(result.plugin.manifest.namespace, pluginDir);
       lifecycle.enable(result.plugin.manifest.namespace);
 
-      success(`Plugin loaded: ${result.plugin.manifest.namespace} (${result.plugin.tools.length} tools)`);
+      success(
+        `Plugin loaded: ${result.plugin.manifest.namespace} (${result.plugin.tools.length} tools)`,
+      );
 
       // Start file watcher
       const controller = new AbortController();
@@ -355,7 +454,9 @@ export const pluginValidateCommand: CliCommand = {
           issues.push(err);
         }
       } else {
-        success(`Plugin loads successfully: ${result.plugin.tools.length} tools, ${result.skillDefinitions.size} skills, ${result.commandDefinitions.size} commands`);
+        success(
+          `Plugin loads successfully: ${result.plugin.tools.length} tools, ${result.skillDefinitions.size} skills, ${result.commandDefinitions.size} commands`,
+        );
       }
     } catch (err) {
       error(`Plugin load failed: ${err instanceof Error ? err.message : String(err)}`);

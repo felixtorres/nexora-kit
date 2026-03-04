@@ -1,8 +1,16 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
+import type { Logger } from '@nexora-kit/core';
 import type { GatewayConfig, AuthIdentity } from './types.js';
-import { Router, parseRequest, sendResponse, errorResponse, ApiError, jsonResponse } from './router.js';
+import {
+  Router,
+  parseRequest,
+  sendResponse,
+  errorResponse,
+  ApiError,
+  jsonResponse,
+} from './router.js';
 import { RateLimiter } from './rate-limit.js';
 import { WebSocketManager, isWebSocketUpgrade } from './websocket.js';
 import { ClientWebSocketManager } from './client-websocket.js';
@@ -114,10 +122,12 @@ export class Gateway {
   private readonly wsManager: WebSocketManager;
   private readonly clientWsManager: ClientWebSocketManager | null;
   private readonly config: GatewayConfig;
+  private readonly logger: Logger | undefined;
   readonly metrics: MetricsCollector;
 
   constructor(config: GatewayConfig) {
     this.config = config;
+    this.logger = config.logger;
     this.metrics = new MetricsCollector();
     const prefix = config.apiPrefix ?? '/v1';
 
@@ -127,6 +137,7 @@ export class Gateway {
       conversationStore: config.conversationStore,
       messageStore: config.messageStore,
       plugins: config.plugins,
+      logger: config.logger?.child({ component: 'handler' }),
     };
 
     // Set up router
@@ -148,16 +159,29 @@ export class Gateway {
         messageStore: config.messageStore,
         feedbackStore: config.feedbackStore,
       };
-      this.router.add('PUT', `${prefix}/conversations/:id/messages/:seq`, createEditMessageHandler(msgEditDeps));
-      this.router.post(`${prefix}/conversations/:id/messages/:seq/regenerate`, createRegenerateMessageHandler(msgEditDeps));
+      this.router.add(
+        'PUT',
+        `${prefix}/conversations/:id/messages/:seq`,
+        createEditMessageHandler(msgEditDeps),
+      );
+      this.router.post(
+        `${prefix}/conversations/:id/messages/:seq/regenerate`,
+        createRegenerateMessageHandler(msgEditDeps),
+      );
     }
 
     // Feedback endpoints
     if (config.feedbackStore) {
       const fbDeps: FeedbackHandlerDeps = { feedbackStore: config.feedbackStore };
-      this.router.post(`${prefix}/conversations/:id/messages/:seq/feedback`, createSubmitFeedbackHandler(fbDeps));
+      this.router.post(
+        `${prefix}/conversations/:id/messages/:seq/feedback`,
+        createSubmitFeedbackHandler(fbDeps),
+      );
       this.router.get(`${prefix}/admin/feedback`, createAdminFeedbackQueryHandler(fbDeps));
-      this.router.get(`${prefix}/admin/feedback/summary`, createAdminFeedbackSummaryHandler(fbDeps));
+      this.router.get(
+        `${prefix}/admin/feedback/summary`,
+        createAdminFeedbackSummaryHandler(fbDeps),
+      );
     }
 
     // User memory endpoints
@@ -179,9 +203,19 @@ export class Gateway {
       };
       this.router.post(`${prefix}/files`, createFileUploadHandler(fileDeps, config.fileBackend));
       this.router.get(`${prefix}/files/:id`, createFileGetHandler(fileDeps));
-      this.router.get(`${prefix}/files/:id/content`, createFileDownloadHandler(fileDeps, config.fileBackend));
-      this.router.add('DELETE', `${prefix}/files/:id`, createFileDeleteHandler(fileDeps, config.fileBackend));
-      this.router.get(`${prefix}/conversations/:id/files`, createConversationFilesHandler(fileDeps));
+      this.router.get(
+        `${prefix}/files/:id/content`,
+        createFileDownloadHandler(fileDeps, config.fileBackend),
+      );
+      this.router.add(
+        'DELETE',
+        `${prefix}/files/:id`,
+        createFileDeleteHandler(fileDeps, config.fileBackend),
+      );
+      this.router.get(
+        `${prefix}/conversations/:id/files`,
+        createConversationFilesHandler(fileDeps),
+      );
     }
 
     // Workspace endpoints
@@ -193,12 +227,28 @@ export class Gateway {
       this.router.post(`${prefix}/admin/workspaces`, createWorkspaceCreateHandler(wsDeps));
       this.router.get(`${prefix}/workspaces`, createWorkspaceListHandler(wsDeps));
       this.router.get(`${prefix}/workspaces/:id`, createWorkspaceGetHandler(wsDeps));
-      this.router.add('PATCH', `${prefix}/admin/workspaces/:id`, createWorkspaceUpdateHandler(wsDeps));
-      this.router.add('DELETE', `${prefix}/admin/workspaces/:id`, createWorkspaceDeleteHandler(wsDeps));
+      this.router.add(
+        'PATCH',
+        `${prefix}/admin/workspaces/:id`,
+        createWorkspaceUpdateHandler(wsDeps),
+      );
+      this.router.add(
+        'DELETE',
+        `${prefix}/admin/workspaces/:id`,
+        createWorkspaceDeleteHandler(wsDeps),
+      );
       this.router.post(`${prefix}/workspaces/:id/documents`, createDocumentCreateHandler(wsDeps));
       this.router.get(`${prefix}/workspaces/:id/documents`, createDocumentListHandler(wsDeps));
-      this.router.add('PATCH', `${prefix}/workspaces/:id/documents/:docId`, createDocumentUpdateHandler(wsDeps));
-      this.router.add('DELETE', `${prefix}/workspaces/:id/documents/:docId`, createDocumentDeleteHandler(wsDeps));
+      this.router.add(
+        'PATCH',
+        `${prefix}/workspaces/:id/documents/:docId`,
+        createDocumentUpdateHandler(wsDeps),
+      );
+      this.router.add(
+        'DELETE',
+        `${prefix}/workspaces/:id/documents/:docId`,
+        createDocumentDeleteHandler(wsDeps),
+      );
     }
 
     if (config.templateStore) {
@@ -206,8 +256,16 @@ export class Gateway {
       this.router.post(`${prefix}/admin/templates`, createTemplateCreateHandler(tplDeps));
       this.router.get(`${prefix}/templates`, createTemplateListHandler(tplDeps));
       this.router.get(`${prefix}/templates/:id`, createTemplateGetHandler(tplDeps));
-      this.router.add('PATCH', `${prefix}/admin/templates/:id`, createTemplateUpdateHandler(tplDeps));
-      this.router.add('DELETE', `${prefix}/admin/templates/:id`, createTemplateDeleteHandler(tplDeps));
+      this.router.add(
+        'PATCH',
+        `${prefix}/admin/templates/:id`,
+        createTemplateUpdateHandler(tplDeps),
+      );
+      this.router.add(
+        'DELETE',
+        `${prefix}/admin/templates/:id`,
+        createTemplateDeleteHandler(tplDeps),
+      );
     }
 
     // Artifact endpoints
@@ -217,10 +275,23 @@ export class Gateway {
         conversationStore: config.conversationStore,
       };
       this.router.get(`${prefix}/conversations/:id/artifacts`, createListArtifactsHandler(artDeps));
-      this.router.get(`${prefix}/conversations/:id/artifacts/:artifactId`, createGetArtifactHandler(artDeps));
-      this.router.get(`${prefix}/conversations/:id/artifacts/:artifactId/versions`, createListArtifactVersionsHandler(artDeps));
-      this.router.get(`${prefix}/conversations/:id/artifacts/:artifactId/versions/:version`, createGetArtifactVersionHandler(artDeps));
-      this.router.add('DELETE', `${prefix}/conversations/:id/artifacts/:artifactId`, createDeleteArtifactHandler(artDeps));
+      this.router.get(
+        `${prefix}/conversations/:id/artifacts/:artifactId`,
+        createGetArtifactHandler(artDeps),
+      );
+      this.router.get(
+        `${prefix}/conversations/:id/artifacts/:artifactId/versions`,
+        createListArtifactVersionsHandler(artDeps),
+      );
+      this.router.get(
+        `${prefix}/conversations/:id/artifacts/:artifactId/versions/:version`,
+        createGetArtifactVersionHandler(artDeps),
+      );
+      this.router.add(
+        'DELETE',
+        `${prefix}/conversations/:id/artifacts/:artifactId`,
+        createDeleteArtifactHandler(artDeps),
+      );
     }
 
     // Legacy chat endpoint
@@ -230,20 +301,40 @@ export class Gateway {
     this.router.get(`${prefix}/plugins/:name`, createPluginDetailHandler(deps));
     this.router.get(`${prefix}/health`, createHealthHandler(deps));
     this.router.get(`${prefix}/metrics`, async () => jsonResponse(200, this.metrics.snapshot()));
-    this.router.get(`${prefix}/openapi.json`, async () => jsonResponse(200, buildOpenApiSpec(prefix)));
+    this.router.get(`${prefix}/openapi.json`, async () =>
+      jsonResponse(200, buildOpenApiSpec(prefix)),
+    );
 
     // Admin routes
     if (config.admin) {
-      this.router.post(`${prefix}/admin/plugins/:name/enable`, createAdminPluginEnableHandler(config.admin));
-      this.router.post(`${prefix}/admin/plugins/:name/disable`, createAdminPluginDisableHandler(config.admin));
-      this.router.add('DELETE', `${prefix}/admin/plugins/:name`, createAdminPluginUninstallHandler(config.admin));
+      this.router.post(
+        `${prefix}/admin/plugins/:name/enable`,
+        createAdminPluginEnableHandler(config.admin),
+      );
+      this.router.post(
+        `${prefix}/admin/plugins/:name/disable`,
+        createAdminPluginDisableHandler(config.admin),
+      );
+      this.router.add(
+        'DELETE',
+        `${prefix}/admin/plugins/:name`,
+        createAdminPluginUninstallHandler(config.admin),
+      );
       this.router.get(`${prefix}/admin/audit-log`, createAdminAuditLogHandler(config.admin));
-      this.router.post(`${prefix}/admin/audit-log/purge`, createAdminAuditPurgeHandler(config.admin));
+      this.router.post(
+        `${prefix}/admin/audit-log/purge`,
+        createAdminAuditPurgeHandler(config.admin),
+      );
       this.router.get(`${prefix}/admin/usage`, createAdminUsageHandler(config.admin));
     }
 
     // Bot & Agent admin routes
-    if (config.botStore && config.agentStore && config.agentBotBindingStore && config.endUserStore) {
+    if (
+      config.botStore &&
+      config.agentStore &&
+      config.agentBotBindingStore &&
+      config.endUserStore
+    ) {
       const baDeps: BotAgentAdminDeps = {
         botStore: config.botStore,
         agentStore: config.agentStore,
@@ -262,7 +353,11 @@ export class Gateway {
       this.router.get(`${prefix}/admin/agents/:id`, createAgentGetHandler(baDeps));
       this.router.add('PATCH', `${prefix}/admin/agents/:id`, createAgentUpdateHandler(baDeps));
       this.router.add('DELETE', `${prefix}/admin/agents/:id`, createAgentDeleteHandler(baDeps));
-      this.router.add('PUT', `${prefix}/admin/agents/:id/bindings`, createReplaceBindingsHandler(baDeps));
+      this.router.add(
+        'PUT',
+        `${prefix}/admin/agents/:id/bindings`,
+        createReplaceBindingsHandler(baDeps),
+      );
       this.router.get(`${prefix}/admin/agents/:id/end-users`, createEndUserListHandler(baDeps));
 
       // Client API routes (if conversationStore + messageStore also available)
@@ -277,17 +372,27 @@ export class Gateway {
         };
 
         this.router.get(`${prefix}/agents/:slug`, createAgentAppearanceHandler(clientDeps));
-        this.router.post(`${prefix}/agents/:slug/conversations`, createClientConversationCreateHandler(clientDeps));
-        this.router.get(`${prefix}/agents/:slug/conversations`, createClientConversationListHandler(clientDeps));
-        this.router.get(`${prefix}/agents/:slug/conversations/:id`, createClientConversationGetHandler(clientDeps));
-        this.router.post(`${prefix}/agents/:slug/conversations/:id/messages`, createClientSendMessageHandler(clientDeps));
+        this.router.post(
+          `${prefix}/agents/:slug/conversations`,
+          createClientConversationCreateHandler(clientDeps),
+        );
+        this.router.get(
+          `${prefix}/agents/:slug/conversations`,
+          createClientConversationListHandler(clientDeps),
+        );
+        this.router.get(
+          `${prefix}/agents/:slug/conversations/:id`,
+          createClientConversationGetHandler(clientDeps),
+        );
+        this.router.post(
+          `${prefix}/agents/:slug/conversations/:id/messages`,
+          createClientSendMessageHandler(clientDeps),
+        );
       }
     }
 
     // Rate limiter
-    this.rateLimiter = config.rateLimit
-      ? new RateLimiter(config.rateLimit)
-      : null;
+    this.rateLimiter = config.rateLimit ? new RateLimiter(config.rateLimit) : null;
 
     // WebSocket manager
     this.wsManager = new WebSocketManager({
@@ -310,7 +415,8 @@ export class Gateway {
         conversationStore: config.conversationStore,
         heartbeatMs: config.wsHeartbeatMs,
         rateLimits: {
-          maxMessagesPerMinute: config.clientWsMaxMessagesPerMinute ?? config.wsMaxMessagesPerMinute,
+          maxMessagesPerMinute:
+            config.clientWsMaxMessagesPerMinute ?? config.wsMaxMessagesPerMinute,
           maxConcurrentChats: config.clientWsMaxConcurrentChats ?? config.wsMaxConcurrentChats,
           maxConnectionsPerEndUser: config.clientWsMaxConnectionsPerEndUser,
         },
@@ -398,15 +504,19 @@ export class Gateway {
     const requestStart = Date.now();
 
     // Correlation ID
-    const requestId = (req.headers['x-request-id'] as string | undefined)
-      ?? `req-${Date.now()}-${randomBytes(4).toString('hex')}`;
+    const requestId =
+      (req.headers['x-request-id'] as string | undefined) ??
+      `req-${Date.now()}-${randomBytes(4).toString('hex')}`;
     res.setHeader('X-Request-Id', requestId);
 
     // CORS headers
     const corsOrigin = resolveCorsOrigin(this.config, req);
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id, X-End-User-Id');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-Request-Id, X-End-User-Id',
+    );
     if (this.config.allowedOrigins && this.config.allowedOrigins.length > 0) {
       res.setHeader('Vary', 'Origin');
     }
@@ -423,6 +533,13 @@ export class Gateway {
     // Route matching
     const match = this.router.match(method, url.pathname);
     if (!match) {
+      this.logger?.warn('http.request', {
+        method,
+        path: url.pathname,
+        status: 404,
+        requestId,
+        durationMs: Date.now() - requestStart,
+      });
       sendResponse(res, jsonResponse(404, { error: { message: 'Not found', code: 'NOT_FOUND' } }));
       return;
     }
@@ -434,19 +551,35 @@ export class Gateway {
     const isHealthEndpoint = url.pathname === `${prefix}/health`;
     const isMetricsEndpoint = url.pathname === `${prefix}/metrics`;
     const isOpenApiEndpoint = url.pathname === `${prefix}/openapi.json`;
-    const isClientApiRoute = url.pathname.startsWith(`${prefix}/agents/`) && !url.pathname.startsWith(`${prefix}/admin/`);
-    const isPublicEndpoint = isHealthEndpoint || isOpenApiEndpoint || isClientApiRoute || (isMetricsEndpoint && (this.config.publicMetrics ?? false));
+    const isClientApiRoute =
+      url.pathname.startsWith(`${prefix}/agents/`) && !url.pathname.startsWith(`${prefix}/admin/`);
+    const isPublicEndpoint =
+      isHealthEndpoint ||
+      isOpenApiEndpoint ||
+      isClientApiRoute ||
+      (isMetricsEndpoint && (this.config.publicMetrics ?? false));
     if (!isPublicEndpoint) {
-      auth = (await this.config.auth.authenticate({
-        method,
-        url: url.pathname,
-        headers: req.headers as Record<string, string | string[] | undefined>,
-        params: {},
-        query: {},
-      })) ?? undefined;
+      auth =
+        (await this.config.auth.authenticate({
+          method,
+          url: url.pathname,
+          headers: req.headers as Record<string, string | string[] | undefined>,
+          params: {},
+          query: {},
+        })) ?? undefined;
 
       if (!auth) {
-        sendResponse(res, jsonResponse(401, { error: { message: 'Unauthorized', code: 'UNAUTHORIZED' } }));
+        this.logger?.warn('http.request', {
+          method,
+          path: url.pathname,
+          status: 401,
+          requestId,
+          durationMs: Date.now() - requestStart,
+        });
+        sendResponse(
+          res,
+          jsonResponse(401, { error: { message: 'Unauthorized', code: 'UNAUTHORIZED' } }),
+        );
         return;
       }
 
@@ -456,11 +589,26 @@ export class Gateway {
         res.setHeader('X-RateLimit-Remaining', String(result.remaining));
         res.setHeader('X-RateLimit-Reset', String(Math.ceil(result.resetMs / 1000)));
         if (!result.allowed) {
-          sendResponse(res, jsonResponse(429, {
-            error: { message: 'Rate limit exceeded', code: 'RATE_LIMITED' },
-          }, {
-            'Retry-After': String(Math.ceil(result.resetMs / 1000)),
-          }));
+          this.logger?.warn('http.request', {
+            method,
+            path: url.pathname,
+            status: 429,
+            requestId,
+            userId: auth.userId,
+            durationMs: Date.now() - requestStart,
+          });
+          sendResponse(
+            res,
+            jsonResponse(
+              429,
+              {
+                error: { message: 'Rate limit exceeded', code: 'RATE_LIMITED' },
+              },
+              {
+                'Retry-After': String(Math.ceil(result.resetMs / 1000)),
+              },
+            ),
+          );
           return;
         }
       }
@@ -486,11 +634,30 @@ export class Gateway {
 
       const apiRes = await match.handler(apiReq);
       sendResponse(res, apiRes);
-      this.metrics.recordRequest(method, apiRes.status, Date.now() - requestStart);
+      const durationMs = Date.now() - requestStart;
+      this.metrics.recordRequest(method, apiRes.status, durationMs);
+      this.logger?.info('http.request', {
+        method,
+        path: url.pathname,
+        status: apiRes.status,
+        requestId,
+        userId: auth?.userId,
+        durationMs,
+      });
     } catch (error) {
       const errRes = errorResponse(error);
       sendResponse(res, errRes);
-      this.metrics.recordRequest(method, errRes.status, Date.now() - requestStart);
+      const durationMs = Date.now() - requestStart;
+      this.metrics.recordRequest(method, errRes.status, durationMs);
+      this.logger?.error('http.request', {
+        method,
+        path: url.pathname,
+        status: errRes.status,
+        requestId,
+        userId: auth?.userId,
+        durationMs,
+        err: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

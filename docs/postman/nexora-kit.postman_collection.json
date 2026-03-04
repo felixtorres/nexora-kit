@@ -1,0 +1,1298 @@
+{
+  "info": {
+    "name": "NexoraKit API",
+    "description": "Complete REST API collection for NexoraKit — enterprise chatbot platform.\n\n**Authentication:**\n- Operator routes require `Authorization: Bearer <token>` (API key or HS256 JWT)\n- Admin routes additionally require `role: admin` in the JWT `role` claim\n- Client (end-user) routes use `X-End-User-Id` header (anonymous mode) or their own `Authorization` header\n\n**Base URL:** `{{baseUrl}}` — defaults to `http://localhost:3000`\n\n**Variables:**\n| Name | Description |\n|---|---|\n| `baseUrl` | Gateway base URL (e.g. `http://localhost:3000`) |\n| `apiPrefix` | API prefix, default `/v1` |\n| `token` | Operator bearer token (API key or JWT) |\n| `conversationId` | ID of a conversation |\n| `agentSlug` | Public slug of an agent |\n| `botId` | Bot ID |\n| `agentId` | Agent ID |",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "nexora-kit-api-v1"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "apiPrefix", "value": "/v1", "type": "string" },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string",
+      "description": "Operator bearer token (API key or HS256 JWT)"
+    },
+    { "key": "conversationId", "value": "", "type": "string" },
+    { "key": "messageSeq", "value": "1", "type": "string" },
+    { "key": "agentSlug", "value": "", "type": "string" },
+    { "key": "botId", "value": "", "type": "string" },
+    { "key": "agentId", "value": "", "type": "string" },
+    { "key": "fileId", "value": "", "type": "string" },
+    { "key": "workspaceId", "value": "", "type": "string" },
+    { "key": "documentId", "value": "", "type": "string" },
+    { "key": "templateId", "value": "", "type": "string" },
+    { "key": "artifactId", "value": "", "type": "string" },
+    { "key": "memoryKey", "value": "", "type": "string" },
+    { "key": "pluginName", "value": "", "type": "string" },
+    {
+      "key": "endUserId",
+      "value": "",
+      "type": "string",
+      "description": "End-user external ID (used in X-End-User-Id header for anonymous mode)"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health & System",
+      "description": "Public endpoints — no authentication required.",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/health",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["health"]
+            },
+            "description": "Returns gateway health status. Public endpoint — no auth required.\n\n**Response:**\n```json\n{\n  \"status\": \"healthy\",\n  \"plugins\": { \"total\": 3, \"enabled\": 2, \"errored\": 0 },\n  \"uptime\": 12345\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "OpenAPI Spec",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/openapi.json",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["openapi.json"]
+            },
+            "description": "Returns the OpenAPI 3.1 specification for this gateway. Public endpoint."
+          },
+          "response": []
+        },
+        {
+          "name": "Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/metrics",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["metrics"]
+            },
+            "description": "Returns in-memory metrics snapshot (request counts, latency histograms, etc.).\n\nRequires bearer auth unless the gateway is started with `publicMetrics: true`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Conversations",
+      "description": "Core conversation management. All routes require operator bearer token.",
+      "item": [
+        {
+          "name": "Create Conversation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"My conversation\",\n  \"systemPrompt\": \"You are a helpful assistant.\",\n  \"templateId\": null,\n  \"workspaceId\": null,\n  \"model\": \"gpt-4o\",\n  \"agentId\": null,\n  \"pluginNamespaces\": [],\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations"]
+            },
+            "description": "Creates a new conversation. Returns `201` with the created `ConversationRecord`.\n\nAll fields are optional. `templateId` and `workspaceId` link to pre-existing resources."
+          },
+          "response": []
+        },
+        {
+          "name": "List Conversations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations?limit=20&cursor=",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations"],
+              "query": [
+                { "key": "limit", "value": "20", "description": "Page size (integer)" },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "Pagination cursor from previous response"
+                }
+              ]
+            },
+            "description": "Lists conversations for the authenticated operator user. Supports cursor-based pagination.\n\n**Response:**\n```json\n{ \"items\": [...], \"nextCursor\": \"<string|null>\" }\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Conversation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}"]
+            },
+            "description": "Retrieves a single conversation by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Conversation",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated title\",\n  \"metadata\": { \"custom\": \"value\" }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}"]
+            },
+            "description": "Updates the conversation title and/or metadata."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Conversation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}"]
+            },
+            "description": "Soft-deletes a conversation. Returns `204 No Content`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Messages",
+      "description": "Sending, editing, and regenerating messages within a conversation.",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"Hello, what can you help me with?\",\n  \"pluginNamespaces\": [],\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/messages",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}", "messages"]
+            },
+            "description": "Sends a message and runs the agent loop. Returns the full response including events.\n\n`input` can be:\n- A plain string\n- `{ type: 'text', text: '...' }`\n- `{ type: 'action', actionId: '...', payload: {...} }`\n- `{ type: 'file', fileId: '...', text?: '...' }`\n\n**Response:**\n```json\n{\n  \"conversationId\": \"...\",\n  \"message\": { ... },\n  \"events\": [ ... ]\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Edit Message",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"Corrected message text\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/messages/{{messageSeq}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}", "messages", "{{messageSeq}}"]
+            },
+            "description": "Edits a user message by sequence number and re-runs the agent loop from that point. Requires `conversationStore` + `messageStore`."
+          },
+          "response": []
+        },
+        {
+          "name": "Regenerate Message",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/messages/{{messageSeq}}/regenerate",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": [
+                "conversations",
+                "{{conversationId}}",
+                "messages",
+                "{{messageSeq}}",
+                "regenerate"
+              ]
+            },
+            "description": "Regenerates an assistant message at the given sequence number. Requires `conversationStore` + `messageStore`."
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Message Feedback",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": \"positive\",\n  \"comment\": \"Very helpful response!\",\n  \"tags\": [\"accurate\", \"concise\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/messages/{{messageSeq}}/feedback",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": [
+                "conversations",
+                "{{conversationId}}",
+                "messages",
+                "{{messageSeq}}",
+                "feedback"
+              ]
+            },
+            "description": "Submits thumbs-up/down feedback for a specific message. Requires `feedbackStore`.\n\n`rating`: `\"positive\"` or `\"negative\"`\n`tags`: max 10 items, each max 50 chars."
+          },
+          "response": []
+        },
+        {
+          "name": "Chat (Legacy)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"Hello!\",\n  \"conversationId\": \"{{conversationId}}\",\n  \"pluginNamespaces\": [],\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/chat",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["chat"]
+            },
+            "description": "**Deprecated.** Legacy single-endpoint chat. Use `POST /conversations/:id/messages` instead.\n\nIf `conversationId` is omitted, a new conversation is created automatically."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Plugins",
+      "description": "Plugin discovery endpoints (read-only, any authenticated operator).",
+      "item": [
+        {
+          "name": "List Plugins",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/plugins",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["plugins"]
+            },
+            "description": "Lists all installed plugins with their state and tool counts.\n\n**Response:**\n```json\n{\n  \"plugins\": [\n    {\n      \"name\": \"...\",\n      \"namespace\": \"...\",\n      \"version\": \"1.0.0\",\n      \"description\": \"...\",\n      \"state\": \"enabled\",\n      \"toolCount\": 3\n    }\n  ]\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Plugin Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/plugins/{{pluginName}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["plugins", "{{pluginName}}"]
+            },
+            "description": "Returns detailed information about a specific plugin including its tools and permissions."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Files",
+      "description": "File upload and management. Requires `fileStore` + `fileBackend` to be configured. File content is base64-encoded.",
+      "item": [
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversationId\": \"{{conversationId}}\",\n  \"filename\": \"document.pdf\",\n  \"mimeType\": \"application/pdf\",\n  \"content\": \"<base64-encoded file content>\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/files",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["files"]
+            },
+            "description": "Uploads a file. File content must be base64-encoded. Default max size is 10 MB.\n\nReturns `201` with the file metadata record."
+          },
+          "response": []
+        },
+        {
+          "name": "Get File Metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/files/{{fileId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["files", "{{fileId}}"]
+            },
+            "description": "Returns file metadata (does not include content)."
+          },
+          "response": []
+        },
+        {
+          "name": "Download File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/files/{{fileId}}/content",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["files", "{{fileId}}", "content"]
+            },
+            "description": "Downloads file content as base64.\n\n**Response:**\n```json\n{ \"id\": \"...\", \"filename\": \"...\", \"mimeType\": \"...\", \"content\": \"<base64>\" }\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete File",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/files/{{fileId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["files", "{{fileId}}"]
+            },
+            "description": "Deletes a file. Returns `204 No Content`."
+          },
+          "response": []
+        },
+        {
+          "name": "List Conversation Files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/files",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}", "files"]
+            },
+            "description": "Lists all files associated with a conversation.\n\n**Response:** `{ \"files\": [...] }`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Artifacts",
+      "description": "Artifact management within conversations. Requires `artifactStore`.",
+      "item": [
+        {
+          "name": "List Artifacts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/artifacts",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}", "artifacts"]
+            },
+            "description": "Lists all artifacts produced during a conversation.\n\n**Response:** `{ \"artifacts\": [...] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Artifact",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/artifacts/{{artifactId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}", "artifacts", "{{artifactId}}"]
+            },
+            "description": "Returns a specific artifact."
+          },
+          "response": []
+        },
+        {
+          "name": "List Artifact Versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/artifacts/{{artifactId}}/versions",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": [
+                "conversations",
+                "{{conversationId}}",
+                "artifacts",
+                "{{artifactId}}",
+                "versions"
+              ]
+            },
+            "description": "Lists all versions of a specific artifact."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Artifact Version",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/artifacts/{{artifactId}}/versions/1",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": [
+                "conversations",
+                "{{conversationId}}",
+                "artifacts",
+                "{{artifactId}}",
+                "versions",
+                "1"
+              ]
+            },
+            "description": "Returns a specific version of an artifact. Replace `1` with the desired version number."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Artifact",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/conversations/{{conversationId}}/artifacts/{{artifactId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["conversations", "{{conversationId}}", "artifacts", "{{artifactId}}"]
+            },
+            "description": "Deletes an artifact and all its versions. Returns `204 No Content`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "User Memory",
+      "description": "Per-user memory fact management. Requires `userMemoryStore`.",
+      "item": [
+        {
+          "name": "List Memory Facts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/me/memory?namespace=",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["me", "memory"],
+              "query": [
+                { "key": "namespace", "value": "", "description": "Optional namespace filter" }
+              ]
+            },
+            "description": "Lists memory facts stored for the currently authenticated user.\n\n**Response:** `{ \"facts\": [...] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Memory Fact",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/me/memory/{{memoryKey}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["me", "memory", "{{memoryKey}}"]
+            },
+            "description": "Deletes a specific memory fact by key. Returns `204 No Content`."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete All Memory",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/me/memory?confirm=true",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["me", "memory"],
+              "query": [
+                {
+                  "key": "confirm",
+                  "value": "true",
+                  "description": "Must be 'true' to confirm deletion"
+                }
+              ]
+            },
+            "description": "Deletes **all** memory facts for the current user. The `?confirm=true` query parameter is required. Returns `204 No Content`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Workspaces",
+      "description": "Workspace and context document management. Requires `workspaceStore` + `contextDocumentStore`. Write operations require admin role.",
+      "item": [
+        {
+          "name": "List Workspaces",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/workspaces",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["workspaces"]
+            },
+            "description": "Lists all workspaces. Any authenticated operator user.\n\n**Response:** `{ \"workspaces\": [...] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Workspace",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/workspaces/{{workspaceId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["workspaces", "{{workspaceId}}"]
+            },
+            "description": "Returns a specific workspace."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Workspace (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Product Docs\",\n  \"description\": \"Context for product documentation queries\",\n  \"systemPrompt\": \"Use the provided documents to answer questions accurately.\",\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/workspaces",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "workspaces"]
+            },
+            "description": "Creates a new workspace. Requires `admin` role. Returns `201`."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Workspace (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Name\",\n  \"description\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/workspaces/{{workspaceId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "workspaces", "{{workspaceId}}"]
+            },
+            "description": "Updates a workspace. Requires `admin` role. Pass `null` to clear nullable fields."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Workspace (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/workspaces/{{workspaceId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "workspaces", "{{workspaceId}}"]
+            },
+            "description": "Deletes a workspace and cascades to its context documents. Requires `admin` role. Returns `204`."
+          },
+          "response": []
+        },
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/workspaces/{{workspaceId}}/documents",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["workspaces", "{{workspaceId}}", "documents"]
+            },
+            "description": "Lists context documents in a workspace. Any authenticated operator user."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Document (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"FAQ Document\",\n  \"content\": \"Q: What is NexoraKit?\\nA: An enterprise chatbot platform.\",\n  \"priority\": 10,\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/workspaces/{{workspaceId}}/documents",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["workspaces", "{{workspaceId}}", "documents"]
+            },
+            "description": "Adds a context document to a workspace. Requires `admin` role. `content` max 100,000 chars. Returns `201`."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Document (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated FAQ\",\n  \"content\": \"Updated content here.\",\n  \"priority\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/workspaces/{{workspaceId}}/documents/{{documentId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["workspaces", "{{workspaceId}}", "documents", "{{documentId}}"]
+            },
+            "description": "Updates a context document. Requires `admin` role."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Document (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/workspaces/{{workspaceId}}/documents/{{documentId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["workspaces", "{{workspaceId}}", "documents", "{{documentId}}"]
+            },
+            "description": "Deletes a context document. Requires `admin` role. Returns `204`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Templates",
+      "description": "Conversation template management. Requires `templateStore`. Write operations require admin role.",
+      "item": [
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/templates",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["templates"]
+            },
+            "description": "Lists available conversation templates. Any authenticated operator user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Template",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/templates/{{templateId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["templates", "{{templateId}}"]
+            },
+            "description": "Returns a specific template."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Template (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Customer Support\",\n  \"description\": \"Template for customer support conversations\",\n  \"systemPrompt\": \"You are a helpful customer support agent.\",\n  \"pluginNamespaces\": [],\n  \"model\": \"gpt-4o\",\n  \"temperature\": 0.7,\n  \"maxTurns\": 20,\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/templates",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "templates"]
+            },
+            "description": "Creates a conversation template. Requires `admin` role. Returns `201`."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Template (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Template Name\",\n  \"temperature\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/templates/{{templateId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "templates", "{{templateId}}"]
+            },
+            "description": "Updates a template. Requires `admin` role. Pass `null` to clear nullable fields."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Template (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/templates/{{templateId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "templates", "{{templateId}}"]
+            },
+            "description": "Deletes a template. Requires `admin` role. Returns `204`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin — Plugins",
+      "description": "Plugin lifecycle management. All routes require `admin` role + `config.admin` to be provided.",
+      "item": [
+        {
+          "name": "Enable Plugin",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/plugins/{{pluginName}}/enable",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "plugins", "{{pluginName}}", "enable"]
+            },
+            "description": "Enables a plugin by namespace.\n\n**Response:** `{ \"status\": \"enabled\", \"namespace\": \"...\" }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Disable Plugin",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/plugins/{{pluginName}}/disable",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "plugins", "{{pluginName}}", "disable"]
+            },
+            "description": "Disables a plugin by namespace.\n\n**Response:** `{ \"status\": \"disabled\", \"namespace\": \"...\" }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Uninstall Plugin",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/plugins/{{pluginName}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "plugins", "{{pluginName}}"]
+            },
+            "description": "Uninstalls a plugin permanently.\n\n**Response:** `{ \"status\": \"uninstalled\", \"namespace\": \"...\" }`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin — Audit Log",
+      "description": "Audit log query and purge. All routes require `admin` role.",
+      "item": [
+        {
+          "name": "Query Audit Log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/audit-log?actor=&action=&target=&since=&limit=50",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "audit-log"],
+              "query": [
+                { "key": "actor", "value": "", "description": "Filter by actor user ID" },
+                { "key": "action", "value": "", "description": "Filter by action type" },
+                { "key": "target", "value": "", "description": "Filter by target resource" },
+                { "key": "since", "value": "", "description": "ISO 8601 timestamp to filter from" },
+                { "key": "limit", "value": "50", "description": "Number of results to return" }
+              ]
+            },
+            "description": "Queries audit log entries with optional filters.\n\n**Response:**\n```json\n{ \"events\": [...], \"count\": 42 }\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Purge Audit Log",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/audit-log/purge",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "audit-log", "purge"]
+            },
+            "description": "Purges all audit log entries. Irreversible.\n\n**Response:** `{ \"deleted\": 123 }`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin — Usage",
+      "description": "Usage analytics. Requires `admin` role.",
+      "item": [
+        {
+          "name": "Get Usage (Plugin Breakdown)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/usage?breakdown=plugin&since=&pluginName=&userId=",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "usage"],
+              "query": [
+                { "key": "breakdown", "value": "plugin", "description": "'plugin' or 'daily'" },
+                { "key": "since", "value": "", "description": "ISO 8601 timestamp" },
+                { "key": "pluginName", "value": "", "description": "Filter by plugin name" },
+                { "key": "userId", "value": "", "description": "Filter by user ID" }
+              ]
+            },
+            "description": "Returns usage analytics broken down by plugin.\n\n**Response:**\n```json\n{ \"breakdown\": \"plugin\", \"data\": [...], \"totalTokens\": 12345 }\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Usage (Daily Breakdown)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/usage?breakdown=daily&since=",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "usage"],
+              "query": [
+                { "key": "breakdown", "value": "daily" },
+                { "key": "since", "value": "", "description": "ISO 8601 timestamp" }
+              ]
+            },
+            "description": "Returns usage analytics broken down by day.\n\n**Response:** `{ \"breakdown\": \"daily\", \"data\": [...] }`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin — Feedback",
+      "description": "Admin feedback query and summary. Requires `admin` role + `feedbackStore`.",
+      "item": [
+        {
+          "name": "Query Feedback",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/feedback?rating=&pluginNamespace=&from=&to=&cursor=&limit=20",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "feedback"],
+              "query": [
+                { "key": "rating", "value": "", "description": "'positive' or 'negative'" },
+                {
+                  "key": "pluginNamespace",
+                  "value": "",
+                  "description": "Filter by plugin namespace"
+                },
+                { "key": "from", "value": "", "description": "ISO 8601 start date" },
+                { "key": "to", "value": "", "description": "ISO 8601 end date" },
+                { "key": "cursor", "value": "", "description": "Pagination cursor" },
+                { "key": "limit", "value": "20", "description": "Max 100" }
+              ]
+            },
+            "description": "Queries message feedback records with filtering and cursor-based pagination."
+          },
+          "response": []
+        },
+        {
+          "name": "Feedback Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/feedback/summary?pluginNamespace=&model=&from=&to=",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "feedback", "summary"],
+              "query": [
+                { "key": "pluginNamespace", "value": "" },
+                { "key": "model", "value": "" },
+                { "key": "from", "value": "" },
+                { "key": "to", "value": "" }
+              ]
+            },
+            "description": "Returns an aggregated feedback summary (totals, ratings breakdown, etc.)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin — Bots",
+      "description": "Bot configuration CRUD. All routes require `admin` role + bot/agent stores.",
+      "item": [
+        {
+          "name": "Create Bot",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Support Bot\",\n  \"description\": \"Handles customer support queries\",\n  \"systemPrompt\": \"You are a friendly customer support agent. Always be polite and helpful.\",\n  \"pluginNamespaces\": [],\n  \"model\": \"gpt-4o\",\n  \"temperature\": 0.7,\n  \"maxTurns\": 15,\n  \"workspaceId\": null,\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/bots",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "bots"]
+            },
+            "description": "Creates a bot configuration. Returns `201` with the bot record.\n\n`systemPrompt` and `model` are required. `temperature` range: 0–2. `maxTurns` range: 1–100."
+          },
+          "response": []
+        },
+        {
+          "name": "List Bots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/bots",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "bots"]
+            },
+            "description": "Lists all bots. **Response:** `{ \"bots\": [...] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Bot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/bots/{{botId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "bots", "{{botId}}"]
+            },
+            "description": "Returns a specific bot by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Bot",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Bot Name\",\n  \"temperature\": 0.5,\n  \"workspaceId\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/bots/{{botId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "bots", "{{botId}}"]
+            },
+            "description": "Partially updates a bot. Pass `null` to clear nullable fields (`temperature`, `maxTurns`, `workspaceId`)."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Bot",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/bots/{{botId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "bots", "{{botId}}"]
+            },
+            "description": "Deletes a bot. Returns `204 No Content`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin — Agents",
+      "description": "Agent CRUD, bot bindings, and end-user management. All routes require `admin` role.",
+      "item": [
+        {
+          "name": "Create Agent",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slug\": \"support-agent\",\n  \"name\": \"Support Agent\",\n  \"description\": \"Customer-facing support agent\",\n  \"orchestrationStrategy\": \"single\",\n  \"botId\": \"{{botId}}\",\n  \"appearance\": {\n    \"displayName\": \"Support\",\n    \"welcomeMessage\": \"Hi! How can I help you today?\",\n    \"placeholder\": \"Type your question...\"\n  },\n  \"endUserAuth\": {\n    \"mode\": \"anonymous\"\n  },\n  \"rateLimits\": {\n    \"messagesPerMinute\": 20,\n    \"conversationsPerDay\": 50\n  },\n  \"features\": {\n    \"artifacts\": false,\n    \"fileUpload\": false,\n    \"feedback\": true,\n    \"memory\": false\n  },\n  \"enabled\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/agents",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "agents"]
+            },
+            "description": "Creates a new agent. `slug` and `name` are required.\n\n`slug` format: lowercase alphanumeric + hyphens, 1–60 chars, e.g. `support-agent`.\n\n`orchestrationStrategy`: `single` | `orchestrate` | `route`\n`endUserAuth.mode`: `anonymous` | `token` | `jwt`\n\nReturns `201` with the agent record."
+          },
+          "response": []
+        },
+        {
+          "name": "List Agents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/agents",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "agents"]
+            },
+            "description": "Lists all agents. **Response:** `{ \"agents\": [...] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Agent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/agents/{{agentId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "agents", "{{agentId}}"]
+            },
+            "description": "Returns an agent with its current bot bindings.\n\n**Response:** `{ ...agent, bindings: [...] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Agent",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Agent Name\",\n  \"enabled\": false,\n  \"botId\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/agents/{{agentId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "agents", "{{agentId}}"]
+            },
+            "description": "Partially updates an agent. Pass `null` to clear nullable fields (`orchestratorModel`, `orchestratorPrompt`, `botId`, `fallbackBotId`)."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Agent",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/agents/{{agentId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "agents", "{{agentId}}"]
+            },
+            "description": "Deletes an agent and all its bindings. Returns `204 No Content`."
+          },
+          "response": []
+        },
+        {
+          "name": "Replace Agent Bindings",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bindings\": [\n    {\n      \"botId\": \"{{botId}}\",\n      \"priority\": 0,\n      \"description\": \"Default bot for general queries\",\n      \"keywords\": []\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/agents/{{agentId}}/bindings",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "agents", "{{agentId}}", "bindings"]
+            },
+            "description": "Replaces **all** bot-to-agent bindings atomically. Send an empty `bindings` array to remove all bindings.\n\n`priority`: 0 = highest priority. Used for routing strategy.\n\n**Response:** `{ \"bindings\": [...] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "List End Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/admin/agents/{{agentId}}/end-users",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["admin", "agents", "{{agentId}}", "end-users"]
+            },
+            "description": "Lists all end users who have interacted with a specific agent.\n\n**Response:** `{ \"users\": [...] }`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Client API (End-User Facing)",
+      "description": "Public client-facing routes accessed via the agent's public slug. These bypass operator auth and use end-user authentication instead.\n\n**End-User Auth modes (configured per agent):**\n- `anonymous`: Send `X-End-User-Id: <your-external-user-id>` header\n- `token`: Send `Authorization: Bearer nk_<externalUserId>`\n- `jwt`: Send `Authorization: Bearer <HS256 JWT with sub claim>`",
+      "item": [
+        {
+          "name": "Get Agent Appearance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/agents/{{agentSlug}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["agents", "{{agentSlug}}"]
+            },
+            "description": "Returns public appearance and feature flags for an agent. Fully public — no auth required.\n\n**Response:**\n```json\n{\n  \"slug\": \"support-agent\",\n  \"name\": \"Support Agent\",\n  \"description\": \"...\",\n  \"appearance\": { \"displayName\": \"...\", \"welcomeMessage\": \"...\", ... },\n  \"features\": { \"artifacts\": false, \"fileUpload\": false, \"feedback\": true, \"memory\": false }\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Conversation (End User)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              {
+                "key": "X-End-User-Id",
+                "value": "{{endUserId}}",
+                "description": "Required for 'anonymous' auth mode"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"My support session\",\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/agents/{{agentSlug}}/conversations",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["agents", "{{agentSlug}}", "conversations"]
+            },
+            "description": "Creates a conversation as an end user. Auth is handled by the agent's `endUserAuth` configuration.\n\nFor `anonymous` mode, set the `X-End-User-Id` header to a stable user ID from your system.\nFor `token` mode, set `Authorization: Bearer nk_<userId>`.\nFor `jwt` mode, set `Authorization: Bearer <jwt>`.\n\nReturns `201` with conversation record."
+          },
+          "response": []
+        },
+        {
+          "name": "List Conversations (End User)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-End-User-Id",
+                "value": "{{endUserId}}",
+                "description": "Required for 'anonymous' auth mode"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/agents/{{agentSlug}}/conversations?limit=20&cursor=",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["agents", "{{agentSlug}}", "conversations"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "cursor", "value": "" }
+              ]
+            },
+            "description": "Lists conversations belonging to the authenticated end user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Conversation (End User)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-End-User-Id",
+                "value": "{{endUserId}}",
+                "description": "Required for 'anonymous' auth mode"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/agents/{{agentSlug}}/conversations/{{conversationId}}",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["agents", "{{agentSlug}}", "conversations", "{{conversationId}}"]
+            },
+            "description": "Returns a specific conversation. Access is scoped to the authenticated end user."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Message (End User)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              {
+                "key": "X-End-User-Id",
+                "value": "{{endUserId}}",
+                "description": "Required for 'anonymous' auth mode"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"Hello! I need help with my account.\",\n  \"metadata\": {}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/agents/{{agentSlug}}/conversations/{{conversationId}}/messages",
+              "host": ["{{baseUrl}}{{apiPrefix}}"],
+              "path": ["agents", "{{agentSlug}}", "conversations", "{{conversationId}}", "messages"]
+            },
+            "description": "Sends a message as an end user and runs the agent loop. Rate-limited per agent config (`messagesPerMinute`).\n\n**Response:**\n```json\n{\n  \"conversationId\": \"...\",\n  \"message\": { ... },\n  \"events\": [ ... ]\n}\n```"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
