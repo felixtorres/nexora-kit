@@ -5,6 +5,7 @@ import { InMemoryMessageStore, type MessageStore } from './memory.js';
 import { NoopObservability } from './observability.js';
 import { ActionRouter } from './action-router.js';
 import { filterPersistableBlocks } from './blocks.js';
+import { truncateToolResult, estimateTokens } from './token-utils.js';
 import type {
   ArtifactContent,
   ChatEvent,
@@ -94,9 +95,16 @@ export interface AgentLoopOptions {
   skillIndexProvider?: SkillIndexProvider;
   /** Maximum tokens to keep in conversation history before each LLM call.
    *  When set, the agent loop calls ContextManager.truncate() to drop oldest
-   *  messages that exceed this limit. Defaults to the ContextManager default
-   *  (100 000). Set lower for models with small context windows (e.g. 8 000). */
+   *  messages that exceed this limit. When omitted, auto-derived from
+   *  ModelInfo.contextWindow - maxOutputTokens - toolTokenBudget. */
   maxContextTokens?: number;
+  /** Maximum tokens to store per tool result in message history.
+   *  Results exceeding this are truncated at a line boundary.
+   *  The full result is still yielded as a ChatEvent.  Defaults to 2000. */
+  maxToolResultTokens?: number;
+  /** Maximum tokens for the skill index section in the system prompt.
+   *  Overflow namespaces get a one-line summary. Defaults to 500. */
+  skillIndexTokenBudget?: number;
 }
 
 export class AgentLoop {
@@ -119,7 +127,9 @@ export class AgentLoop {
   private readonly artifactStreamChunkSize: number;
   private readonly artifactTokenBudget: number;
   private readonly skillIndexProvider?: SkillIndexProvider;
-  private readonly maxContextTokens?: number;
+  private readonly maxContextTokens: number;
+  private readonly maxToolResultTokens: number;
+  private readonly skillIndexTokenBudget: number;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -143,7 +153,21 @@ export class AgentLoop {
     this.artifactStreamChunkSize = options.artifactStreamChunkSize ?? 500;
     this.artifactTokenBudget = options.artifactTokenBudget ?? 500;
     this.skillIndexProvider = options.skillIndexProvider;
-    this.maxContextTokens = options.maxContextTokens;
+    this.maxToolResultTokens = options.maxToolResultTokens ?? 2000;
+    this.skillIndexTokenBudget = options.skillIndexTokenBudget ?? 500;
+
+    // Derive maxContextTokens from ModelInfo if not explicitly set
+    if (options.maxContextTokens !== undefined) {
+      this.maxContextTokens = options.maxContextTokens;
+    } else {
+      const modelInfo = this.llm.models.find((m) => m.id === this.model);
+      if (modelInfo) {
+        this.maxContextTokens =
+          modelInfo.contextWindow - modelInfo.maxOutputTokens - this.toolTokenBudget;
+      } else {
+        this.maxContextTokens = 100_000; // safe fallback
+      }
+    }
   }
 
   /**
@@ -339,13 +363,22 @@ export class AgentLoop {
         artifactPromptSuffix = buildArtifactPrompt(artifacts, this.artifactTokenBudget);
       }
 
-      // Resolve skill index (once per run, appended after artifacts)
+      // Resolve skill index (once per run, appended after artifacts) with budget
       let skillIndexSuffix = '';
       if (this.skillIndexProvider && conversation.pluginNamespaces.length > 0) {
         const parts: string[] = [];
+        let usedTokens = 0;
         for (const ns of conversation.pluginNamespaces) {
           const index = this.skillIndexProvider.buildIndex(ns);
-          if (index) parts.push(index);
+          if (!index) continue;
+          const indexTokens = estimateTokens(index);
+          if (usedTokens + indexTokens <= this.skillIndexTokenBudget) {
+            parts.push(index);
+            usedTokens += indexTokens;
+          } else {
+            // Overflow: one-line summary instead
+            parts.push(`[${ns}: use get_skill_context for details]`);
+          }
         }
         skillIndexSuffix = parts.join('\n\n');
       }
@@ -395,9 +428,7 @@ export class AgentLoop {
           effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + skillIndexSuffix;
         }
         // Trim conversation history to respect context window limit before assembling
-        if (this.maxContextTokens !== undefined) {
-          this.context.truncate(conversation, this.maxContextTokens);
-        }
+        this.context.truncate(conversation, this.maxContextTokens);
         const ctx = this.context.assemble(conversation, tools, effectiveSystemPrompt);
 
         // Check token budget before LLM call
@@ -608,11 +639,13 @@ export class AgentLoop {
             }
           }
 
+          // Truncate tool result for message history (full result already yielded above)
+          const storedContent = truncateToolResult(result.content, this.maxToolResultTokens);
           const toolMessageContent: MessageContent[] = [
             {
               type: 'tool_result',
               toolUseId: result.toolUseId,
-              content: result.content,
+              content: storedContent,
               isError: result.isError,
             },
           ];

@@ -3,6 +3,9 @@ import { tokenize, keywordScore } from './keyword-scorer.js';
 import type { EmbeddingProvider } from './embedding/embedding-provider.js';
 import { cosineSimilarity } from './embedding/cosine.js';
 
+/** Tools registered under this namespace are included in every search regardless of namespace filters. */
+export const GLOBAL_NAMESPACE = '__global__';
+
 export interface IndexedTool {
   tool: ToolDefinition;
   namespace: string;
@@ -65,9 +68,11 @@ export class ToolIndex {
     const results: RankedTool[] = [];
 
     for (const [, entry] of this.tools) {
-      // Filter by namespace if specified
+      // Filter by namespace if specified — always include global namespace
       if (query.namespaces && query.namespaces.length > 0) {
-        if (!query.namespaces.includes(entry.namespace)) continue;
+        if (!query.namespaces.includes(entry.namespace) && entry.namespace !== GLOBAL_NAMESPACE) {
+          continue;
+        }
       }
 
       const score = keywordScore(queryTokens, entry.tokens);
@@ -101,7 +106,7 @@ export class ToolIndex {
     for (const [, entry] of this.tools) {
       if (!entry.embedding) continue;
       if (namespaces && namespaces.length > 0) {
-        if (!namespaces.includes(entry.namespace)) continue;
+        if (!namespaces.includes(entry.namespace) && entry.namespace !== GLOBAL_NAMESPACE) continue;
       }
 
       const score = cosineSimilarity(queryVec, entry.embedding);

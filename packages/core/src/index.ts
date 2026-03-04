@@ -26,5 +26,7 @@ export { BotRunner, type BotConfig } from './bot-runner.js';
 export { Orchestrator, type OrchestratorConfig, type OrchestratorBotBinding } from './orchestrator.js';
 export { ActionRouter, type ActionMapping } from './action-router.js';
 export { NoopObservability } from './observability.js';
+export { truncateToolResult, estimateTokens } from './token-utils.js';
+export { ContextBudget, type ContextBudgetOptions, type BudgetAllocation } from './context-budget.js';
 export { LangfuseObservability, type LangfuseConfig } from './langfuse.js';
 export { JsonLogger, NoopLogger, type Logger, type LogLevel, type LogEntry } from './logger.js';

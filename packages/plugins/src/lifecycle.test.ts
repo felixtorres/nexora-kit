@@ -295,7 +295,7 @@ describe('PluginLifecycleManager', () => {
       skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
       skillManager.enable('hello');
 
-      expect(dispatcher.hasHandler('hello:get_skill_context')).toBe(true);
+      expect(dispatcher.hasHandler('get_skill_context')).toBe(true);
     });
 
     it('get_skill_context returns skill prompt', async () => {
@@ -325,7 +325,7 @@ describe('PluginLifecycleManager', () => {
       skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
       skillManager.enable('hello');
 
-      const result = await dispatcher.dispatch({ id: '1', name: 'hello:get_skill_context', input: { name: 'greet' } });
+      const result = await dispatcher.dispatch({ id: '1', name: 'get_skill_context', input: { namespace: 'hello', name: 'greet' } });
       expect(result.content).toBe('Say hello to the user warmly.');
     });
 
@@ -355,7 +355,7 @@ describe('PluginLifecycleManager', () => {
       skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
       skillManager.enable('hello');
 
-      const result = await dispatcher.dispatch({ id: '1', name: 'hello:get_skill_context', input: { name: 'greet' } });
+      const result = await dispatcher.dispatch({ id: '1', name: 'get_skill_context', input: { namespace: 'hello', name: 'greet' } });
       expect(result.content).toBe('Greet user');
     });
 
@@ -386,7 +386,7 @@ describe('PluginLifecycleManager', () => {
       skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
       skillManager.enable('hello');
 
-      const result = await dispatcher.dispatch({ id: '1', name: 'hello:get_skill_context', input: { name: 'unknown' } });
+      const result = await dispatcher.dispatch({ id: '1', name: 'get_skill_context', input: { namespace: 'hello', name: 'unknown' } });
       expect(result.content).toContain("not found");
       expect(result.content).toContain('greet');
     });
@@ -417,10 +417,10 @@ describe('PluginLifecycleManager', () => {
       };
       skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
       skillManager.enable('hello');
-      expect(dispatcher.hasHandler('hello:get_skill_context')).toBe(true);
+      expect(dispatcher.hasHandler('get_skill_context')).toBe(true);
 
       skillManager.disable('hello');
-      expect(dispatcher.hasHandler('hello:get_skill_context')).toBe(false);
+      expect(dispatcher.hasHandler('get_skill_context')).toBe(false);
     });
 
     it('unregisters skills from registry on disable', () => {

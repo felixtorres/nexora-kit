@@ -24,6 +24,7 @@
 import type { LlmLogger } from '../logger.js';
 import type { LlmProvider } from '../provider.js';
 import type { LlmEvent, LlmRequest, ModelInfo } from '../types.js';
+import { HeuristicTokenizer, type Tokenizer } from '../tokenizer.js';
 import { Wso2AuthService, type Wso2AuthOptions } from './wso2-auth.js';
 
 // ---------------------------------------------------------------------------
@@ -217,6 +218,7 @@ export class Wso2Provider implements LlmProvider {
   readonly name = 'wso2-azure-openai';
 
   readonly models: ModelInfo[];
+  readonly tokenizer: Tokenizer = new HeuristicTokenizer();
 
   private readonly auth: Wso2AuthService;
   private readonly baseUrl: string;

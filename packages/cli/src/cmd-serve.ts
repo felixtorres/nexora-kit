@@ -9,6 +9,7 @@ import type { LogLevel } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
 import { PluginLifecycleManager, discoverPlugins } from '@nexora-kit/plugins';
+import { ToolIndex, ToolSelector } from '@nexora-kit/tool-registry';
 import { SkillRegistry, SkillHandlerFactory, SkillIndexAdapter } from '@nexora-kit/skills';
 import { CommandRegistry, CommandDispatcher } from '@nexora-kit/commands';
 import { McpManager } from '@nexora-kit/mcp';
@@ -116,6 +117,8 @@ export const serveCommand: CliCommand = {
 
     // --- Tools & Skills ---
     const toolDispatcher = new ToolDispatcher();
+    const toolIndex = new ToolIndex();
+    const toolSelector = new ToolSelector({ index: toolIndex });
     const skillRegistry = new SkillRegistry();
     const commandRegistry = new CommandRegistry();
     const commandDispatcher = new CommandDispatcher(commandRegistry);
@@ -145,6 +148,7 @@ export const serveCommand: CliCommand = {
       skillRegistry,
       commandRegistry,
       mcpManager,
+      toolIndex,
       logger: logger.child({ component: 'plugins' }),
     });
 
@@ -201,6 +205,7 @@ export const serveCommand: CliCommand = {
       messageStore,
       commandDispatcher,
       skillIndexProvider: skillIndexAdapter,
+      toolSelector,
       maxContextTokens: config.agent?.maxContextTokens,
     });
 

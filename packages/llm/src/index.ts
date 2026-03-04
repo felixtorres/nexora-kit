@@ -29,3 +29,4 @@ export {
   type TokenUsage,
   type BudgetResult,
 } from './token-budget.js';
+export { HeuristicTokenizer, type Tokenizer } from './tokenizer.js';

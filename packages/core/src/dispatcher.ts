@@ -96,6 +96,13 @@ export class ToolDispatcher {
     return [...this.definitions.values()];
   }
 
+  listToolsWithNamespace(): { tool: ToolDefinition; namespace: string }[] {
+    return [...this.definitions.entries()].map(([name, tool]) => ({
+      tool,
+      namespace: this.tools.get(name)?.namespace ?? '',
+    }));
+  }
+
   hasHandler(name: string): boolean {
     return this.tools.has(name);
   }

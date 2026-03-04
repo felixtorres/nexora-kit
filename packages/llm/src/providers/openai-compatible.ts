@@ -11,6 +11,7 @@
 import type { LlmLogger } from '../logger.js';
 import type { LlmProvider } from '../provider.js';
 import type { LlmEvent, LlmRequest, ModelInfo } from '../types.js';
+import { HeuristicTokenizer, type Tokenizer } from '../tokenizer.js';
 
 // ---------------------------------------------------------------------------
 // Types mirroring the OpenAI Chat Completions wire format
@@ -162,6 +163,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   readonly name = 'openai-compatible';
 
   readonly models: ModelInfo[];
+  readonly tokenizer: Tokenizer = new HeuristicTokenizer();
 
   private readonly baseUrl: string;
   private readonly model: string;

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { LlmLogger } from '../logger.js';
 import type { LlmProvider } from '../provider.js';
 import type { LlmEvent, LlmRequest, ModelInfo } from '../types.js';
+import { HeuristicTokenizer, type Tokenizer } from '../tokenizer.js';
 
 export interface AnthropicProviderOptions {
   apiKey?: string;
@@ -36,6 +37,7 @@ export class AnthropicProvider implements LlmProvider {
     },
   ];
 
+  readonly tokenizer: Tokenizer = new HeuristicTokenizer();
   private client: Anthropic;
   private defaultMaxTokens: number;
   private readonly logger?: LlmLogger;

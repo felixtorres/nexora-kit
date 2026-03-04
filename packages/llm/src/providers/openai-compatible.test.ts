@@ -202,7 +202,7 @@ describe('OpenAiCompatibleProvider', () => {
               {
                 id: 'call-1',
                 type: 'function',
-                function: { name: 'ns.srv.tool', arguments: '{"q":"test"}' },
+                function: { name: 'ns__srv__tool', arguments: '{"q":"test"}' },
               },
             ],
           },

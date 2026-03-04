@@ -15,6 +15,11 @@ import { resolveDependencies } from './dependency.js';
 import { wrapWithErrorBoundary } from './error-boundary.js';
 import { loadPlugin } from './loader.js';
 
+export interface ToolIndex {
+  register(tool: ToolDefinition, namespace: string): void;
+  unregister(toolName: string): void;
+}
+
 export interface LifecycleOptions {
   permissionGate: PermissionGate;
   configResolver: ConfigResolver;
@@ -25,6 +30,10 @@ export interface LifecycleOptions {
   commandRegistry?: CommandRegistry;
   mcpManager?: McpManager;
   logger?: Logger;
+  /** Optional ToolIndex for registering tools into the selection index. */
+  toolIndex?: ToolIndex;
+  /** Namespace used for global tools (defaults to '__global__'). */
+  globalNamespace?: string;
 }
 
 export class PluginLifecycleManager {
@@ -33,6 +42,8 @@ export class PluginLifecycleManager {
   private pluginCommands = new Map<string, Map<string, CommandDefinition>>();
   private pluginMcpConfigs = new Map<string, McpServerConfig[]>();
   private pluginDirs = new Map<string, string>();
+  /** Refcount of skill-bearing plugins for the global get_skill_context tool. */
+  private skillPluginCount = 0;
   private readonly permissionGate: PermissionGate;
   private readonly configResolver: ConfigResolver;
   private readonly toolDispatcher: ToolDispatcher;
@@ -42,6 +53,8 @@ export class PluginLifecycleManager {
   private readonly commandRegistry?: CommandRegistry;
   private readonly mcpManager?: McpManager;
   private readonly logger?: Logger;
+  private readonly toolIndex?: ToolIndex;
+  private readonly globalNamespace: string;
 
   constructor(options: LifecycleOptions) {
     this.permissionGate = options.permissionGate;
@@ -53,6 +66,8 @@ export class PluginLifecycleManager {
     this.commandRegistry = options.commandRegistry;
     this.mcpManager = options.mcpManager;
     this.logger = options.logger;
+    this.toolIndex = options.toolIndex;
+    this.globalNamespace = options.globalNamespace ?? '__global__';
   }
 
   install(plugin: PluginInstance): void {
@@ -128,7 +143,12 @@ export class PluginLifecycleManager {
             this.setState(namespace, 'errored', errMsg);
           },
         });
-        this.toolDispatcher.register(tool, wrappedHandler);
+        this.toolDispatcher.register(tool, wrappedHandler, { namespace });
+
+        // Register tool in ToolIndex for selection
+        if (this.toolIndex) {
+          this.toolIndex.register(tool, namespace);
+        }
 
         // Register in skill registry if available
         if (this.skillRegistry) {
@@ -142,46 +162,21 @@ export class PluginLifecycleManager {
         // Register a placeholder that returns an error
         this.toolDispatcher.register(tool, async () => {
           throw new Error(`No handler registered for tool '${tool.name}'`);
-        });
+        }, { namespace });
+
+        if (this.toolIndex) {
+          this.toolIndex.register(tool, namespace);
+        }
       }
     }
 
-    // Register get_skill_context tool if this plugin has skills
+    // Register global get_skill_context tool (refcounted — one tool shared by all skill plugins)
     const skillDefs = this.pluginSkills.get(namespace);
     if (skillDefs && skillDefs.size > 0 && this.skillRegistry) {
-      const contextToolName = `${namespace}:get_skill_context`;
-      const contextToolDef: ToolDefinition = {
-        name: contextToolName,
-        description: `Load the full instructions for a skill in the ${namespace} plugin. Pass the skill name (without namespace prefix).`,
-        parameters: {
-          type: 'object',
-          properties: {
-            name: {
-              type: 'string',
-              description: 'The skill name to load (e.g. "sql-queries")',
-            },
-          },
-          required: ['name'],
-        },
-      };
-      const registry = this.skillRegistry;
-      const skillHandler: ToolHandler = async (input) => {
-        const skillName = String(input.name);
-        const qualified = `${namespace}:${skillName}`;
-        const skill = registry.get(qualified);
-        if (!skill) {
-          return `Skill '${skillName}' not found in ${namespace}. Available: ${registry.listByNamespace(namespace).map((s) => s.definition.name).join(', ')}`;
-        }
-        return skill.definition.prompt ?? skill.definition.description;
-      };
-      const wrappedContextHandler = wrapWithErrorBoundary(contextToolName, skillHandler, {
-        maxConsecutiveFailures: 5,
-        onDisable: (toolName, errMsg) => {
-          this.logger?.error('plugin.tool_disabled', { namespace, tool: toolName, err: errMsg });
-        },
-      });
-      this.toolDispatcher.register(contextToolDef, wrappedContextHandler);
-      plugin.tools.push(contextToolDef);
+      this.skillPluginCount++;
+      if (this.skillPluginCount === 1) {
+        this.registerGlobalSkillContextTool();
+      }
     }
 
     // Start MCP servers and register their tools
@@ -230,9 +225,24 @@ export class PluginLifecycleManager {
       void this.mcpManager.stopServers(namespace);
     }
 
-    // Unregister tools
+    // Unregister tools (and from ToolIndex)
     for (const tool of plugin.tools) {
       this.toolDispatcher.unregister(tool.name);
+      if (this.toolIndex) {
+        this.toolIndex.unregister(tool.name);
+      }
+    }
+
+    // Decrement global get_skill_context refcount
+    const skillDefs = this.pluginSkills.get(namespace);
+    if (skillDefs && skillDefs.size > 0 && this.skillRegistry) {
+      this.skillPluginCount = Math.max(0, this.skillPluginCount - 1);
+      if (this.skillPluginCount === 0) {
+        this.toolDispatcher.unregister('get_skill_context');
+        if (this.toolIndex) {
+          this.toolIndex.unregister('get_skill_context');
+        }
+      }
     }
 
     // Unregister skills
@@ -334,6 +344,65 @@ export class PluginLifecycleManager {
 
     this.logger?.info('plugin.reloaded', { namespace });
     return result;
+  }
+
+  private registerGlobalSkillContextTool(): void {
+    if (!this.skillRegistry) return;
+    const contextToolDef: ToolDefinition = {
+      name: 'get_skill_context',
+      description:
+        'Load the full instructions for a skill. Pass the skill name and optionally its namespace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          namespace: {
+            type: 'string',
+            description: 'The plugin namespace (optional — omit to search all namespaces)',
+          },
+          name: {
+            type: 'string',
+            description: 'The skill name to load (e.g. "sql-queries")',
+          },
+        },
+        required: ['name'],
+      },
+    };
+    const registry = this.skillRegistry;
+    const skillHandler: ToolHandler = async (input) => {
+      const skillName = String(input.name);
+      const ns = input.namespace ? String(input.namespace) : undefined;
+
+      if (ns) {
+        const qualified = `${ns}:${skillName}`;
+        const skill = registry.get(qualified);
+        if (!skill) {
+          return `Skill '${skillName}' not found in ${ns}. Available: ${registry.listByNamespace(ns).map((s) => s.definition.name).join(', ')}`;
+        }
+        return skill.definition.prompt ?? skill.definition.description;
+      }
+
+      // Search all namespaces for the skill name
+      const allSkills = registry.list();
+      const match = allSkills.find(
+        (s) => s.definition.name === skillName || s.definition.name.endsWith(`:${skillName}`),
+      );
+      if (!match) {
+        return `Skill '${skillName}' not found. Available skills: ${allSkills.map((s) => s.definition.name).join(', ')}`;
+      }
+      return match.definition.prompt ?? match.definition.description;
+    };
+    const wrappedHandler = wrapWithErrorBoundary('get_skill_context', skillHandler, {
+      maxConsecutiveFailures: 5,
+      onDisable: (toolName, errMsg) => {
+        this.logger?.error('plugin.tool_disabled', { tool: toolName, err: errMsg });
+      },
+    });
+    this.toolDispatcher.register(contextToolDef, wrappedHandler, {
+      namespace: this.globalNamespace,
+    });
+    if (this.toolIndex) {
+      this.toolIndex.register(contextToolDef, this.globalNamespace);
+    }
   }
 
   private async startMcpServers(namespace: string, configs: McpServerConfig[]): Promise<void> {

@@ -26,6 +26,7 @@
     "@nexora-kit/sandbox": "*",
     "@nexora-kit/skills": "*",
     "@nexora-kit/storage": "*",
+    "@nexora-kit/tool-registry": "*",
     "fflate": "^0.8.2",
     "yaml": "^2.7.0"
   },

@@ -5,7 +5,7 @@ import type {
   ToolSelectorInterface,
   RankedTool,
 } from '@nexora-kit/core';
-import { ToolIndex } from './tool-index.js';
+import { ToolIndex, GLOBAL_NAMESPACE } from './tool-index.js';
 import { estimateToolTokens } from './token-estimator.js';
 import { SelectionLogger } from './selection-logger.js';
 import type { EmbeddingProvider } from './embedding/embedding-provider.js';
@@ -132,6 +132,18 @@ export class ToolSelector implements ToolSelectorInterface {
       for (const ns of request.namespaces) {
         for (const tool of this.index.getByNamespace(ns)) {
           addPinnedOrRecent(tool, ns);
+        }
+      }
+      // Always include global namespace tools
+      for (const tool of this.index.getByNamespace(GLOBAL_NAMESPACE)) {
+        if (!candidateNames.has(tool.name)) {
+          scored.push({
+            tool,
+            score: 0,
+            namespace: GLOBAL_NAMESPACE,
+            source: 'global',
+            compositeScore: this.weights.context, // always relevant
+          });
         }
       }
     } else {
