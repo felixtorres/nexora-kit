@@ -15,6 +15,7 @@ import {
   discoverPlugins,
 } from '@nexora-kit/plugins';
 import { parse as parseYaml } from 'yaml';
+import { createClientFromConfig, handleApiError } from './api-client.js';
 
 // --- plugin init ---
 
@@ -592,6 +593,128 @@ export const pluginValidateCommand: CliCommand = {
     } else {
       error(fmt.bold(`Validation found ${issues.length} issue(s)`));
       process.exitCode = 1;
+    }
+  },
+};
+
+// --- plugin list (online) ---
+
+interface PluginInfo {
+  name: string;
+  namespace: string;
+  version: string;
+  description: string;
+  state: string;
+  toolCount: number;
+}
+
+function configPath(args: { flags: Record<string, string | boolean> }): string {
+  return (args.flags['config'] as string) ?? 'nexora.yaml';
+}
+
+export const pluginListCommand: CliCommand = {
+  name: 'plugin:list',
+  description: 'List installed plugins on the running server',
+  usage: 'nexora-kit plugin list [--config <path>]',
+
+  async run(args) {
+    try {
+      const client = await createClientFromConfig(configPath(args));
+      const result = await client.get<{ plugins: PluginInfo[] }>('/plugins');
+
+      if (result.plugins.length === 0) {
+        info('No plugins installed.');
+        return;
+      }
+
+      console.log(fmt.bold('\nInstalled Plugins\n'));
+      table(
+        ['Namespace', 'Name', 'Version', 'State', 'Tools'],
+        result.plugins.map((p) => [
+          p.namespace,
+          p.name,
+          p.version,
+          p.state === 'enabled' ? fmt.green(p.state) : fmt.yellow(p.state),
+          String(p.toolCount),
+        ]),
+      );
+    } catch (err) {
+      handleApiError(err);
+    }
+  },
+};
+
+// --- plugin enable (online) ---
+
+export const pluginEnableCommand: CliCommand = {
+  name: 'plugin:enable',
+  description: 'Enable an installed plugin',
+  usage: 'nexora-kit plugin enable <namespace>',
+
+  async run(args) {
+    const namespace = args.positionals[0];
+    if (!namespace) {
+      error('Usage: nexora-kit plugin enable <namespace>');
+      process.exitCode = 1;
+      return;
+    }
+
+    try {
+      const client = await createClientFromConfig(configPath(args));
+      await client.post(`/admin/plugins/${encodeURIComponent(namespace)}/enable`);
+      success(`Plugin "${namespace}" enabled.`);
+    } catch (err) {
+      handleApiError(err);
+    }
+  },
+};
+
+// --- plugin disable (online) ---
+
+export const pluginDisableCommand: CliCommand = {
+  name: 'plugin:disable',
+  description: 'Disable an installed plugin',
+  usage: 'nexora-kit plugin disable <namespace>',
+
+  async run(args) {
+    const namespace = args.positionals[0];
+    if (!namespace) {
+      error('Usage: nexora-kit plugin disable <namespace>');
+      process.exitCode = 1;
+      return;
+    }
+
+    try {
+      const client = await createClientFromConfig(configPath(args));
+      await client.post(`/admin/plugins/${encodeURIComponent(namespace)}/disable`);
+      success(`Plugin "${namespace}" disabled.`);
+    } catch (err) {
+      handleApiError(err);
+    }
+  },
+};
+
+// --- plugin remove (online) ---
+
+export const pluginRemoveCommand: CliCommand = {
+  name: 'plugin:remove',
+  description: 'Uninstall a plugin from the running server',
+  usage: 'nexora-kit plugin remove <namespace>',
+
+  async run(args) {
+    const namespace = args.positionals[0];
+    if (!namespace) {
+      error('Usage: nexora-kit plugin remove <namespace>');
+      process.exitCode = 1;
+      return;
+    }
+
+    try {
+      const client = await createClientFromConfig(configPath(args));
+      await client.delete(`/admin/plugins/${encodeURIComponent(namespace)}`);
+      success(`Plugin "${namespace}" uninstalled.`);
+    } catch (err) {
+      handleApiError(err);
     }
   },
 };

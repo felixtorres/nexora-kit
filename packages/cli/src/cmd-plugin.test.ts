@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pluginInitCommand, pluginValidateCommand, pluginAddCommand } from './cmd-plugin.js';
+import {
+  pluginInitCommand, pluginValidateCommand, pluginAddCommand,
+  pluginListCommand, pluginEnableCommand, pluginDisableCommand, pluginRemoveCommand,
+} from './cmd-plugin.js';
 
 describe('plugin init command', () => {
   let tempDir: string;
@@ -366,5 +369,133 @@ sandbox:
     const evilPath = resolve(tempDir, '..', '..', '..', 'evil.txt');
     await expect(access(evilPath)).rejects.toThrow();
     spy.mockRestore();
+  });
+});
+
+// --- Runtime plugin commands (online, mock API client) ---
+
+const { runtimeMockClient } = vi.hoisted(() => ({
+  runtimeMockClient: {
+    get: vi.fn(),
+    post: vi.fn(),
+    patch: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
+vi.mock('./api-client.js', () => ({
+  ApiClient: vi.fn(),
+  ApiError: class extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+      this.name = 'ApiError';
+    }
+  },
+  createClientFromConfig: vi.fn().mockResolvedValue(runtimeMockClient),
+  handleApiError: vi.fn(() => { process.exitCode = 1; }),
+}));
+
+describe('plugin runtime commands', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+  });
+
+  describe('plugin list', () => {
+    it('displays plugins in a table', async () => {
+      runtimeMockClient.get.mockResolvedValue({
+        plugins: [
+          { namespace: 'faq', name: 'FAQ Plugin', version: '1.0.0', state: 'enabled', toolCount: 3 },
+          { namespace: 'kyvos', name: 'Kyvos', version: '2.1.0', state: 'disabled', toolCount: 5 },
+        ],
+      });
+
+      await pluginListCommand.run({
+        positionals: [],
+        flags: { config: 'test.yaml' },
+      });
+
+      expect(runtimeMockClient.get).toHaveBeenCalledWith('/plugins');
+      expect(logSpy).toHaveBeenCalled();
+    });
+
+    it('shows info when no plugins installed', async () => {
+      runtimeMockClient.get.mockResolvedValue({ plugins: [] });
+
+      await pluginListCommand.run({
+        positionals: [],
+        flags: { config: 'test.yaml' },
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No plugins installed'));
+    });
+  });
+
+  describe('plugin enable', () => {
+    it('enables a plugin by namespace', async () => {
+      runtimeMockClient.post.mockResolvedValue({});
+
+      await pluginEnableCommand.run({
+        positionals: ['faq'],
+        flags: { config: 'test.yaml' },
+      });
+
+      expect(runtimeMockClient.post).toHaveBeenCalledWith('/admin/plugins/faq/enable');
+    });
+
+    it('fails without namespace', async () => {
+      await pluginEnableCommand.run({
+        positionals: [],
+        flags: { config: 'test.yaml' },
+      });
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
+  describe('plugin disable', () => {
+    it('disables a plugin by namespace', async () => {
+      runtimeMockClient.post.mockResolvedValue({});
+
+      await pluginDisableCommand.run({
+        positionals: ['faq'],
+        flags: { config: 'test.yaml' },
+      });
+
+      expect(runtimeMockClient.post).toHaveBeenCalledWith('/admin/plugins/faq/disable');
+    });
+  });
+
+  describe('plugin remove', () => {
+    it('removes a plugin by namespace', async () => {
+      runtimeMockClient.delete.mockResolvedValue(undefined);
+
+      await pluginRemoveCommand.run({
+        positionals: ['faq'],
+        flags: { config: 'test.yaml' },
+      });
+
+      expect(runtimeMockClient.delete).toHaveBeenCalledWith('/admin/plugins/faq');
+    });
+
+    it('fails without namespace', async () => {
+      await pluginRemoveCommand.run({
+        positionals: [],
+        flags: { config: 'test.yaml' },
+      });
+      expect(process.exitCode).toBe(1);
+    });
   });
 });

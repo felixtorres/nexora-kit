@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { configGetCommand, configSetCommand } from './cmd-config.js';
+import { configGetCommand, configSetCommand, configValidateCommand, configShowCommand } from './cmd-config.js';
 
 describe('config get command', () => {
   let tempDir: string;
@@ -134,5 +134,194 @@ port: 3000
 
     const content = await readFile(configPath, 'utf-8');
     expect(content).toContain('true');
+  });
+});
+
+describe('config validate command', () => {
+  let tempDir: string;
+  let configPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'nexora-config-val-'));
+    configPath = join(tempDir, 'nexora.yaml');
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+    process.exitCode = undefined;
+  });
+
+  it('passes on a valid config', async () => {
+    await writeFile(configPath, `
+name: test-app
+port: 3000
+auth:
+  type: api-key
+  keys:
+    - key: dev-key-123
+      userId: dev
+      teamId: default
+      role: admin
+storage:
+  path: ./data/nexora.db
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = spy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(output).toContain('valid');
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('reports missing required fields', async () => {
+    await writeFile(configPath, `
+name: test-app
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    expect(process.exitCode).toBe(1);
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('reports invalid port', async () => {
+    await writeFile(configPath, `
+port: 99999
+auth:
+  type: api-key
+  keys:
+    - key: test
+      role: admin
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    expect(process.exitCode).toBe(1);
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('warns about unresolved env vars', async () => {
+    await writeFile(configPath, `
+port: 3000
+auth:
+  type: api-key
+  keys:
+    - key: \${NEXORA_API_KEY}
+      role: admin
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    const output = spy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(output).toContain('NEXORA_API_KEY');
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('fails on missing config file', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: join(tempDir, 'nope.yaml') },
+    });
+
+    expect(process.exitCode).toBe(1);
+    errSpy.mockRestore();
+  });
+});
+
+describe('config show command', () => {
+  let tempDir: string;
+  let configPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'nexora-config-show-'));
+    configPath = join(tempDir, 'nexora.yaml');
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+    process.exitCode = undefined;
+  });
+
+  it('displays resolved config', async () => {
+    await writeFile(configPath, `
+name: test-app
+port: 3000
+auth:
+  type: api-key
+  keys:
+    - key: secret-key-value
+      userId: dev
+      role: admin
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await configShowCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    const output = spy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(output).toContain('test-app');
+    // Secret should be masked
+    expect(output).toContain('secr****');
+    expect(output).not.toContain('secret-key-value');
+    spy.mockRestore();
+  });
+
+  it('resolves env vars', async () => {
+    process.env['TEST_PORT'] = '4000';
+    await writeFile(configPath, `
+name: test-app
+port: \${TEST_PORT}
+auth:
+  type: api-key
+  keys:
+    - key: test-key
+      role: admin
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await configShowCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    const output = spy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(output).toContain('4000');
+    spy.mockRestore();
+    delete process.env['TEST_PORT'];
   });
 });
