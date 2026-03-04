@@ -48,6 +48,7 @@ interface OpenAiChatRequest {
   messages: OpenAiMessage[];
   temperature?: number;
   max_tokens?: number;
+  max_completion_tokens?: number;
   stream: boolean;
   stream_options?: { include_usage: boolean };
   tools?: OpenAiTool[];
@@ -139,6 +140,14 @@ export interface OpenAiCompatibleProviderOptions {
   timeoutMs?: number;
 
   /**
+   * When true, the provider sends `max_completion_tokens` instead of
+   * `max_tokens` in every request. Required for models such as o1, o3, and
+   * gpt-5.x that reject the legacy `max_tokens` parameter.
+   * @default false
+   */
+  useMaxCompletionTokens?: boolean;
+
+  /**
    * Optional structured logger. When provided, the provider emits
    * llm.request, llm.response, llm.usage, and llm.error log entries.
    */
@@ -159,6 +168,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   private readonly apiKey?: string;
   private readonly defaultMaxTokens: number;
   private readonly timeoutMs: number;
+  private readonly useMaxCompletionTokens: boolean;
   private readonly logger?: LlmLogger;
 
   constructor(options: OpenAiCompatibleProviderOptions) {
@@ -174,6 +184,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     this.apiKey = options.apiKey;
     this.defaultMaxTokens = options.defaultMaxTokens ?? 4096;
     this.timeoutMs = options.timeoutMs ?? 120_000;
+    this.useMaxCompletionTokens = options.useMaxCompletionTokens ?? false;
     this.logger = options.logger;
 
     this.models = [
@@ -271,7 +282,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   private sanitizeToolName(name: string): string {
-    return name.replace(/^@/, '').replace(/\//g, '.').replace(/:/g, '.').slice(0, 64);
+    return name
+      .replace(/^@/, '')
+      .replace(/[/:]/g, '__')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 64);
   }
 
   private buildRequestBody(
@@ -282,7 +297,9 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       model: this.model,
       messages: this.toOpenAiMessages(request),
       temperature: request.temperature,
-      max_tokens: request.maxTokens ?? this.defaultMaxTokens,
+      ...(this.useMaxCompletionTokens
+        ? { max_completion_tokens: request.maxTokens ?? this.defaultMaxTokens }
+        : { max_tokens: request.maxTokens ?? this.defaultMaxTokens }),
       stream: request.stream,
       ...(request.stream ? { stream_options: { include_usage: true } } : {}),
     };
@@ -363,7 +380,12 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       const durationMs = Date.now() - startMs;
-      this.logger?.error('llm.error', { model: this.model, status: response.status, durationMs, detail });
+      this.logger?.error('llm.error', {
+        model: this.model,
+        status: response.status,
+        durationMs,
+        detail,
+      });
       throw new Error(`OpenAI-compatible API error (HTTP ${response.status}): ${detail}`);
     }
 
@@ -438,7 +460,12 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       const durationMs = Date.now() - startMs;
-      this.logger?.error('llm.error', { model: this.model, status: response.status, durationMs, detail });
+      this.logger?.error('llm.error', {
+        model: this.model,
+        status: response.status,
+        durationMs,
+        detail,
+      });
       throw new Error(`OpenAI-compatible API error (HTTP ${response.status}): ${detail}`);
     }
 

@@ -61,6 +61,7 @@ interface OpenAiChatRequest {
   messages: OpenAiMessage[];
   temperature?: number;
   max_tokens?: number;
+  max_completion_tokens?: number;
   stream: boolean;
   stream_options?: { include_usage: boolean };
   frequency_penalty?: number;
@@ -180,10 +181,27 @@ export interface Wso2ProviderOptions {
   additionalModels?: ModelInfo[];
 
   /**
+   * When true, the provider sends `max_completion_tokens` instead of
+   * `max_tokens` in every request. Required for models such as o1, o3, and
+   * gpt-5.x that reject the legacy `max_tokens` parameter.
+   * @default false
+   */
+  useMaxCompletionTokens?: boolean;
+
+  /**
    * Override options forwarded to the internal Wso2AuthService.
    * Normally derived from the other options above.
    */
   authOptions?: Partial<Wso2AuthOptions>;
+
+  /**
+   * When true, omits parameters that newer OpenAI models (o1, o3, gpt-5.x)
+   * reject: `frequency_penalty`, `presence_penalty`, `stream_options`, and
+   * `temperature` (when undefined). Use alongside `useMaxCompletionTokens`
+   * for full compatibility with these models.
+   * @default false
+   */
+  omitUnsupportedParams?: boolean;
 
   /**
    * Optional structured logger.
@@ -206,6 +224,8 @@ export class Wso2Provider implements LlmProvider {
   private readonly apiVersion: string;
   private readonly defaultMaxTokens: number;
   private readonly timeoutMs: number;
+  private readonly useMaxCompletionTokens: boolean;
+  private readonly omitUnsupportedParams: boolean;
   private readonly logger?: LlmLogger;
 
   constructor(options: Wso2ProviderOptions = {}) {
@@ -248,6 +268,8 @@ export class Wso2Provider implements LlmProvider {
 
     this.defaultMaxTokens = options.defaultMaxTokens ?? 4096;
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.useMaxCompletionTokens = options.useMaxCompletionTokens ?? false;
+    this.omitUnsupportedParams = options.omitUnsupportedParams ?? false;
     this.logger = options.logger;
 
     this.auth = new Wso2AuthService({
@@ -375,15 +397,25 @@ export class Wso2Provider implements LlmProvider {
   }
 
   /**
-   * Sanitize a tool name to match the OpenAI pattern ^[a-zA-Z0-9_\.-]+$.
-   * Strips leading '@', replaces '/' with '.', and replaces ':' with '.'.
+   * Sanitize a tool name to match the OpenAI pattern ^[a-zA-Z0-9_-]{1,64}$.
+   * Dots are NOT allowed by the OpenAI spec even though they appear in our
+   * internal qualified names (e.g. from MCP: "kyvos-mcp.tool_name").
+   * Strategy:
+   *   1. Strip leading '@'
+   *   2. Replace namespace separators ('/', ':') with '__' for readability
+   *   3. Replace any remaining illegal chars (including '.') with '_'
+   *   4. Truncate to 64 characters
    * Examples:
-   *   "@kyvos/kyvos-mcp.tool"  → "kyvos.kyvos-mcp.tool"
-   *   "my-plugin:greet"        → "my-plugin.greet"
-   *   "@ns/srv:tool"           → "ns.srv.tool"
+   *   "@kyvos/kyvos-mcp.kyvos_list_models" → "kyvos__kyvos-mcp_kyvos_list_models"
+   *   "my-plugin:greet"                    → "my-plugin__greet"
+   *   "@ns/srv.tool"                       → "ns__srv_tool"
    */
   private sanitizeToolName(name: string): string {
-    return name.replace(/^@/, '').replace(/\//g, '.').replace(/:/g, '.').slice(0, 64);
+    return name
+      .replace(/^@/, '')
+      .replace(/[/:]/g, '__')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 64);
   }
 
   private buildRequestBody(
@@ -392,12 +424,15 @@ export class Wso2Provider implements LlmProvider {
   ): OpenAiChatRequest {
     const body: OpenAiChatRequest = {
       messages: this.toOpenAiMessages(request),
-      temperature: request.temperature,
-      max_tokens: request.maxTokens ?? this.defaultMaxTokens,
-      frequency_penalty: 0,
-      presence_penalty: 0,
+      ...(this.omitUnsupportedParams ? {} : { temperature: request.temperature }),
+      ...(this.useMaxCompletionTokens
+        ? { max_completion_tokens: request.maxTokens ?? this.defaultMaxTokens }
+        : { max_tokens: request.maxTokens ?? this.defaultMaxTokens }),
+      ...(this.omitUnsupportedParams ? {} : { frequency_penalty: 0, presence_penalty: 0 }),
       stream: request.stream,
-      ...(request.stream ? { stream_options: { include_usage: true } } : {}),
+      ...(request.stream && !this.omitUnsupportedParams
+        ? { stream_options: { include_usage: true } }
+        : {}),
     };
 
     if (request.tools && request.tools.length > 0) {
@@ -409,7 +444,9 @@ export class Wso2Provider implements LlmProvider {
             if (this.logger) {
               this.logger.warn('llm.tool_collision', { original: t.name, existing, sanitized });
             } else {
-              console.warn(`[Wso2Provider] Tool name collision: "${t.name}" and "${existing}" both sanitize to "${sanitized}"`);
+              console.warn(
+                `[Wso2Provider] Tool name collision: "${t.name}" and "${existing}" both sanitize to "${sanitized}"`,
+              );
             }
           }
           toolNameMap.set(sanitized, t.name);
@@ -466,13 +503,20 @@ export class Wso2Provider implements LlmProvider {
       messageCount: request.messages.length,
       toolCount: request.tools?.length ?? 0,
     });
+    this.logger?.debug('llm.request_body', { model: this.deploymentId, body });
 
     const response = await this.fetchWithAuth(url, body);
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       const durationMs = Date.now() - startMs;
-      this.logger?.error('llm.error', { model: this.deploymentId, status: response.status, durationMs, detail });
+      this.logger?.error('llm.error', {
+        model: this.deploymentId,
+        status: response.status,
+        durationMs,
+        detail,
+        requestBody: body,
+      });
       throw new Error(`WSO2 API error (HTTP ${response.status}): ${detail}`);
     }
 
@@ -481,7 +525,11 @@ export class Wso2Provider implements LlmProvider {
     const choice = data.choices[0];
 
     if (!choice) {
-      this.logger?.error('llm.error', { model: this.deploymentId, durationMs, detail: 'empty response' });
+      this.logger?.error('llm.error', {
+        model: this.deploymentId,
+        durationMs,
+        detail: 'empty response',
+      });
       throw new Error('WSO2 API returned an empty response');
     }
 
@@ -543,13 +591,20 @@ export class Wso2Provider implements LlmProvider {
       messageCount: request.messages.length,
       toolCount: request.tools?.length ?? 0,
     });
+    this.logger?.debug('llm.request_body', { model: this.deploymentId, body });
 
     const response = await this.fetchWithAuth(url, body);
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       const durationMs = Date.now() - startMs;
-      this.logger?.error('llm.error', { model: this.deploymentId, status: response.status, durationMs, detail });
+      this.logger?.error('llm.error', {
+        model: this.deploymentId,
+        status: response.status,
+        durationMs,
+        detail,
+        requestBody: body,
+      });
       throw new Error(`WSO2 API error (HTTP ${response.status}): ${detail}`);
     }
 
@@ -557,7 +612,10 @@ export class Wso2Provider implements LlmProvider {
       throw new Error('WSO2 streaming response has no body');
     }
 
-    this.logger?.debug('llm.stream_start', { model: this.deploymentId, durationMs: Date.now() - startMs });
+    this.logger?.debug('llm.stream_start', {
+      model: this.deploymentId,
+      durationMs: Date.now() - startMs,
+    });
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();

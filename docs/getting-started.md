@@ -128,6 +128,13 @@ llm:
   wso2BaseUrl: https://api-gateway.example.com:443/t/org/openaiendpoint/1
   wso2DeploymentId: gpt-4o-deployment
   wso2ApiVersion: '2024-12-01-preview'
+  # Required for models that reject legacy parameters (e.g. gpt-5.x, o1, o3):
+  # useMaxCompletionTokens: true
+  # omitUnsupportedParams: true
+
+# Limit conversation history per turn for models with small context windows:
+# agent:
+#   maxContextTokens: 8000
 ```
 
 All credential fields fall through to environment variables (`WSO2_AUTH_URL`, `WSO2_CLIENT_ID`, `WSO2_CLIENT_SECRET`, `WSO2_BASE_URL`, `WSO2_DEPLOYMENT_ID`, `WSO2_API_VERSION`), so secrets can be kept out of the YAML file entirely.
@@ -262,69 +269,69 @@ See [Plugin Authoring](plugin-authoring.md) for details.
 
 ### Instance
 
-| Command | Description |
-|---------|-------------|
+| Command                 | Description             |
+| ----------------------- | ----------------------- |
 | `nexora-kit init [dir]` | Scaffold a new instance |
-| `nexora-kit serve` | Start the server |
-| `nexora-kit status` | Health, uptime, metrics |
+| `nexora-kit serve`      | Start the server        |
+| `nexora-kit status`     | Health, uptime, metrics |
 
 ### Plugins
 
-| Command | Description |
-|---------|-------------|
-| `nexora-kit plugin init <name>` | Scaffold a new plugin |
-| `nexora-kit plugin add <source>` | Install from path, ZIP, or GitHub URL |
-| `nexora-kit plugin list` | List installed plugins |
-| `nexora-kit plugin enable <ns>` | Enable a plugin at runtime |
-| `nexora-kit plugin disable <ns>` | Disable a plugin at runtime |
-| `nexora-kit plugin remove <ns>` | Uninstall a plugin |
-| `nexora-kit plugin dev <dir>` | Dev server with hot-reload |
-| `nexora-kit plugin test [dir]` | Run plugin test suite |
+| Command                            | Description                            |
+| ---------------------------------- | -------------------------------------- |
+| `nexora-kit plugin init <name>`    | Scaffold a new plugin                  |
+| `nexora-kit plugin add <source>`   | Install from path, ZIP, or GitHub URL  |
+| `nexora-kit plugin list`           | List installed plugins                 |
+| `nexora-kit plugin enable <ns>`    | Enable a plugin at runtime             |
+| `nexora-kit plugin disable <ns>`   | Disable a plugin at runtime            |
+| `nexora-kit plugin remove <ns>`    | Uninstall a plugin                     |
+| `nexora-kit plugin dev <dir>`      | Dev server with hot-reload             |
+| `nexora-kit plugin test [dir]`     | Run plugin test suite                  |
 | `nexora-kit plugin validate [dir]` | Validate manifest, schema, permissions |
 
 ### Bots
 
-| Command | Description |
-|---------|-------------|
-| `nexora-kit bot create` | Create a bot (`--name`, `--model`, `--system-prompt`) |
-| `nexora-kit bot list` | List all bots |
-| `nexora-kit bot get <id>` | Show bot details |
-| `nexora-kit bot update <id>` | Update bot properties |
-| `nexora-kit bot delete <id>` | Delete a bot |
+| Command                      | Description                                           |
+| ---------------------------- | ----------------------------------------------------- |
+| `nexora-kit bot create`      | Create a bot (`--name`, `--model`, `--system-prompt`) |
+| `nexora-kit bot list`        | List all bots                                         |
+| `nexora-kit bot get <id>`    | Show bot details                                      |
+| `nexora-kit bot update <id>` | Update bot properties                                 |
+| `nexora-kit bot delete <id>` | Delete a bot                                          |
 
 ### Agents
 
-| Command | Description |
-|---------|-------------|
-| `nexora-kit agent create` | Create an agent (`--slug`, `--name`, `--bot`, `--strategy`) |
-| `nexora-kit agent list` | List all agents |
-| `nexora-kit agent get <id>` | Show agent details + bindings |
-| `nexora-kit agent update <id>` | Update agent properties |
-| `nexora-kit agent delete <id>` | Delete an agent |
-| `nexora-kit agent bind <id>` | Set bot bindings (`--bots`, `--keywords`) |
+| Command                        | Description                                                 |
+| ------------------------------ | ----------------------------------------------------------- |
+| `nexora-kit agent create`      | Create an agent (`--slug`, `--name`, `--bot`, `--strategy`) |
+| `nexora-kit agent list`        | List all agents                                             |
+| `nexora-kit agent get <id>`    | Show agent details + bindings                               |
+| `nexora-kit agent update <id>` | Update agent properties                                     |
+| `nexora-kit agent delete <id>` | Delete an agent                                             |
+| `nexora-kit agent bind <id>`   | Set bot bindings (`--bots`, `--keywords`)                   |
 
 ### Config
 
-| Command | Description |
-|---------|-------------|
-| `nexora-kit config get <key>` | Read a config value (dot-notation) |
-| `nexora-kit config set <key> <val>` | Set a config value |
-| `nexora-kit config validate` | Validate config file |
-| `nexora-kit config show` | Show resolved config (secrets masked) |
+| Command                             | Description                           |
+| ----------------------------------- | ------------------------------------- |
+| `nexora-kit config get <key>`       | Read a config value (dot-notation)    |
+| `nexora-kit config set <key> <val>` | Set a config value                    |
+| `nexora-kit config validate`        | Validate config file                  |
+| `nexora-kit config show`            | Show resolved config (secrets masked) |
 
 ### Admin
 
-| Command | Description |
-|---------|-------------|
-| `nexora-kit admin usage` | Token usage analytics |
-| `nexora-kit admin audit` | Query audit log (`--actor`, `--action`, `--since`) |
-| `nexora-kit admin feedback` | Feedback summary (`--since`, `--model`) |
-| `nexora-kit admin cleanup` | Purge old audit events (`--older-than`, `--dry-run`) |
+| Command                     | Description                                          |
+| --------------------------- | ---------------------------------------------------- |
+| `nexora-kit admin usage`    | Token usage analytics                                |
+| `nexora-kit admin audit`    | Query audit log (`--actor`, `--action`, `--since`)   |
+| `nexora-kit admin feedback` | Feedback summary (`--since`, `--model`)              |
+| `nexora-kit admin cleanup`  | Purge old audit events (`--older-than`, `--dry-run`) |
 
 ### Utility
 
-| Command | Description |
-|---------|-------------|
+| Command                              | Description                                  |
+| ------------------------------------ | -------------------------------------------- |
 | `nexora-kit completion --shell <sh>` | Generate shell completions (bash, zsh, fish) |
-| `nexora-kit --help` | Show all commands |
-| `nexora-kit --version` | Show version |
+| `nexora-kit --help`                  | Show all commands                            |
+| `nexora-kit --version`               | Show version                                 |

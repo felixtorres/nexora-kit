@@ -41,9 +41,35 @@ export interface ArtifactStoreInterface {
     language?: string;
     content: string;
     metadata?: Record<string, unknown>;
-  }): { id: string; currentVersion: number; content: string; [k: string]: unknown } | Promise<{ id: string; currentVersion: number; content: string; [k: string]: unknown }>;
-  update(id: string, content: string): { id: string; currentVersion: number; content: string; [k: string]: unknown } | undefined | Promise<{ id: string; currentVersion: number; content: string; [k: string]: unknown } | undefined>;
-  listByConversation?(conversationId: string): { id: string; title: string; type?: string; language?: string | null; currentVersion: number }[] | Promise<{ id: string; title: string; type?: string; language?: string | null; currentVersion: number }[]>;
+  }):
+    | { id: string; currentVersion: number; content: string; [k: string]: unknown }
+    | Promise<{ id: string; currentVersion: number; content: string; [k: string]: unknown }>;
+  update(
+    id: string,
+    content: string,
+  ):
+    | { id: string; currentVersion: number; content: string; [k: string]: unknown }
+    | undefined
+    | Promise<
+        { id: string; currentVersion: number; content: string; [k: string]: unknown } | undefined
+      >;
+  listByConversation?(conversationId: string):
+    | {
+        id: string;
+        title: string;
+        type?: string;
+        language?: string | null;
+        currentVersion: number;
+      }[]
+    | Promise<
+        {
+          id: string;
+          title: string;
+          type?: string;
+          language?: string | null;
+          currentVersion: number;
+        }[]
+      >;
 }
 
 export interface AgentLoopOptions {
@@ -66,6 +92,11 @@ export interface AgentLoopOptions {
   artifactStreamChunkSize?: number;
   artifactTokenBudget?: number;
   skillIndexProvider?: SkillIndexProvider;
+  /** Maximum tokens to keep in conversation history before each LLM call.
+   *  When set, the agent loop calls ContextManager.truncate() to drop oldest
+   *  messages that exceed this limit. Defaults to the ContextManager default
+   *  (100 000). Set lower for models with small context windows (e.g. 8 000). */
+  maxContextTokens?: number;
 }
 
 export class AgentLoop {
@@ -88,6 +119,7 @@ export class AgentLoop {
   private readonly artifactStreamChunkSize: number;
   private readonly artifactTokenBudget: number;
   private readonly skillIndexProvider?: SkillIndexProvider;
+  private readonly maxContextTokens?: number;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -111,6 +143,7 @@ export class AgentLoop {
     this.artifactStreamChunkSize = options.artifactStreamChunkSize ?? 500;
     this.artifactTokenBudget = options.artifactTokenBudget ?? 500;
     this.skillIndexProvider = options.skillIndexProvider;
+    this.maxContextTokens = options.maxContextTokens;
   }
 
   /**
@@ -123,7 +156,11 @@ export class AgentLoop {
   async *run(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatEvent> {
     // Concurrency guard: one active generation per conversation
     if (this.abortControllers.has(request.conversationId)) {
-      yield { type: 'error', message: 'A generation is already in progress for this conversation', code: 'CONFLICT' };
+      yield {
+        type: 'error',
+        message: 'A generation is already in progress for this conversation',
+        code: 'CONFLICT',
+      };
       yield { type: 'done' };
       return;
     }
@@ -209,7 +246,11 @@ export class AgentLoop {
           }
           if (result.blocks && result.blocks.length > 0) {
             yield { type: 'blocks', blocks: result.blocks };
-            this.actionRouter.registerFromBlocks(request.conversationId, mapping.toolName, result.blocks);
+            this.actionRouter.registerFromBlocks(
+              request.conversationId,
+              mapping.toolName,
+              result.blocks,
+            );
           }
 
           // Store as assistant message
@@ -226,9 +267,10 @@ export class AgentLoop {
           if (assistantContent.length > 0) {
             const assistantMessage: Message = {
               role: 'assistant',
-              content: assistantContent.length === 1 && assistantContent[0].type === 'text'
-                ? assistantContent[0].text
-                : assistantContent,
+              content:
+                assistantContent.length === 1 && assistantContent[0].type === 'text'
+                  ? assistantContent[0].text
+                  : assistantContent,
             };
             this.context.append(conversation, assistantMessage);
             await this.memory.append(request.conversationId, [assistantMessage]);
@@ -247,7 +289,11 @@ export class AgentLoop {
 
       // Command pre-processing: if message starts with / and matches a command, dispatch directly
       let commandPrompt: string | undefined;
-      if (this.commandDispatcher && messageText.startsWith('/') && this.commandDispatcher.isCommand(messageText)) {
+      if (
+        this.commandDispatcher &&
+        messageText.startsWith('/') &&
+        this.commandDispatcher.isCommand(messageText)
+      ) {
         const cmdResult = await this.commandDispatcher.dispatch(messageText, {
           id: request.conversationId,
           userId: request.userId,
@@ -280,7 +326,9 @@ export class AgentLoop {
       // Resolve workspace context (once per run, prepended to system prompt each turn)
       let workspacePromptPrefix = '';
       if (this.workspaceContextProvider && conversation.workspaceId) {
-        const wsCtx = await this.workspaceContextProvider.getWorkspaceContext(conversation.workspaceId);
+        const wsCtx = await this.workspaceContextProvider.getWorkspaceContext(
+          conversation.workspaceId,
+        );
         workspacePromptPrefix = buildWorkspacePrompt(wsCtx, this.workspaceTokenBudget);
       }
 
@@ -346,13 +394,20 @@ export class AgentLoop {
         if (skillIndexSuffix) {
           effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + skillIndexSuffix;
         }
+        // Trim conversation history to respect context window limit before assembling
+        if (this.maxContextTokens !== undefined) {
+          this.context.truncate(conversation, this.maxContextTokens);
+        }
         const ctx = this.context.assemble(conversation, tools, effectiveSystemPrompt);
 
         // Check token budget before LLM call
         if (this.tokenBudget && this.pluginNamespace) {
           // Estimate tokens for this request (rough: 4 chars ≈ 1 token)
           const contextChars = ctx.messages.reduce((sum, m) => {
-            return sum + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length);
+            return (
+              sum +
+              (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length)
+            );
           }, 0);
           const estimatedTokens = Math.ceil(contextChars / 4);
           const budgetCheck = this.tokenBudget.check(this.pluginNamespace, estimatedTokens);
@@ -451,9 +506,10 @@ export class AgentLoop {
           }
           const assistantMessage: Message = {
             role: 'assistant',
-            content: assistantContent.length === 1 && assistantContent[0].type === 'text'
-              ? assistantContent[0].text
-              : assistantContent,
+            content:
+              assistantContent.length === 1 && assistantContent[0].type === 'text'
+                ? assistantContent[0].text
+                : assistantContent,
           };
           this.context.append(conversation, assistantMessage);
           await this.memory.append(request.conversationId, [assistantMessage]);
@@ -497,7 +553,11 @@ export class AgentLoop {
           // Yield blocks event if tool returned structured blocks
           if (result.blocks && result.blocks.length > 0) {
             yield { type: 'blocks', blocks: result.blocks };
-            this.actionRouter.registerFromBlocks(request.conversationId, toolCall.name, result.blocks);
+            this.actionRouter.registerFromBlocks(
+              request.conversationId,
+              toolCall.name,
+              result.blocks,
+            );
           }
 
           // Process artifact operations
@@ -512,7 +572,12 @@ export class AgentLoop {
                   language: op.language,
                   content: op.content,
                 });
-                yield { type: 'artifact_create', artifactId: created.id, title: op.title, content: '' };
+                yield {
+                  type: 'artifact_create',
+                  artifactId: created.id,
+                  title: op.title,
+                  content: '',
+                };
                 const chunks = chunkArtifactContent(op.content, this.artifactStreamChunkSize);
                 for (const chunk of chunks) {
                   yield { type: 'artifact_stream', artifactId: created.id, delta: chunk };
@@ -522,13 +587,22 @@ export class AgentLoop {
               } else if (op.type === 'update' && op.content) {
                 const updated = await this.artifactStore.update(op.artifactId, op.content);
                 if (updated) {
-                  yield { type: 'artifact_update', artifactId: op.artifactId, title: op.title, content: '' };
+                  yield {
+                    type: 'artifact_update',
+                    artifactId: op.artifactId,
+                    title: op.title,
+                    content: '',
+                  };
                   const chunks = chunkArtifactContent(op.content, this.artifactStreamChunkSize);
                   for (const chunk of chunks) {
                     yield { type: 'artifact_stream', artifactId: op.artifactId, delta: chunk };
                   }
                   yield { type: 'artifact_done', artifactId: op.artifactId };
-                  artifactContents.push({ type: 'artifact', artifactId: op.artifactId, operation: op });
+                  artifactContents.push({
+                    type: 'artifact',
+                    artifactId: op.artifactId,
+                    operation: op,
+                  });
                 }
               }
             }
@@ -642,7 +716,13 @@ export function chunkArtifactContent(content: string, chunkSize: number): string
 }
 
 export function buildArtifactPrompt(
-  artifacts: { id: string; title: string; type?: string; language?: string | null; currentVersion: number }[],
+  artifacts: {
+    id: string;
+    title: string;
+    type?: string;
+    language?: string | null;
+    currentVersion: number;
+  }[],
   tokenBudget: number,
 ): string {
   if (artifacts.length === 0) return '';
@@ -663,7 +743,10 @@ export function buildArtifactPrompt(
 }
 
 function buildWorkspacePrompt(
-  wsCtx: { systemPrompt: string | null; documents: { title: string; content: string; tokenCount: number }[] },
+  wsCtx: {
+    systemPrompt: string | null;
+    documents: { title: string; content: string; tokenCount: number }[];
+  },
   tokenBudget: number,
 ): string {
   const parts: string[] = [];

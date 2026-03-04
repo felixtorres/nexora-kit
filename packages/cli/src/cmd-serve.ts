@@ -34,6 +34,11 @@ interface InstanceConfig {
   plugins?: { directory?: string };
   sandbox?: { defaultTier?: 'none' | 'basic' | 'strict' };
   llm?: LlmConfig;
+  agent?: {
+    /** Maximum tokens to keep in conversation history per turn.
+     *  Lower this for models with small context windows (e.g. 8000 for gpt-5.2). */
+    maxContextTokens?: number;
+  };
   rateLimit?: { windowMs?: number; maxRequests?: number };
 }
 
@@ -160,7 +165,10 @@ export const serveCommand: CliCommand = {
           lifecycle.setSkillDefinitions(result.plugin.manifest.namespace, result.skillDefinitions);
         }
         if (result.commandDefinitions.size > 0) {
-          lifecycle.setCommandDefinitions(result.plugin.manifest.namespace, result.commandDefinitions);
+          lifecycle.setCommandDefinitions(
+            result.plugin.manifest.namespace,
+            result.commandDefinitions,
+          );
         }
         if (result.mcpServerConfigs.length > 0) {
           lifecycle.setMcpConfigs(result.plugin.manifest.namespace, result.mcpServerConfigs);
@@ -193,6 +201,7 @@ export const serveCommand: CliCommand = {
       messageStore,
       commandDispatcher,
       skillIndexProvider: skillIndexAdapter,
+      maxContextTokens: config.agent?.maxContextTokens,
     });
 
     // --- Auth ---
@@ -249,9 +258,15 @@ export const serveCommand: CliCommand = {
   },
 };
 
-function buildAuth(config: InstanceConfig, logger: { warn: (msg: string, data: Record<string, unknown>) => void }): ApiKeyAuth {
+function buildAuth(
+  config: InstanceConfig,
+  logger: { warn: (msg: string, data: Record<string, unknown>) => void },
+): ApiKeyAuth {
   if (!config.auth?.keys) {
-    logger.warn('auth.using_dev_key', { message: 'No auth.keys configured — using insecure fallback dev-key. Do NOT use in production.' });
+    logger.warn('auth.using_dev_key', {
+      message:
+        'No auth.keys configured — using insecure fallback dev-key. Do NOT use in production.',
+    });
   }
 
   const keys = config.auth?.keys ?? [

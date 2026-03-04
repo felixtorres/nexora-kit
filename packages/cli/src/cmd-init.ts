@@ -44,6 +44,15 @@ sandbox:
 #   wso2BaseUrl: \${WSO2_BASE_URL}
 #   wso2DeploymentId: \${WSO2_DEPLOYMENT_ID}
 #   wso2ApiVersion: "2024-12-01-preview"
+#   # For models that reject legacy params (e.g. gpt-5.x, o1, o3), uncomment both:
+#   # useMaxCompletionTokens: true
+#   # omitUnsupportedParams: true
+#
+# Agent settings:
+# agent:
+#   # Limit conversation history sent per turn (tokens). Lower for small-context models.
+#   # e.g. set to 8000 for gpt-5.2 through WSO2/Azure which has a ~10k context window.
+#   # maxContextTokens: 8000
 `;
 
 const PLUGIN_GITKEEP = '';

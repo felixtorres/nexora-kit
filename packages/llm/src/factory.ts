@@ -52,6 +52,18 @@ export interface Wso2LlmConfig {
   wso2ApiVersion?: string;
   /** Default max output tokens. @default 4096 */
   defaultMaxTokens?: number;
+  /**
+   * Send `max_completion_tokens` instead of `max_tokens`.
+   * Required for models such as o1, o3, and gpt-5.x that reject the legacy parameter.
+   * @default false
+   */
+  useMaxCompletionTokens?: boolean;
+  /**
+   * Omit parameters unsupported by newer models (o1, o3, gpt-5.x):
+   * `frequency_penalty`, `presence_penalty`, `stream_options`, and `temperature`.
+   * @default false
+   */
+  omitUnsupportedParams?: boolean;
 }
 
 export interface OpenAiCompatibleLlmConfig {
@@ -66,13 +78,23 @@ export interface OpenAiCompatibleLlmConfig {
   defaultMaxTokens?: number;
   /** HTTP request timeout in milliseconds. @default 120_000 */
   timeoutMs?: number;
+  /**
+   * Send `max_completion_tokens` instead of `max_tokens`.
+   * Required for models such as o1, o3, and gpt-5.x that reject the legacy parameter.
+   * @default false
+   */
+  useMaxCompletionTokens?: boolean;
 }
 
 export interface StubLlmConfig {
   provider?: 'stub' | undefined;
 }
 
-export type LlmConfig = AnthropicLlmConfig | Wso2LlmConfig | OpenAiCompatibleLlmConfig | StubLlmConfig;
+export type LlmConfig =
+  | AnthropicLlmConfig
+  | Wso2LlmConfig
+  | OpenAiCompatibleLlmConfig
+  | StubLlmConfig;
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -129,7 +151,10 @@ export function createProviderFromConfig(config?: LlmConfig, logger?: LlmLogger)
 // Per-provider constructors (separated for testability)
 // ---------------------------------------------------------------------------
 
-function createAnthropicProvider(config: AnthropicLlmConfig, logger?: LlmLogger): AnthropicProvider {
+function createAnthropicProvider(
+  config: AnthropicLlmConfig,
+  logger?: LlmLogger,
+): AnthropicProvider {
   return new AnthropicProvider({
     apiKey: config.apiKey, // falls through to ANTHROPIC_API_KEY in SDK
     baseURL: config.baseURL,
@@ -147,17 +172,23 @@ function createWso2Provider(config: Wso2LlmConfig, logger?: LlmLogger): Wso2Prov
     deploymentId: config.wso2DeploymentId,
     apiVersion: config.wso2ApiVersion,
     defaultMaxTokens: config.defaultMaxTokens,
+    useMaxCompletionTokens: config.useMaxCompletionTokens,
+    omitUnsupportedParams: config.omitUnsupportedParams,
     logger,
   });
 }
 
-function createOpenAiCompatibleProvider(config: OpenAiCompatibleLlmConfig, logger?: LlmLogger): OpenAiCompatibleProvider {
+function createOpenAiCompatibleProvider(
+  config: OpenAiCompatibleLlmConfig,
+  logger?: LlmLogger,
+): OpenAiCompatibleProvider {
   return new OpenAiCompatibleProvider({
     baseUrl: config.baseUrl,
     model: config.model,
     apiKey: config.apiKey,
     defaultMaxTokens: config.defaultMaxTokens,
     timeoutMs: config.timeoutMs,
+    useMaxCompletionTokens: config.useMaxCompletionTokens,
     logger,
   });
 }
