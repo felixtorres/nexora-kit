@@ -33,7 +33,7 @@ describe('HeuristicTokenizer', () => {
 
     it('handles array content by JSON stringifying', () => {
       const messages = [
-        { role: 'assistant' as const, content: [{ type: 'text', text: 'Hello' }] },
+        { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'Hello' }] },
       ];
       const tokens = tokenizer.countMessageTokens(messages);
       expect(tokens).toBeGreaterThan(4); // at least the overhead
