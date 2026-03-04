@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Check, Copy } from 'lucide-react';
+import hljs from 'highlight.js';
 import type { CodeBlock as CodeBlockType, ResponseBlock } from '@/lib/block-types';
 import { detectVizKind } from '@/lib/pyodide';
 import { VizRunner } from './viz-runner';
@@ -27,6 +28,28 @@ function findPrecedingTableData(
 
 export function CodeBlock({ block, allBlocks, index }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const codeRef = useRef<HTMLElement>(null);
+
+  // Apply syntax highlighting after mount / when code changes
+  useEffect(() => {
+    const el = codeRef.current;
+    if (!el) return;
+    // Reset any previous highlight so hljs re-runs cleanly
+    el.removeAttribute('data-highlighted');
+    if (block.language) {
+      try {
+        const result = hljs.highlight(block.code, {
+          language: block.language,
+          ignoreIllegals: true,
+        });
+        el.innerHTML = result.value;
+        return;
+      } catch {
+        // Unknown language — fall through to auto-detect
+      }
+    }
+    hljs.highlightElement(el);
+  }, [block.code, block.language]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(block.code);
@@ -60,7 +83,9 @@ export function CodeBlock({ block, allBlocks, index }: CodeBlockProps) {
           </button>
         </div>
         <pre className="overflow-x-auto p-3 text-sm leading-relaxed">
-          <code>{block.code}</code>
+          <code ref={codeRef} className={block.language ? `language-${block.language}` : undefined}>
+            {block.code}
+          </code>
         </pre>
       </div>
       {showRunner && <VizRunner code={block.code} tableData={tableData} />}
