@@ -14,10 +14,39 @@ npm install
 npm run build
 ```
 
+### Install the CLI
+
+Link the CLI package to make `nexora-kit` available globally:
+
+```bash
+cd packages/cli
+npm link
+cd ../..
+```
+
+Verify:
+
+```bash
+nexora-kit --version
+```
+
+### Shell Completion
+
+```bash
+# Fish
+nexora-kit completion --shell fish > ~/.config/fish/completions/nexora-kit.fish
+
+# Bash — add to ~/.bashrc
+eval "$(nexora-kit completion --shell bash)"
+
+# Zsh — add to ~/.zshrc
+eval "$(nexora-kit completion --shell zsh)"
+```
+
 ## Initialize an Instance
 
 ```bash
-npx nexora-kit init my-bot
+nexora-kit init my-bot
 cd my-bot
 ```
 
@@ -105,10 +134,14 @@ All credential fields fall through to environment variables (`WSO2_AUTH_URL`, `W
 
 If `llm` is omitted, the server starts with a stub provider that returns a configuration reminder instead of real responses.
 
-## Start the Server
+## Validate and Start
 
 ```bash
-npx nexora-kit serve
+# Validate config before starting
+nexora-kit config validate
+
+# Start the server
+nexora-kit serve
 ```
 
 Or with Docker:
@@ -118,6 +151,11 @@ docker compose up
 ```
 
 The server starts on `http://127.0.0.1:3000`.
+
+```bash
+# Check server status
+nexora-kit status
+```
 
 ## First API Call
 
@@ -132,40 +170,43 @@ curl -X POST http://localhost:3000/v1/chat \
   -d '{"message": "Hello!"}'
 
 # List plugins
-curl http://localhost:3000/v1/plugins \
-  -H "Authorization: Bearer my-secret-key"
+nexora-kit plugin list
 ```
 
 ## Set Up Bots and Agents
 
-After starting the server, create bots (capability profiles) and agents (deployment endpoints) via the admin API. See [Agents and Bots](agents-and-bots.md) for the full concept guide.
+After starting the server, create bots (capability profiles) and agents (deployment endpoints). See [Agents and Bots](agents-and-bots.md) for the full concept guide.
 
 ### Create a Bot
 
 ```bash
-curl -X POST http://localhost:3000/v1/bots \
-  -H "Authorization: Bearer admin-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "My Bot",
-    "systemPrompt": "You are a helpful assistant.",
-    "model": "claude-sonnet-4-6"
-  }'
+nexora-kit bot create \
+  --name "My Bot" \
+  --model claude-sonnet-4-6 \
+  --system-prompt "You are a helpful assistant."
+
+# ✓ Bot created: My Bot (b1a2b3c4...)
 ```
 
 ### Create an Agent
 
 ```bash
-curl -X POST http://localhost:3000/v1/agents \
-  -H "Authorization: Bearer admin-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "slug": "my-agent",
-    "name": "My Agent",
-    "orchestrationStrategy": "single",
-    "botId": "<bot-id-from-above>",
-    "endUserAuth": { "mode": "anonymous" }
-  }'
+nexora-kit agent create \
+  --slug my-agent \
+  --name "My Agent" \
+  --bot <bot-id-from-above> \
+  --strategy single \
+  --auth-mode anonymous
+
+# ✓ Agent created: My Agent (slug: my-agent, id: a5e6f7g8...)
+```
+
+### Verify
+
+```bash
+nexora-kit bot list
+nexora-kit agent list
+nexora-kit agent get <agent-id>
 ```
 
 ### Chat as an End User
@@ -183,29 +224,107 @@ curl -X POST http://localhost:3000/v1/agents/my-agent/conversations/<conv-id>/me
   -d '{ "input": { "type": "text", "text": "Hello!" } }'
 ```
 
-For multi-bot orchestration setup, see the [example walkthrough](agents-and-bots.md#example-setting-up-a-multi-bot-agent).
+### Multi-Bot Orchestration
+
+```bash
+# Create specialized bots
+nexora-kit bot create --name "FAQ Bot" --model claude-sonnet-4-6 --system-prompt "Answer FAQs" --plugins faq
+nexora-kit bot create --name "Sales Bot" --model claude-sonnet-4-6 --system-prompt "Handle sales" --plugins sales
+
+# Create orchestrating agent
+nexora-kit agent create --slug support --name "Support" --strategy orchestrate
+
+# Bind bots with keywords for routing
+nexora-kit agent bind <agent-id> --bots <faq-bot-id>,<sales-bot-id> --keywords "help,faq:pricing,buy"
+```
+
+See the [full walkthrough](agents-and-bots.md#example-setting-up-a-multi-bot-agent).
 
 ## Add a Plugin
 
 ```bash
-npx nexora-kit plugin init my-plugin
-npx nexora-kit plugin add ./my-plugin
-npx nexora-kit serve
+# Scaffold and install a new plugin
+nexora-kit plugin init my-plugin
+nexora-kit plugin add ./my-plugin
+
+# Or install from GitHub
+nexora-kit plugin add https://github.com/org/my-plugin
+
+# Manage at runtime (server must be running)
+nexora-kit plugin list
+nexora-kit plugin enable my-plugin
+nexora-kit plugin disable my-plugin
 ```
 
 See [Plugin Authoring](plugin-authoring.md) for details.
 
-## CLI Commands
+## CLI Reference
 
-| Command                               | Description                 |
-| ------------------------------------- | --------------------------- |
-| `nexora-kit init <name>`              | Scaffold a new instance     |
-| `nexora-kit serve`                    | Start the server            |
-| `nexora-kit plugin init <name>`       | Scaffold a new plugin       |
-| `nexora-kit plugin add <path>`        | Install a plugin            |
-| `nexora-kit plugin dev <path>`        | Watch plugin for hot-reload |
-| `nexora-kit plugin test <path>`       | Run plugin validation       |
-| `nexora-kit plugin validate <path>`   | Validate plugin manifest    |
-| `nexora-kit config get <key>`         | Read a config value         |
-| `nexora-kit config set <key> <value>` | Set a config value          |
-| `nexora-kit admin usage`              | Show usage analytics        |
+### Instance
+
+| Command | Description |
+|---------|-------------|
+| `nexora-kit init [dir]` | Scaffold a new instance |
+| `nexora-kit serve` | Start the server |
+| `nexora-kit status` | Health, uptime, metrics |
+
+### Plugins
+
+| Command | Description |
+|---------|-------------|
+| `nexora-kit plugin init <name>` | Scaffold a new plugin |
+| `nexora-kit plugin add <source>` | Install from path, ZIP, or GitHub URL |
+| `nexora-kit plugin list` | List installed plugins |
+| `nexora-kit plugin enable <ns>` | Enable a plugin at runtime |
+| `nexora-kit plugin disable <ns>` | Disable a plugin at runtime |
+| `nexora-kit plugin remove <ns>` | Uninstall a plugin |
+| `nexora-kit plugin dev <dir>` | Dev server with hot-reload |
+| `nexora-kit plugin test [dir]` | Run plugin test suite |
+| `nexora-kit plugin validate [dir]` | Validate manifest, schema, permissions |
+
+### Bots
+
+| Command | Description |
+|---------|-------------|
+| `nexora-kit bot create` | Create a bot (`--name`, `--model`, `--system-prompt`) |
+| `nexora-kit bot list` | List all bots |
+| `nexora-kit bot get <id>` | Show bot details |
+| `nexora-kit bot update <id>` | Update bot properties |
+| `nexora-kit bot delete <id>` | Delete a bot |
+
+### Agents
+
+| Command | Description |
+|---------|-------------|
+| `nexora-kit agent create` | Create an agent (`--slug`, `--name`, `--bot`, `--strategy`) |
+| `nexora-kit agent list` | List all agents |
+| `nexora-kit agent get <id>` | Show agent details + bindings |
+| `nexora-kit agent update <id>` | Update agent properties |
+| `nexora-kit agent delete <id>` | Delete an agent |
+| `nexora-kit agent bind <id>` | Set bot bindings (`--bots`, `--keywords`) |
+
+### Config
+
+| Command | Description |
+|---------|-------------|
+| `nexora-kit config get <key>` | Read a config value (dot-notation) |
+| `nexora-kit config set <key> <val>` | Set a config value |
+| `nexora-kit config validate` | Validate config file |
+| `nexora-kit config show` | Show resolved config (secrets masked) |
+
+### Admin
+
+| Command | Description |
+|---------|-------------|
+| `nexora-kit admin usage` | Token usage analytics |
+| `nexora-kit admin audit` | Query audit log (`--actor`, `--action`, `--since`) |
+| `nexora-kit admin feedback` | Feedback summary (`--since`, `--model`) |
+| `nexora-kit admin cleanup` | Purge old audit events (`--older-than`, `--dry-run`) |
+
+### Utility
+
+| Command | Description |
+|---------|-------------|
+| `nexora-kit completion --shell <sh>` | Generate shell completions (bash, zsh, fish) |
+| `nexora-kit --help` | Show all commands |
+| `nexora-kit --version` | Show version |
