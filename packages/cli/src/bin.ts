@@ -33,6 +33,7 @@ import {
   agentDeleteCommand,
   agentBindCommand,
 } from './cmd-agent.js';
+import { completionCommand } from './cmd-completion.js';
 import { error } from './output.js';
 
 const router = new CommandRouter();
@@ -79,6 +80,9 @@ router.register(adminUsageCommand);
 router.register(adminAuditCommand);
 router.register(adminFeedbackCommand);
 router.register(adminCleanupCommand);
+
+// Utility
+router.register(completionCommand);
 
 const args = parseArgs(process.argv.slice(2), {
   aliases: { h: 'help', V: 'version', p: 'port', c: 'config' },

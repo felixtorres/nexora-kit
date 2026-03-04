@@ -19,6 +19,7 @@ export {
 export { configGetCommand, configSetCommand, configValidateCommand, configShowCommand } from './cmd-config.js';
 export { adminUsageCommand, adminAuditCommand, adminFeedbackCommand, adminCleanupCommand } from './cmd-admin.js';
 export { statusCommand } from './cmd-status.js';
+export { completionCommand } from './cmd-completion.js';
 export {
   botCreateCommand,
   botListCommand,
