@@ -228,7 +228,7 @@ describe('Client Handlers', () => {
       expect(res.status).toBe(200);
       const body = res.body as any;
       expect(body.message).toBe('Hello from bot!');
-      expect(body.events).toHaveLength(2);
+      expect(body.events).toBeUndefined();
     });
 
     it('auto-titles conversation from first message', async () => {

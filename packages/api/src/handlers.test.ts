@@ -57,7 +57,6 @@ describe('createChatHandler', () => {
     const body = res.body as any;
     expect(body.conversationId).toBe('conv-1');
     expect(body.message).toBe('Hello world!');
-    expect(body.events).toHaveLength(4);
 
     expect(agentLoop.run).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: 'conv-1',

@@ -11,4 +11,5 @@ config:
   schema:
     greeting:
       type: string
+      description: Default greeting message used by the hello skill
       default: "Hello! I'm the hello-world bot."

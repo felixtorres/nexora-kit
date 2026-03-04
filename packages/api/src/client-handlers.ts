@@ -1,5 +1,5 @@
 import type { IAgentStore, IAgentBotBindingStore, IEndUserStore, IConversationStore } from '@nexora-kit/storage';
-import type { AgentLoop, MessageStore } from '@nexora-kit/core';
+import type { AgentLoop, MessageStore, ResponseBlock, Logger } from '@nexora-kit/core';
 import type { ApiRequest, ApiResponse } from './types.js';
 import { createConversationSchema, sendMessageSchema } from './types.js';
 import { ApiError, jsonResponse } from './router.js';
@@ -13,6 +13,7 @@ export interface ClientHandlerDeps {
   conversationStore: IConversationStore;
   messageStore: MessageStore;
   agentLoop: AgentLoop;
+  logger?: Logger;
 }
 
 const agentRateLimiter = new AgentRateLimiter();
@@ -185,13 +186,15 @@ export function createClientSendMessageHandler(deps: ClientHandlerDeps) {
       workspaceId: conv.workspaceId ?? undefined,
     };
 
-    const events = [];
     let fullText = '';
+    const allBlocks: ResponseBlock[] = [];
 
+    deps.logger?.info('agent_loop.start', { conversationId, agentId });
     for await (const event of deps.agentLoop.run(chatRequest)) {
-      events.push(event);
       if (event.type === 'text') fullText += event.content;
+      else if (event.type === 'blocks') allBlocks.push(...event.blocks);
     }
+    deps.logger?.info('agent_loop.done', { conversationId, agentId });
 
     // Update message stats
     const newCount = conv.messageCount + 2; // user + assistant
@@ -210,7 +213,7 @@ export function createClientSendMessageHandler(deps: ClientHandlerDeps) {
     return jsonResponse(200, {
       conversationId,
       message: fullText,
-      events,
+      ...(allBlocks.length > 0 ? { blocks: allBlocks } : {}),
     });
   };
 }

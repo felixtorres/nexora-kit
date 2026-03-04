@@ -355,7 +355,6 @@ describe('createSendMessageHandler', () => {
     const body = res.body as any;
     expect(body.conversationId).toBe(created.id);
     expect(body.message).toBe('Hello back!');
-    expect(body.events).toHaveLength(3);
 
     expect(agentLoop.run).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: created.id,

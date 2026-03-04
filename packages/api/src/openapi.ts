@@ -397,7 +397,6 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
             conversationId: { type: 'string' },
             message: { type: 'string' },
             blocks: { type: 'array', items: { $ref: '#/components/schemas/ResponseBlock' } },
-            events: { type: 'array', items: { type: 'object' } },
           },
         },
         PluginList: {

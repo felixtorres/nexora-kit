@@ -66,7 +66,6 @@ export function createEditMessageHandler(deps: MessageEditDeps) {
     }
 
     // Re-run agent loop with new input
-    const events: unknown[] = [];
     let fullText = '';
     const allBlocks: ResponseBlock[] = [];
 
@@ -79,7 +78,6 @@ export function createEditMessageHandler(deps: MessageEditDeps) {
       model: conversation.model ?? undefined,
       workspaceId: conversation.workspaceId ?? undefined,
     }, req.signal)) {
-      events.push(event);
       if (event.type === 'text') {
         fullText += event.content;
       } else if (event.type === 'blocks') {
@@ -99,7 +97,6 @@ export function createEditMessageHandler(deps: MessageEditDeps) {
       conversationId,
       message: fullText,
       ...(allBlocks.length > 0 ? { blocks: allBlocks } : {}),
-      events,
     });
   };
 }
@@ -157,7 +154,6 @@ export function createRegenerateMessageHandler(deps: MessageEditDeps) {
     }
 
     // Re-run agent loop with the original user message
-    const events: unknown[] = [];
     let fullText = '';
     const allBlocks: ResponseBlock[] = [];
 
@@ -170,7 +166,6 @@ export function createRegenerateMessageHandler(deps: MessageEditDeps) {
       model: conversation.model ?? undefined,
       workspaceId: conversation.workspaceId ?? undefined,
     }, req.signal)) {
-      events.push(event);
       if (event.type === 'text') {
         fullText += event.content;
       } else if (event.type === 'blocks') {
@@ -190,7 +185,6 @@ export function createRegenerateMessageHandler(deps: MessageEditDeps) {
       conversationId,
       message: fullText,
       ...(allBlocks.length > 0 ? { blocks: allBlocks } : {}),
-      events,
     });
   };
 }

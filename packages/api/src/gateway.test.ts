@@ -92,7 +92,6 @@ describe('Gateway', () => {
     expect(status).toBe(200);
     expect(body.message).toBe('Hello back!');
     expect(body.conversationId).toBeDefined();
-    expect(body.events).toHaveLength(3);
   });
 
   it('returns 404 for unknown routes', async () => {
