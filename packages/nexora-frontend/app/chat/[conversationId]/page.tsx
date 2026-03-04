@@ -1,18 +1,17 @@
-"use client";
+'use client';
 
-import { useEffect } from "react";
-import { useParams } from "next/navigation";
-import { MessageThread } from "@/components/chat/message-thread";
-import { MessageInput } from "@/components/chat/message-input";
-import { useConversationStore } from "@/store/conversation";
-import { useSendMessage } from "@/hooks/use-conversation";
-import { api } from "@/lib/api";
+import { useEffect } from 'react';
+import { useParams } from 'next/navigation';
+import { MessageThread } from '@/components/chat/message-thread';
+import { MessageInput } from '@/components/chat/message-input';
+import { useConversationStore } from '@/store/conversation';
+import { useSendMessage, normalizeMessage } from '@/hooks/use-conversation';
+import { api } from '@/lib/api';
 
 export default function ConversationPage() {
   const params = useParams();
   const conversationId = params.conversationId as string;
-  const { setActiveConversation, setMessages, isSending } =
-    useConversationStore();
+  const { setActiveConversation, setMessages, isSending } = useConversationStore();
   const sendMessage = useSendMessage();
 
   useEffect(() => {
@@ -22,7 +21,7 @@ export default function ConversationPage() {
     api.messages
       .list(conversationId)
       .then((res) => {
-        setMessages(conversationId, res.messages);
+        setMessages(conversationId, res.messages.map(normalizeMessage));
       })
       .catch(() => {
         // Server may not have message store configured — start fresh

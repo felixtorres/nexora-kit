@@ -131,7 +131,25 @@ export function createMessageListHandler(deps: HandlerDeps) {
     if (!deps.messageStore) throw new ApiError(501, 'Message store not configured');
 
     const messages = await deps.messageStore.get(conversationId);
-    return jsonResponse(200, { messages });
+
+    // Strip internal-only messages before sending to the client.
+    // The message store holds the full agent conversation history which includes:
+    //   - 'system' messages (prompt context, never user-visible)
+    //   - 'tool' messages (tool call results fed back to the LLM)
+    //   - 'assistant' messages that contain only tool_use calls with no text
+    // Only user messages and assistant messages with visible text content are
+    // returned so the frontend renders one bubble per real conversational turn.
+    const displayMessages = messages.filter((msg) => {
+      if (msg.role === 'system' || msg.role === 'tool') return false;
+      if (msg.role === 'assistant') {
+        // Keep assistant messages that have at least one text or blocks part
+        if (typeof msg.content === 'string') return msg.content.trim().length > 0;
+        return msg.content.some((part) => part.type === 'text' || part.type === 'blocks');
+      }
+      return true; // 'user' messages always shown
+    });
+
+    return jsonResponse(200, { messages: displayMessages });
   };
 }
 
