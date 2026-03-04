@@ -1,15 +1,45 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { User } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { BlockRenderer } from './blocks/block-renderer';
 import { StreamingIndicator } from './streaming-indicator';
+import { VizRunner } from './blocks/viz-runner';
+import { detectVizKind } from '@/lib/pyodide';
 import { useConversationStore } from '@/store/conversation';
 import type { Message } from '@/lib/block-types';
+
+const markdownComponents: Components = {
+  code({ className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className ?? '');
+    const isBlock = match !== null;
+    const content = String(children).replace(/\n$/, '');
+
+    if (isBlock) {
+      const isPython = match![1] === 'python';
+      const isViz = isPython && detectVizKind(content) !== null;
+
+      return (
+        <div>
+          <code className={className} {...props}>
+            {children}
+          </code>
+          {isViz && <VizRunner code={content} />}
+        </div>
+      );
+    }
+
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
+};
 
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
@@ -28,7 +58,11 @@ function MessageBubble({ message }: { message: Message }) {
           message.blocks.map((block, i) => <BlockRenderer key={i} block={block} />)
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeHighlight]}
+              components={markdownComponents}
+            >
               {typeof message.content === 'string' ? message.content : ''}
             </ReactMarkdown>
           </div>
