@@ -439,6 +439,11 @@ export class PluginLifecycleManager {
           requiredPermissions: ['mcp:connect'],
         });
 
+        // Register in ToolIndex for selection
+        if (this.toolIndex) {
+          this.toolIndex.register(definition, namespace);
+        }
+
         // Track the tool on the plugin instance
         if (plugin) {
           plugin.tools.push(definition);
