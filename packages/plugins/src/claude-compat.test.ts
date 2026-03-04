@@ -265,7 +265,7 @@ describe('loadMcpPlugin', () => {
     expect(result.errors[0]).toContain('Invalid .mcp.json');
   });
 
-  it('auto-detects SSE transport when type is http but URL ends in /sse', () => {
+  it('preserves http transport type regardless of URL path', () => {
     writeFile('.mcp.json', JSON.stringify({
       mcpServers: {
         server: { type: 'http', url: 'https://mcp.example.com/sse' },
@@ -274,7 +274,7 @@ describe('loadMcpPlugin', () => {
 
     const result = loadMcpPlugin(tmpDir);
     expect(result.errors).toHaveLength(0);
-    expect(result.mcpServerConfigs[0].transport).toBe('sse');
+    expect(result.mcpServerConfigs[0].transport).toBe('http');
   });
 });
 

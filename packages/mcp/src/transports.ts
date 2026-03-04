@@ -228,12 +228,11 @@ export class SseTransport implements McpTransport {
     this.connected = true;
     this.consumeStream(response.body);
 
-    // Wait for endpoint event or timeout
+    // Wait for endpoint event or fall back to using the SSE URL for POSTs.
+    // Some servers send an endpoint event, others expect POSTs to the same URL.
     await Promise.race([
       this.endpointReady,
-      new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error('Timed out waiting for SSE endpoint event')), this.timeoutMs),
-      ),
+      new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
     ]);
   }
 

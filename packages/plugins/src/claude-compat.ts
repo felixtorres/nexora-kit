@@ -27,10 +27,8 @@ interface ClaudeMcpJson {
   }>;
 }
 
-function resolveTransportType(type?: string, url?: string): McpTransportType {
+function resolveTransportType(type?: string): McpTransportType {
   if (type === 'stdio') return 'stdio';
-  // URLs ending in /sse are the older SSE transport, even if type says "http"
-  if (url && /\/sse\/?$/.test(url)) return 'sse';
   if (type === 'http') return 'http';
   return 'sse';
 }
@@ -96,7 +94,7 @@ export function loadMcpPlugin(pluginDir: string): LoadResult {
   const mcpServerConfigs: McpServerConfig[] = [];
   if (mcpJson.mcpServers) {
     for (const [serverName, config] of Object.entries(mcpJson.mcpServers)) {
-      const transport = resolveTransportType(config.type, config.url);
+      const transport = resolveTransportType(config.type);
       mcpServerConfigs.push({
         name: serverName,
         transport,
@@ -185,7 +183,7 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
       const mcpJson: ClaudeMcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
       if (mcpJson.mcpServers) {
         for (const [name, config] of Object.entries(mcpJson.mcpServers)) {
-          const transport = resolveTransportType(config.type, config.url);
+          const transport = resolveTransportType(config.type);
 
           mcpServerConfigs.push({
             name,
