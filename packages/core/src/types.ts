@@ -489,7 +489,7 @@ export interface ToolSelectorInterface {
 
 export interface CommandDispatcherInterface {
   isCommand(input: string): boolean;
-  dispatch(input: string, session?: { id: string; userId: string; teamId: string }): Promise<{ content: string; isError?: boolean }>;
+  dispatch(input: string, session?: { id: string; userId: string; teamId: string }): Promise<{ content: string; isError?: boolean; isPrompt?: boolean }>;
 }
 
 // --- Observability ---

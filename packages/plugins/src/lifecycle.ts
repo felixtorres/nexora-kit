@@ -170,7 +170,7 @@ export class PluginLifecycleManager {
               const resolved = template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
                 return ctx.args[key] !== undefined ? String(ctx.args[key]) : `{{${key}}}`;
               });
-              return { content: resolved };
+              return { content: resolved, isPrompt: true };
             });
           }
         }

@@ -238,6 +238,7 @@ export class AgentLoop {
       }
 
       // Command pre-processing: if message starts with / and matches a command, dispatch directly
+      let commandPrompt: string | undefined;
       if (this.commandDispatcher && messageText.startsWith('/') && this.commandDispatcher.isCommand(messageText)) {
         const cmdResult = await this.commandDispatcher.dispatch(messageText, {
           id: request.conversationId,
@@ -245,21 +246,27 @@ export class AgentLoop {
           teamId: request.teamId,
         });
 
-        const assistantMessage: Message = { role: 'assistant', content: cmdResult.content };
-        this.context.append(conversation, assistantMessage);
-        await this.memory.append(request.conversationId, [assistantMessage]);
+        if (cmdResult.isPrompt) {
+          // Prompt-based command: inject as system instruction, let LLM process it
+          commandPrompt = cmdResult.content;
+        } else {
+          // Direct command: return result immediately (bypass LLM)
+          const assistantMessage: Message = { role: 'assistant', content: cmdResult.content };
+          this.context.append(conversation, assistantMessage);
+          await this.memory.append(request.conversationId, [assistantMessage]);
 
-        yield { type: 'text', content: cmdResult.content };
-        if (cmdResult.isError) {
-          yield { type: 'error', message: cmdResult.content, code: 'COMMAND_ERROR' };
+          yield { type: 'text', content: cmdResult.content };
+          if (cmdResult.isError) {
+            yield { type: 'error', message: cmdResult.content, code: 'COMMAND_ERROR' };
+          }
+          this.observability.onTraceEnd(traceId, {
+            totalTokens: 0,
+            turns: 0,
+            durationMs: performance.now() - traceStartTime,
+          });
+          yield { type: 'done' };
+          return;
         }
-        this.observability.onTraceEnd(traceId, {
-          totalTokens: 0,
-          turns: 0,
-          durationMs: performance.now() - traceStartTime,
-        });
-        yield { type: 'done' };
-        return;
       }
 
       // Resolve workspace context (once per run, prepended to system prompt each turn)
@@ -311,6 +318,9 @@ export class AgentLoop {
         let effectiveSystemPrompt = workspacePromptPrefix
           ? workspacePromptPrefix + '\n\n' + baseSystemPrompt
           : baseSystemPrompt;
+        if (commandPrompt) {
+          effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + commandPrompt;
+        }
         if (artifactPromptSuffix) {
           effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + artifactPromptSuffix;
         }

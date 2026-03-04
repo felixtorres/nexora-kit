@@ -27,6 +27,8 @@ export interface CommandContext {
 export interface CommandResult {
   content: string;
   isError?: boolean;
+  /** When true, content is a prompt that should be sent to the LLM rather than returned directly. */
+  isPrompt?: boolean;
 }
 
 export interface ParsedCommand {
