@@ -39,6 +39,10 @@ export class SkillRegistry {
     );
   }
 
+  listByNamespace(namespace: string): SkillInfo[] {
+    return [...this.skills.values()].filter((s) => s.namespace === namespace);
+  }
+
   list(): SkillInfo[] {
     return [...this.skills.values()];
   }

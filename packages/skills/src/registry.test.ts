@@ -77,6 +77,20 @@ describe('SkillRegistry', () => {
     expect(userSkills.map((s) => s.qualifiedName).sort()).toEqual(['ns:both', 'ns:user-only']);
   });
 
+  it('lists skills by namespace', () => {
+    const registry = new SkillRegistry();
+    registry.register('ns:a', makeSkillDef({ name: 'a' }), 'ns', noopHandler);
+    registry.register('ns:b', makeSkillDef({ name: 'b' }), 'ns', noopHandler);
+    registry.register('other:c', makeSkillDef({ name: 'c' }), 'other', noopHandler);
+
+    const nsSkills = registry.listByNamespace('ns');
+    expect(nsSkills).toHaveLength(2);
+    expect(nsSkills.map((s) => s.qualifiedName).sort()).toEqual(['ns:a', 'ns:b']);
+
+    expect(registry.listByNamespace('other')).toHaveLength(1);
+    expect(registry.listByNamespace('nonexistent')).toHaveLength(0);
+  });
+
   it('lists all skills', () => {
     const registry = new SkillRegistry();
     registry.register('ns:a', makeSkillDef({ name: 'a' }), 'ns', noopHandler);

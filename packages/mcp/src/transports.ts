@@ -197,18 +197,25 @@ export class SseTransport implements McpTransport {
 
     // On auth-related failures, run OAuth2 flow and retry
     if (this.isAuthRequired(response.status)) {
-      if (!this.auth) {
-        this.auth = new McpOAuth2Client({});
-      }
-      this.auth.clearTokens();
-      const wwwAuth = response.headers.get('www-authenticate');
-      const resourceMetadataUrl = this.parseWwwAuthenticate(wwwAuth);
-      await this.auth.authorize(resourceMetadataUrl ?? this.url);
+      try {
+        if (!this.auth) {
+          this.auth = new McpOAuth2Client({});
+        }
+        this.auth.clearTokens();
+        const wwwAuth = response.headers.get('www-authenticate');
+        const resourceMetadataUrl = this.parseWwwAuthenticate(wwwAuth);
+        await this.auth.authorize(resourceMetadataUrl ?? this.url);
 
-      response = await fetch(this.url, {
-        headers: await this.buildSseHeaders(),
-        signal: this.abortController.signal,
-      });
+        response = await fetch(this.url, {
+          headers: await this.buildSseHeaders(),
+          signal: this.abortController.signal,
+        });
+      } catch (authErr) {
+        const detail = authErr instanceof Error ? authErr.message : String(authErr);
+        throw new Error(
+          `SSE ${response.status} and OAuth2 authorization failed: ${detail}`,
+        );
+      }
     }
 
     if (!response.ok) {
@@ -228,11 +235,13 @@ export class SseTransport implements McpTransport {
     this.connected = true;
     this.consumeStream(response.body);
 
-    // Wait for endpoint event or fall back to using the SSE URL for POSTs.
-    // Some servers send an endpoint event, others expect POSTs to the same URL.
+    // Wait for the endpoint event — the server must tell us where to POST.
+    // Uses the full timeout since auth flows (OAuth2) may delay the first event.
     await Promise.race([
       this.endpointReady,
-      new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('SSE connected but server did not send endpoint event')), this.timeoutMs),
+      ),
     ]);
   }
 
@@ -322,6 +331,8 @@ export class SseTransport implements McpTransport {
         buffer = events.pop() ?? '';
 
         for (const event of events) {
+          // eslint-disable-next-line no-console
+          console.log('[SSE event]', JSON.stringify(event));
           this.processEvent(event);
         }
       }
@@ -413,6 +424,8 @@ export class HttpTransport implements McpTransport {
   private readonly headers: Record<string, string>;
   private readonly timeoutMs: number;
   private auth?: McpOAuth2Client;
+  // MCP spec: if POST returns 405, fall back to legacy SSE transport
+  private sseFallback: SseTransport | null = null;
 
   constructor(options: {
     url: string;
@@ -432,6 +445,11 @@ export class HttpTransport implements McpTransport {
   }
 
   async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    // If we already fell back to SSE, delegate
+    if (this.sseFallback) {
+      return this.sseFallback.request(method, params);
+    }
+
     if (!this.connected) {
       throw new Error('Transport not connected');
     }
@@ -453,25 +471,45 @@ export class HttpTransport implements McpTransport {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
 
-    // On auth-related failures, try OAuth2 flow once.
-    // Auto-create McpOAuth2Client if not configured (matches Claude Desktop
-    // behavior — discovers auth requirements from the 401 response).
-    if (this.isAuthRequired(response.status)) {
-      if (!this.auth) {
-        this.auth = new McpOAuth2Client({});
-      }
-      this.auth.clearTokens();
-      const wwwAuth = response.headers.get('www-authenticate');
-      const resourceMetadataUrl = this.parseWwwAuthenticate(wwwAuth);
-      await this.auth.authorize(resourceMetadataUrl ?? this.url);
+    // On 401/403/405 without a token, try OAuth2 auth first.
+    // Some servers return 405 for unauthenticated requests instead of 401.
+    if ((response.status === 401 || response.status === 403 || response.status === 405)
+        && !(this.auth?.hasValidToken())) {
+      try {
+        if (!this.auth) {
+          this.auth = new McpOAuth2Client({});
+        }
+        this.auth.clearTokens();
+        const wwwAuth = response.headers.get('www-authenticate');
+        const resourceMetadataUrl = this.parseWwwAuthenticate(wwwAuth);
+        await this.auth.authorize(resourceMetadataUrl ?? this.url);
 
-      const retryHeaders = await this.buildHeaders();
-      response = await fetch(this.url, {
-        method: 'POST',
-        headers: retryHeaders,
-        body: JSON.stringify(request),
-        signal: AbortSignal.timeout(this.timeoutMs),
+        const retryHeaders = await this.buildHeaders();
+        response = await fetch(this.url, {
+          method: 'POST',
+          headers: retryHeaders,
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (authErr) {
+        const detail = authErr instanceof Error ? authErr.message : String(authErr);
+        throw new Error(
+          `HTTP ${response.status} and OAuth2 authorization failed: ${detail}`,
+        );
+      }
+    }
+
+    // MCP spec: if POST returns 405 even with auth, server doesn't support
+    // Streamable HTTP — fall back to legacy SSE transport.
+    if (response.status === 405) {
+      this.sseFallback = new SseTransport({
+        url: this.url,
+        headers: this.headers,
+        timeoutMs: this.timeoutMs,
+        auth: this.auth,
       });
+      await this.sseFallback.connect();
+      return this.sseFallback.request(method, params);
     }
 
     if (!response.ok) {
@@ -494,6 +532,10 @@ export class HttpTransport implements McpTransport {
   }
 
   notify(method: string, params?: Record<string, unknown>): void {
+    if (this.sseFallback) {
+      this.sseFallback.notify(method, params);
+      return;
+    }
     if (!this.connected) return;
 
     const notification: JsonRpcNotification = {
@@ -512,6 +554,13 @@ export class HttpTransport implements McpTransport {
   }
 
   async close(): Promise<void> {
+    if (this.sseFallback) {
+      await this.sseFallback.close();
+      this.sseFallback = null;
+      this.connected = false;
+      return;
+    }
+
     if (this.sessionId) {
       const notification: JsonRpcNotification = {
         jsonrpc: '2.0',
@@ -536,6 +585,7 @@ export class HttpTransport implements McpTransport {
   }
 
   isConnected(): boolean {
+    if (this.sseFallback) return this.sseFallback.isConnected();
     return this.connected;
   }
 
@@ -609,11 +659,5 @@ export class HttpTransport implements McpTransport {
     if (!header) return null;
     const match = header.match(/resource_metadata="([^"]+)"/);
     return match ? match[1] : null;
-  }
-
-  private isAuthRequired(status: number): boolean {
-    // 401 = standard. Some servers/gateways return 403 or 405 for
-    // unauthenticated requests (e.g. Kyvos returns 405 without a Bearer token).
-    return status === 401 || status === 403 || status === 405;
   }
 }

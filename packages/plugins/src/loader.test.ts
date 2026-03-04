@@ -213,6 +213,54 @@ args:
     expect(cmdDef!.args[0].default).toBe('World');
   });
 
+  it('loads CONNECTORS.md as pluginDocs', () => {
+    writeFile('plugin.yaml', `
+name: Docs Plugin
+version: "1.0.0"
+namespace: docs-plugin
+`);
+    writeFile('CONNECTORS.md', 'This plugin connects to Kyvos OLAP engine.');
+
+    const result = loadPlugin(tmpDir);
+    expect(result.pluginDocs).toBe('This plugin connects to Kyvos OLAP engine.');
+  });
+
+  it('falls back to README.md when no CONNECTORS.md', () => {
+    writeFile('plugin.yaml', `
+name: Readme Plugin
+version: "1.0.0"
+namespace: readme-plugin
+`);
+    writeFile('README.md', 'Plugin documentation from readme.');
+
+    const result = loadPlugin(tmpDir);
+    expect(result.pluginDocs).toBe('Plugin documentation from readme.');
+  });
+
+  it('prefers CONNECTORS.md over README.md', () => {
+    writeFile('plugin.yaml', `
+name: Both Plugin
+version: "1.0.0"
+namespace: both-plugin
+`);
+    writeFile('CONNECTORS.md', 'From connectors');
+    writeFile('README.md', 'From readme');
+
+    const result = loadPlugin(tmpDir);
+    expect(result.pluginDocs).toBe('From connectors');
+  });
+
+  it('returns no pluginDocs when neither file exists', () => {
+    writeFile('plugin.yaml', `
+name: No Docs
+version: "1.0.0"
+namespace: no-docs
+`);
+
+    const result = loadPlugin(tmpDir);
+    expect(result.pluginDocs).toBeUndefined();
+  });
+
   it('handles malformed command YAML gracefully', () => {
     writeFile('plugin.yaml', `
 name: Bad Cmds

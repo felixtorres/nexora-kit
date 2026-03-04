@@ -17,6 +17,7 @@ export interface LoadResult {
   skillDefinitions: Map<string, SkillDefinition>;
   commandDefinitions: Map<string, CommandDefinition>;
   mcpServerConfigs: McpServerConfig[];
+  pluginDocs?: string;
 }
 
 export function loadPlugin(pluginDir: string): LoadResult {
@@ -150,6 +151,16 @@ export function loadPlugin(pluginDir: string): LoadResult {
     }
   }
 
+  // Load plugin docs (CONNECTORS.md preferred, fallback to README.md)
+  let pluginDocs: string | undefined;
+  const connectorsPath = path.join(pluginDir, 'CONNECTORS.md');
+  const readmePath = path.join(pluginDir, 'README.md');
+  if (fs.existsSync(connectorsPath)) {
+    pluginDocs = fs.readFileSync(connectorsPath, 'utf-8').trim() || undefined;
+  } else if (fs.existsSync(readmePath)) {
+    pluginDocs = fs.readFileSync(readmePath, 'utf-8').trim() || undefined;
+  }
+
   return {
     plugin: {
       manifest,
@@ -161,6 +172,7 @@ export function loadPlugin(pluginDir: string): LoadResult {
     skillDefinitions,
     commandDefinitions,
     mcpServerConfigs,
+    pluginDocs,
   };
 }
 

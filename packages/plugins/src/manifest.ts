@@ -47,6 +47,7 @@ export const pluginManifestSchema = z.object({
   sandbox: pluginSandboxSchema.default({ tier: 'basic' }),
   tools: pluginToolsConfigSchema.optional(),
   config: pluginConfigSchema.optional(),
+  skillIndex: z.boolean().optional(),
 });
 
 export function parseManifest(yamlContent: string): PluginManifest {

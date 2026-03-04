@@ -27,6 +27,11 @@ export interface WorkspaceContextProvider {
   }>;
 }
 
+/** Minimal skill index provider to avoid circular core→skills dependency. */
+export interface SkillIndexProvider {
+  buildIndex(namespace: string): string;
+}
+
 /** Minimal artifact store interface to avoid circular core→storage dependency. */
 export interface ArtifactStoreInterface {
   create(input: {
@@ -60,6 +65,7 @@ export interface AgentLoopOptions {
   workspaceTokenBudget?: number;
   artifactStreamChunkSize?: number;
   artifactTokenBudget?: number;
+  skillIndexProvider?: SkillIndexProvider;
 }
 
 export class AgentLoop {
@@ -81,6 +87,7 @@ export class AgentLoop {
   private readonly workspaceTokenBudget: number;
   private readonly artifactStreamChunkSize: number;
   private readonly artifactTokenBudget: number;
+  private readonly skillIndexProvider?: SkillIndexProvider;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -103,6 +110,7 @@ export class AgentLoop {
     this.workspaceTokenBudget = options.workspaceTokenBudget ?? 2000;
     this.artifactStreamChunkSize = options.artifactStreamChunkSize ?? 500;
     this.artifactTokenBudget = options.artifactTokenBudget ?? 500;
+    this.skillIndexProvider = options.skillIndexProvider;
   }
 
   /**
@@ -283,6 +291,17 @@ export class AgentLoop {
         artifactPromptSuffix = buildArtifactPrompt(artifacts, this.artifactTokenBudget);
       }
 
+      // Resolve skill index (once per run, appended after artifacts)
+      let skillIndexSuffix = '';
+      if (this.skillIndexProvider && conversation.pluginNamespaces.length > 0) {
+        const parts: string[] = [];
+        for (const ns of conversation.pluginNamespaces) {
+          const index = this.skillIndexProvider.buildIndex(ns);
+          if (index) parts.push(index);
+        }
+        skillIndexSuffix = parts.join('\n\n');
+      }
+
       // Agent loop: LLM call → tool execution → repeat
       let turn = 0;
       let cumulativeInputTokens = 0;
@@ -323,6 +342,9 @@ export class AgentLoop {
         }
         if (artifactPromptSuffix) {
           effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + artifactPromptSuffix;
+        }
+        if (skillIndexSuffix) {
+          effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + skillIndexSuffix;
         }
         const ctx = this.context.assemble(conversation, tools, effectiveSystemPrompt);
 

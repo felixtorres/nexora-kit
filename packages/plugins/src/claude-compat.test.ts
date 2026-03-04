@@ -185,6 +185,22 @@ Analyze prompt.`);
     expect(result.skillDefinitions.size).toBe(0);
   });
 
+  it('loads CONNECTORS.md as pluginDocs', () => {
+    writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'test' }));
+    writeFile('CONNECTORS.md', 'Claude plugin connector docs.');
+
+    const result = loadClaudePlugin(tmpDir);
+    expect(result.pluginDocs).toBe('Claude plugin connector docs.');
+  });
+
+  it('falls back to README.md for pluginDocs', () => {
+    writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'test' }));
+    writeFile('README.md', 'Claude plugin readme.');
+
+    const result = loadClaudePlugin(tmpDir);
+    expect(result.pluginDocs).toBe('Claude plugin readme.');
+  });
+
   it('handles command parse errors gracefully', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'test' }));
     writeFile('commands/bad.md', 'No frontmatter here');

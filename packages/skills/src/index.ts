@@ -16,3 +16,5 @@ export { parseMdSkill } from './md-parser.js';
 export { renderTemplate } from './template.js';
 export { SkillRegistry } from './registry.js';
 export { SkillHandlerFactory, type SkillHandlerFactoryOptions, type WorkspaceContextSource } from './handler-factory.js';
+export { buildSkillIndex, type BuildSkillIndexOptions } from './skill-index.js';
+export { SkillIndexAdapter } from './skill-index-adapter.js';

@@ -9,7 +9,7 @@ import type { LogLevel } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
 import { PluginLifecycleManager, discoverPlugins } from '@nexora-kit/plugins';
-import { SkillRegistry, SkillHandlerFactory } from '@nexora-kit/skills';
+import { SkillRegistry, SkillHandlerFactory, SkillIndexAdapter } from '@nexora-kit/skills';
 import { CommandRegistry, CommandDispatcher } from '@nexora-kit/commands';
 import { McpManager } from '@nexora-kit/mcp';
 import { createStorageBackend, type StorageBackend } from '@nexora-kit/storage';
@@ -128,6 +128,9 @@ export const serveCommand: CliCommand = {
       configResolver,
     });
 
+    // --- Skill index adapter ---
+    const skillIndexAdapter = new SkillIndexAdapter(skillRegistry);
+
     // --- Plugin lifecycle ---
     const lifecycle = new PluginLifecycleManager({
       permissionGate,
@@ -163,7 +166,17 @@ export const serveCommand: CliCommand = {
           lifecycle.setMcpConfigs(result.plugin.manifest.namespace, result.mcpServerConfigs);
         }
         lifecycle.registerPluginDir(result.plugin.manifest.namespace, pluginsDir);
-        lifecycle.enable(result.plugin.manifest.namespace);
+
+        // Wire plugin docs into skill index adapter
+        const ns = result.plugin.manifest.namespace;
+        if (result.pluginDocs) {
+          skillIndexAdapter.setPluginDocs(ns, result.pluginDocs);
+        }
+        if (result.plugin.manifest.skillIndex === false) {
+          skillIndexAdapter.disableForNamespace(ns);
+        }
+
+        lifecycle.enable(ns);
       }
     } catch {
       // Plugins dir may not exist yet — that's fine
@@ -179,6 +192,7 @@ export const serveCommand: CliCommand = {
       toolDispatcher,
       messageStore,
       commandDispatcher,
+      skillIndexProvider: skillIndexAdapter,
     });
 
     // --- Auth ---

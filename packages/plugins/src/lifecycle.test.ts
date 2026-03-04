@@ -268,6 +268,161 @@ describe('PluginLifecycleManager', () => {
       expect(result.content).toBe('Hello Felix!');
     });
 
+    it('registers get_skill_context tool when plugin has skills', () => {
+      const llm = createMockLlm('response');
+      const skillRegistry = new SkillRegistry();
+      const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+      const skillManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        skillHandlerFactory: factory,
+        skillRegistry,
+      });
+
+      const tools = [makeTool('hello:greet')];
+      const plugin = makePlugin('hello', { tools });
+      skillManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'greet',
+        description: 'Greet user',
+        invocation: 'model',
+        parameters: {},
+        prompt: 'Say hello to the user warmly.',
+      };
+      skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
+      skillManager.enable('hello');
+
+      expect(dispatcher.hasHandler('hello:get_skill_context')).toBe(true);
+    });
+
+    it('get_skill_context returns skill prompt', async () => {
+      const llm = createMockLlm('response');
+      const skillRegistry = new SkillRegistry();
+      const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+      const skillManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        skillHandlerFactory: factory,
+        skillRegistry,
+      });
+
+      const tools = [makeTool('hello:greet')];
+      const plugin = makePlugin('hello', { tools });
+      skillManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'greet',
+        description: 'Greet user',
+        invocation: 'model',
+        parameters: {},
+        prompt: 'Say hello to the user warmly.',
+      };
+      skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
+      skillManager.enable('hello');
+
+      const result = await dispatcher.dispatch({ id: '1', name: 'hello:get_skill_context', input: { name: 'greet' } });
+      expect(result.content).toBe('Say hello to the user warmly.');
+    });
+
+    it('get_skill_context returns description when no prompt', async () => {
+      const llm = createMockLlm('response');
+      const skillRegistry = new SkillRegistry();
+      const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+      const skillManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        skillHandlerFactory: factory,
+        skillRegistry,
+      });
+
+      const tools = [makeTool('hello:greet')];
+      const plugin = makePlugin('hello', { tools });
+      skillManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'greet',
+        description: 'Greet user',
+        invocation: 'model',
+        parameters: {},
+      };
+      skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
+      skillManager.enable('hello');
+
+      const result = await dispatcher.dispatch({ id: '1', name: 'hello:get_skill_context', input: { name: 'greet' } });
+      expect(result.content).toBe('Greet user');
+    });
+
+    it('get_skill_context returns error for unknown skill', async () => {
+      const llm = createMockLlm('response');
+      const skillRegistry = new SkillRegistry();
+      const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+      const skillManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        skillHandlerFactory: factory,
+        skillRegistry,
+      });
+
+      const tools = [makeTool('hello:greet')];
+      const plugin = makePlugin('hello', { tools });
+      skillManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'greet',
+        description: 'Greet user',
+        invocation: 'model',
+        parameters: {},
+        prompt: 'Say hello',
+      };
+      skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
+      skillManager.enable('hello');
+
+      const result = await dispatcher.dispatch({ id: '1', name: 'hello:get_skill_context', input: { name: 'unknown' } });
+      expect(result.content).toContain("not found");
+      expect(result.content).toContain('greet');
+    });
+
+    it('get_skill_context tool is cleaned up on disable', () => {
+      const llm = createMockLlm('response');
+      const skillRegistry = new SkillRegistry();
+      const factory = new SkillHandlerFactory({ llmProvider: llm, configResolver: config });
+
+      const skillManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        skillHandlerFactory: factory,
+        skillRegistry,
+      });
+
+      const tools = [makeTool('hello:greet')];
+      const plugin = makePlugin('hello', { tools });
+      skillManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'greet',
+        description: 'Greet user',
+        invocation: 'model',
+        parameters: {},
+        prompt: 'Say hello',
+      };
+      skillManager.setSkillDefinitions('hello', new Map([['hello:greet', skillDef]]));
+      skillManager.enable('hello');
+      expect(dispatcher.hasHandler('hello:get_skill_context')).toBe(true);
+
+      skillManager.disable('hello');
+      expect(dispatcher.hasHandler('hello:get_skill_context')).toBe(false);
+    });
+
     it('unregisters skills from registry on disable', () => {
       const llm = createMockLlm('response');
       const skillRegistry = new SkillRegistry();

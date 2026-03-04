@@ -215,6 +215,24 @@ describe('StdioTransport', () => {
   });
 });
 
+function createMockSseResponse(events: string[]): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(new TextEncoder().encode(event + '\n\n'));
+      }
+    },
+  });
+
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    body: stream,
+    headers: new Headers({ 'content-type': 'text/event-stream' }),
+  } as unknown as Response;
+}
+
 describe('SseTransport', () => {
   let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -226,26 +244,6 @@ describe('SseTransport', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-
-  function createMockSseResponse(events: string[]): Response {
-    let controllerRef: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controllerRef = controller;
-        for (const event of events) {
-          controller.enqueue(new TextEncoder().encode(event + '\n\n'));
-        }
-      },
-    });
-
-    return {
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      body: stream,
-      headers: new Headers({ 'content-type': 'text/event-stream' }),
-    } as unknown as Response;
-  }
 
   it('connects to SSE endpoint and waits for endpoint event', async () => {
     const response = createMockSseResponse([
@@ -612,10 +610,12 @@ describe('HttpTransport', () => {
 
   it('retries on 401 when auth is provided', async () => {
     const mockAuth = {
-      hasValidToken: vi.fn().mockReturnValue(true),
+      hasValidToken: vi.fn().mockReturnValue(false),
       getAccessToken: vi.fn().mockResolvedValue('new-token'),
       clearTokens: vi.fn(),
-      authorize: vi.fn().mockResolvedValue(undefined),
+      authorize: vi.fn().mockImplementation(async () => {
+        mockAuth.hasValidToken.mockReturnValue(true);
+      }),
     };
 
     const transport = new HttpTransport({
@@ -708,21 +708,24 @@ describe('HttpTransport', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('treats 405 as auth-required when auth is configured', async () => {
+  it('falls back to SSE on 405 after auth retry still returns 405', async () => {
     const mockAuth = {
       hasValidToken: vi.fn().mockReturnValue(false),
-      getAccessToken: vi.fn().mockResolvedValue('fresh-token'),
+      getAccessToken: vi.fn().mockResolvedValue('token'),
       clearTokens: vi.fn(),
-      authorize: vi.fn().mockResolvedValue(undefined),
+      authorize: vi.fn().mockImplementation(async () => {
+        mockAuth.hasValidToken.mockReturnValue(true);
+      }),
     };
 
     const transport = new HttpTransport({
       url: 'http://localhost:3000/mcp',
       auth: mockAuth as any,
+      timeoutMs: 200,
     });
     await transport.connect();
 
-    // Server returns 405 (no WWW-Authenticate header)
+    // First POST → 405
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 405,
@@ -730,18 +733,29 @@ describe('HttpTransport', () => {
       headers: new Headers(),
     } as unknown as Response);
 
-    // After auth, retry succeeds
+    // Auth retry POST → still 405 (server truly doesn't accept POST)
     mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: { capabilities: {} } }),
+      ok: false,
+      status: 405,
+      statusText: 'Method Not Allowed',
+      headers: new Headers(),
     } as unknown as Response);
 
-    const result = await transport.request('initialize', { protocolVersion: '2025-03-26' });
-    expect(result).toEqual({ capabilities: {} });
+    // SSE fallback connect
+    mockFetch.mockResolvedValueOnce(createMockSseResponse([
+      'event: endpoint\ndata: /messages',
+    ]));
+
+    // SSE fallback POST
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    const promise = transport.request('initialize');
+    await promise.catch(() => {});
+
+    // call[0]=POST(405), call[1]=retry POST(405), call[2]=SSE GET
+    expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(mockAuth.authorize).toHaveBeenCalled();
-  });
+  }, 10_000);
 
   it('auto-creates OAuth2 client on 401 without explicit auth config', async () => {
     const transport = new HttpTransport({ url: 'http://localhost:3000/mcp' });

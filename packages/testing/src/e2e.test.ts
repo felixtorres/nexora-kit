@@ -199,7 +199,7 @@ describe('E2E: Plugin lifecycle', () => {
 
     expect(result.skillDefinitions.size).toBe(2);
     expect(result.commandDefinitions.size).toBe(1);
-    expect(result.plugin.tools.length).toBe(2);
+    expect(result.plugin.tools.length).toBe(3); // 2 skills + get_skill_context
   });
 
   it('uninstalls a plugin cleanly', async () => {

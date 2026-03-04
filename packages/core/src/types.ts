@@ -441,6 +441,7 @@ export interface PluginManifest {
   sandbox: PluginSandboxConfig;
   tools?: PluginToolsConfig;
   config?: PluginConfigSchema;
+  skillIndex?: boolean;
 }
 
 export type PluginState = 'installed' | 'enabled' | 'disabled' | 'errored';

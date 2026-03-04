@@ -146,6 +146,44 @@ export class PluginLifecycleManager {
       }
     }
 
+    // Register get_skill_context tool if this plugin has skills
+    const skillDefs = this.pluginSkills.get(namespace);
+    if (skillDefs && skillDefs.size > 0 && this.skillRegistry) {
+      const contextToolName = `${namespace}:get_skill_context`;
+      const contextToolDef: ToolDefinition = {
+        name: contextToolName,
+        description: `Load the full instructions for a skill in the ${namespace} plugin. Pass the skill name (without namespace prefix).`,
+        parameters: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'The skill name to load (e.g. "sql-queries")',
+            },
+          },
+          required: ['name'],
+        },
+      };
+      const registry = this.skillRegistry;
+      const skillHandler: ToolHandler = async (input) => {
+        const skillName = String(input.name);
+        const qualified = `${namespace}:${skillName}`;
+        const skill = registry.get(qualified);
+        if (!skill) {
+          return `Skill '${skillName}' not found in ${namespace}. Available: ${registry.listByNamespace(namespace).map((s) => s.definition.name).join(', ')}`;
+        }
+        return skill.definition.prompt ?? skill.definition.description;
+      };
+      const wrappedContextHandler = wrapWithErrorBoundary(contextToolName, skillHandler, {
+        maxConsecutiveFailures: 5,
+        onDisable: (toolName, errMsg) => {
+          this.logger?.error('plugin.tool_disabled', { namespace, tool: toolName, err: errMsg });
+        },
+      });
+      this.toolDispatcher.register(contextToolDef, wrappedContextHandler);
+      plugin.tools.push(contextToolDef);
+    }
+
     // Start MCP servers and register their tools
     if (this.mcpManager) {
       const mcpConfigs = this.pluginMcpConfigs.get(namespace);

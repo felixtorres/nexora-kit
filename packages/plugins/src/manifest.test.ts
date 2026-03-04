@@ -89,6 +89,27 @@ dependencies:
     expect(manifest.dependencies).toEqual([{ namespace: 'other-plugin', version: '^1.0.0' }]);
   });
 
+  it('parses skillIndex: false flag', () => {
+    const yaml = `
+name: X
+version: "1.0.0"
+namespace: test
+skillIndex: false
+`;
+    const manifest = parseManifest(yaml);
+    expect(manifest.skillIndex).toBe(false);
+  });
+
+  it('defaults skillIndex to undefined when not set', () => {
+    const yaml = `
+name: X
+version: "1.0.0"
+namespace: test
+`;
+    const manifest = parseManifest(yaml);
+    expect(manifest.skillIndex).toBeUndefined();
+  });
+
   it('handles strict sandbox tier', () => {
     const yaml = `
 name: X

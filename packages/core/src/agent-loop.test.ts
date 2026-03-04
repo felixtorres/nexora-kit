@@ -764,4 +764,102 @@ describe('AgentLoop', () => {
 
     expect(capturedModel).toBe('custom-model');
   });
+
+  it('injects skill index into system prompt when skillIndexProvider is set', async () => {
+    let capturedSystemPrompt = '';
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'mock-1', name: 'Mock', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+        // Capture the system prompt from the first message
+        if (request.messages.length > 0 && request.messages[0].role === 'system') {
+          capturedSystemPrompt = request.messages[0].content as string;
+        }
+        yield { type: 'text', content: 'ok' };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const skillIndexProvider = {
+      buildIndex(namespace: string): string {
+        if (namespace === 'kyvos') {
+          return '## Available Skills (kyvos)\n- **sql-queries** — Generate SQL';
+        }
+        return '';
+      },
+    };
+
+    const loop = new AgentLoop({ llm, skillIndexProvider });
+    await collectEvents(loop, {
+      ...baseRequest,
+      conversationId: 'skill-index-test',
+      pluginNamespaces: ['kyvos'],
+    });
+
+    expect(capturedSystemPrompt).toContain('## Available Skills (kyvos)');
+    expect(capturedSystemPrompt).toContain('**sql-queries**');
+  });
+
+  it('does not inject skill index when no plugin namespaces', async () => {
+    let capturedSystemPrompt = '';
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'mock-1', name: 'Mock', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+        if (request.messages.length > 0 && request.messages[0].role === 'system') {
+          capturedSystemPrompt = request.messages[0].content as string;
+        }
+        yield { type: 'text', content: 'ok' };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const skillIndexProvider = {
+      buildIndex(): string { return 'should not appear'; },
+    };
+
+    const loop = new AgentLoop({ llm, skillIndexProvider });
+    await collectEvents(loop, {
+      ...baseRequest,
+      conversationId: 'no-ns-test',
+    });
+
+    expect(capturedSystemPrompt).not.toContain('should not appear');
+  });
+
+  it('concatenates skill indexes from multiple namespaces', async () => {
+    let capturedSystemPrompt = '';
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'mock-1', name: 'Mock', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+        if (request.messages.length > 0 && request.messages[0].role === 'system') {
+          capturedSystemPrompt = request.messages[0].content as string;
+        }
+        yield { type: 'text', content: 'ok' };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const skillIndexProvider = {
+      buildIndex(namespace: string): string {
+        if (namespace === 'kyvos') return '## Available Skills (kyvos)\n- **sql** — SQL';
+        if (namespace === 'hello') return '## Available Skills (hello)\n- **greet** — Greet';
+        return '';
+      },
+    };
+
+    const loop = new AgentLoop({ llm, skillIndexProvider });
+    await collectEvents(loop, {
+      ...baseRequest,
+      conversationId: 'multi-ns-test',
+      pluginNamespaces: ['kyvos', 'hello'],
+    });
+
+    expect(capturedSystemPrompt).toContain('Available Skills (kyvos)');
+    expect(capturedSystemPrompt).toContain('Available Skills (hello)');
+  });
 });
