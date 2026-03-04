@@ -247,8 +247,10 @@ describe('SseTransport', () => {
     } as unknown as Response;
   }
 
-  it('connects to SSE endpoint', async () => {
-    const response = createMockSseResponse([]);
+  it('connects to SSE endpoint and waits for endpoint event', async () => {
+    const response = createMockSseResponse([
+      'event: endpoint\ndata: /messages',
+    ]);
     mockFetch.mockResolvedValueOnce(response);
 
     const transport = new SseTransport({ url: 'http://localhost:3000/sse' });
@@ -278,7 +280,6 @@ describe('SseTransport', () => {
   });
 
   it('sends requests via POST and receives responses via SSE', async () => {
-    // Connect first — provide an endpoint event and then a response
     const response = createMockSseResponse([
       'event: endpoint\ndata: /messages',
     ]);
@@ -286,9 +287,6 @@ describe('SseTransport', () => {
 
     const transport = new SseTransport({ url: 'http://localhost:3000/sse', timeoutMs: 100 });
     await transport.connect();
-
-    // Give the stream time to process
-    await new Promise((r) => setTimeout(r, 10));
 
     // Now mock the POST call to succeed
     mockFetch.mockResolvedValueOnce({ ok: true });
@@ -311,7 +309,9 @@ describe('SseTransport', () => {
   });
 
   it('passes custom headers', async () => {
-    const response = createMockSseResponse([]);
+    const response = createMockSseResponse([
+      'event: endpoint\ndata: /messages',
+    ]);
     mockFetch.mockResolvedValueOnce(response);
 
     const transport = new SseTransport({
@@ -336,7 +336,9 @@ describe('SseTransport', () => {
   });
 
   it('closes cleanly', async () => {
-    const response = createMockSseResponse([]);
+    const response = createMockSseResponse([
+      'event: endpoint\ndata: /messages',
+    ]);
     mockFetch.mockResolvedValueOnce(response);
 
     const transport = new SseTransport({ url: 'http://localhost:3000/sse' });
@@ -371,7 +373,9 @@ describe('SseTransport', () => {
     });
 
     // Retry after auth succeeds
-    mockFetch.mockResolvedValueOnce(createMockSseResponse([]));
+    mockFetch.mockResolvedValueOnce(createMockSseResponse([
+      'event: endpoint\ndata: /messages',
+    ]));
 
     await transport.connect();
     expect(transport.isConnected()).toBe(true);

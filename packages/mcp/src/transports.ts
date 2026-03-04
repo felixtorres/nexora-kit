@@ -170,6 +170,8 @@ export class SseTransport implements McpTransport {
   private readonly timeoutMs: number;
   private messageEndpoint: string | null = null;
   private auth?: McpOAuth2Client;
+  private endpointReady: Promise<void> | null = null;
+  private resolveEndpointReady: (() => void) | null = null;
 
   constructor(options: {
     url: string;
@@ -217,8 +219,22 @@ export class SseTransport implements McpTransport {
       throw new Error('SSE response has no body');
     }
 
+    // Wait for the endpoint event before returning — the server must tell us
+    // where to POST messages before we can send any requests.
+    this.endpointReady = new Promise<void>((resolve) => {
+      this.resolveEndpointReady = resolve;
+    });
+
     this.connected = true;
     this.consumeStream(response.body);
+
+    // Wait for endpoint event or timeout
+    await Promise.race([
+      this.endpointReady,
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Timed out waiting for SSE endpoint event')), this.timeoutMs),
+      ),
+    ]);
   }
 
   async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
@@ -333,6 +349,10 @@ export class SseTransport implements McpTransport {
     if (eventType === 'endpoint' && data) {
       // Server tells us where to POST messages
       this.messageEndpoint = new URL(data, this.url).toString();
+      if (this.resolveEndpointReady) {
+        this.resolveEndpointReady();
+        this.resolveEndpointReady = null;
+      }
       return;
     }
 
