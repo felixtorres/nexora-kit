@@ -114,6 +114,27 @@ export function createConversationDeleteHandler(deps: HandlerDeps) {
   };
 }
 
+// --- GET /v1/conversations/:id/messages ---
+
+export function createMessageListHandler(deps: HandlerDeps) {
+  return async (req: ApiRequest): Promise<ApiResponse> => {
+    if (!req.auth) throw new ApiError(401, 'Authentication required');
+
+    const conversationId = req.params.id;
+
+    // Validate conversation ownership
+    if (deps.conversationStore) {
+      const conversation = await deps.conversationStore.get(conversationId, req.auth.userId);
+      if (!conversation) throw new ApiError(404, 'Conversation not found');
+    }
+
+    if (!deps.messageStore) throw new ApiError(501, 'Message store not configured');
+
+    const messages = await deps.messageStore.get(conversationId);
+    return jsonResponse(200, { messages });
+  };
+}
+
 // --- POST /v1/conversations/:id/messages ---
 
 export function createSendMessageHandler(deps: HandlerDeps) {

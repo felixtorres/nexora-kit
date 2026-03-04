@@ -41,6 +41,7 @@ export {
   createConversationGetHandler,
   createConversationUpdateHandler,
   createConversationDeleteHandler,
+  createMessageListHandler,
   createSendMessageHandler,
   createPluginsListHandler,
   createPluginDetailHandler,

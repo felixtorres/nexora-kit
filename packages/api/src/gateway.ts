@@ -21,6 +21,7 @@ import {
   createConversationGetHandler,
   createConversationUpdateHandler,
   createConversationDeleteHandler,
+  createMessageListHandler,
   createSendMessageHandler,
   createPluginsListHandler,
   createPluginDetailHandler,
@@ -149,6 +150,7 @@ export class Gateway {
     this.router.get(`${prefix}/conversations/:id`, createConversationGetHandler(deps));
     this.router.add('PATCH', `${prefix}/conversations/:id`, createConversationUpdateHandler(deps));
     this.router.add('DELETE', `${prefix}/conversations/:id`, createConversationDeleteHandler(deps));
+    this.router.get(`${prefix}/conversations/:id/messages`, createMessageListHandler(deps));
     this.router.post(`${prefix}/conversations/:id/messages`, createSendMessageHandler(deps));
 
     // Message edit/regenerate endpoints (require conversationStore + messageStore)

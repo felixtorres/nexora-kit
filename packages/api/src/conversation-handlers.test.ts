@@ -6,6 +6,7 @@ import {
   createConversationGetHandler,
   createConversationUpdateHandler,
   createConversationDeleteHandler,
+  createMessageListHandler,
   createSendMessageHandler,
 } from './handlers.js';
 import type { ApiRequest, AuthIdentity } from './types.js';
@@ -417,5 +418,50 @@ describe('createSendMessageHandler', () => {
       params: { id: 'any' },
       body: { input: 'Hello' },
     }))).rejects.toThrow('Authentication required');
+  });
+});
+
+describe('createMessageListHandler', () => {
+  it('returns messages for a conversation', async () => {
+    const store = new InMemoryConversationStore();
+    const conv = store.create({ teamId: 'team-1', userId: 'user-1' });
+
+    const messages = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi there!' },
+    ];
+    const messageStore = makeMockMessageStore(messages);
+
+    const deps = makeDeps({ conversationStore: store, messageStore });
+    const handler = createMessageListHandler(deps);
+
+    const res = await handler(makeReq({ params: { id: conv.id } }));
+
+    expect(res.status).toBe(200);
+    const body = res.body as { messages: any[] };
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0].content).toBe('Hello');
+    expect(messageStore.get).toHaveBeenCalledWith(conv.id);
+  });
+
+  it('returns 404 for non-existent conversation', async () => {
+    const store = new InMemoryConversationStore();
+    const messageStore = makeMockMessageStore();
+
+    const deps = makeDeps({ conversationStore: store, messageStore });
+    const handler = createMessageListHandler(deps);
+
+    await expect(
+      handler(makeReq({ params: { id: 'non-existent' } })),
+    ).rejects.toThrow('Conversation not found');
+  });
+
+  it('rejects unauthenticated requests', async () => {
+    const deps = makeDeps();
+    const handler = createMessageListHandler(deps);
+
+    await expect(
+      handler(makeReq({ auth: undefined, params: { id: 'any' } })),
+    ).rejects.toThrow('Authentication required');
   });
 });
