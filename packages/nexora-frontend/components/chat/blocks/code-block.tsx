@@ -3,19 +3,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { Check, Copy } from 'lucide-react';
 import hljs from 'highlight.js';
-import type { CodeBlock as CodeBlockType, ResponseBlock } from '@/lib/block-types';
+import type { CodeBlock as CodeBlockType, DisplayBlock } from '@/lib/block-types';
 import { detectVizKind } from '@/lib/pyodide';
 import { VizRunner } from './viz-runner';
 
 interface CodeBlockProps {
   block: CodeBlockType;
-  allBlocks?: ResponseBlock[];
+  allBlocks?: DisplayBlock[];
   index?: number;
 }
 
 /** Walk backwards through allBlocks[0..index-1] to find the nearest TableBlock rows. */
 function findPrecedingTableData(
-  allBlocks: ResponseBlock[] | undefined,
+  allBlocks: DisplayBlock[] | undefined,
   index: number | undefined,
 ): Record<string, unknown>[] | undefined {
   if (!allBlocks || index === undefined) return undefined;

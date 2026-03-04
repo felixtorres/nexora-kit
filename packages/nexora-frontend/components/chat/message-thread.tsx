@@ -11,7 +11,7 @@ import { StreamingIndicator } from './streaming-indicator';
 import { VizRunner } from './blocks/viz-runner';
 import { detectVizKind } from '@/lib/pyodide';
 import { useConversationStore } from '@/store/conversation';
-import type { Message } from '@/lib/block-types';
+import type { Message, DisplayBlock } from '@/lib/block-types';
 
 /**
  * ReactMarkdown passes `children` as a React node, not a plain string.
@@ -65,7 +65,13 @@ const markdownComponents: Components = {
   },
 };
 
-function MessageBubble({ message }: { message: Message }) {
+interface MessageBubbleProps {
+  message: Message;
+  onAction?: (actionId: string, payload: Record<string, unknown>) => void;
+  onReply?: (text: string) => void;
+}
+
+function MessageBubble({ message, onAction, onReply }: MessageBubbleProps) {
   const isUser = message.role === 'user';
 
   return (
@@ -82,8 +88,15 @@ function MessageBubble({ message }: { message: Message }) {
       {/* Content */}
       <div className="min-w-0 flex-1 space-y-3 pt-0.5">
         {message.blocks && message.blocks.length > 0 ? (
-          message.blocks.map((block, i) => (
-            <BlockRenderer key={i} block={block} allBlocks={message.blocks} index={i} />
+          message.blocks.map((block: DisplayBlock, i: number) => (
+            <BlockRenderer
+              key={i}
+              block={block}
+              allBlocks={message.blocks}
+              index={i}
+              onAction={onAction}
+              onReply={onReply}
+            />
           ))
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:my-2 prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-li:my-0.5 prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-0">
@@ -103,14 +116,23 @@ function MessageBubble({ message }: { message: Message }) {
 
 const EMPTY: Message[] = [];
 
-export function MessageThread({ conversationId }: { conversationId: string }) {
+interface MessageThreadProps {
+  conversationId: string;
+  onAction?: (actionId: string, payload: Record<string, unknown>) => void;
+  onReply?: (text: string) => void;
+}
+
+export function MessageThread({ conversationId, onAction, onReply }: MessageThreadProps) {
   const messages = useConversationStore((s) => s.messagesByConversation[conversationId]) ?? EMPTY;
   const isSending = useConversationStore((s) => s.isSending);
+  const isStreaming = useConversationStore((s) => s.isStreaming);
+  const streamingText = useConversationStore((s) => s.streamingText);
+  const streamingBlocks = useConversationStore((s) => s.streamingBlocks);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isSending]);
+  }, [messages, isSending, streamingText, streamingBlocks]);
 
   if (messages.length === 0 && !isSending) {
     return (
@@ -124,9 +146,26 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
     <ScrollArea className="flex-1">
       <div className="divide-y">
         {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} />
+          <MessageBubble key={i} message={msg} onAction={onAction} onReply={onReply} />
         ))}
-        {isSending && <StreamingIndicator />}
+
+        {/* Streaming assistant response */}
+        {isStreaming && (streamingText || streamingBlocks.length > 0) && (
+          <MessageBubble
+            message={{
+              role: 'assistant',
+              content: streamingText,
+              blocks: streamingBlocks.length > 0 ? streamingBlocks : undefined,
+            }}
+            onAction={onAction}
+            onReply={onReply}
+          />
+        )}
+
+        {/* Show dots only when streaming hasn't produced content yet */}
+        {isSending && !isStreaming && <StreamingIndicator />}
+        {isStreaming && !streamingText && streamingBlocks.length === 0 && <StreamingIndicator />}
+
         <div ref={bottomRef} />
       </div>
     </ScrollArea>

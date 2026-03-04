@@ -43,7 +43,7 @@ export function TextBlock({ block }: { block: TextBlockType }) {
         rehypePlugins={[rehypeHighlight]}
         components={components}
       >
-        {block.text}
+        {block.content}
       </ReactMarkdown>
     </div>
   );

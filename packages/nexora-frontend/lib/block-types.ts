@@ -13,32 +13,31 @@ export interface TableBlock {
 
 export interface TextBlock {
   type: 'text';
-  text: string;
+  content: string;
 }
 
 export interface CodeBlock {
   type: 'code';
   language?: string;
   code: string;
-  title?: string;
 }
 
 export interface ImageBlock {
   type: 'image';
   url: string;
   alt?: string;
-  caption?: string;
 }
 
-export interface ActionButton {
-  actionId: string;
+export interface Action {
+  id: string;
   label: string;
-  style?: 'primary' | 'secondary' | 'destructive';
+  style?: 'primary' | 'secondary' | 'danger';
+  payload?: Record<string, unknown>;
 }
 
 export interface ActionBlock {
   type: 'action';
-  actions: ActionButton[];
+  actions: Action[];
 }
 
 export interface FormField {
@@ -47,37 +46,35 @@ export interface FormField {
   type: 'text' | 'number' | 'select' | 'checkbox' | 'textarea';
   required?: boolean;
   options?: string[];
-  defaultValue?: string | number | boolean;
+  default?: unknown;
 }
 
 export interface FormBlock {
   type: 'form';
-  formId: string;
+  id: string;
   title?: string;
   fields: FormField[];
   submitLabel?: string;
 }
 
-export interface ArtifactBlock {
-  type: 'artifact';
-  artifactId: string;
+export interface CardBlock {
+  type: 'card';
   title: string;
-  content: string;
-  language?: string;
-  version?: number;
+  body?: string;
+  imageUrl?: string;
+  actions?: Action[];
+}
+
+export interface SuggestedRepliesBlock {
+  type: 'suggested_replies';
+  replies: string[];
 }
 
 export interface ProgressBlock {
   type: 'progress';
   label: string;
-  current?: number;
-  total?: number;
-}
-
-export interface ErrorBlock {
-  type: 'error';
-  message: string;
-  code?: string;
+  value?: number;
+  max?: number;
 }
 
 export interface CustomBlock {
@@ -85,24 +82,34 @@ export interface CustomBlock {
   data: unknown;
 }
 
+// ErrorBlock is not in backend ResponseBlock union but kept for frontend-only error rendering
+export interface ErrorBlock {
+  type: 'error';
+  message: string;
+  code?: string;
+}
+
 export type ResponseBlock =
   | TextBlock
-  | TableBlock
-  | CodeBlock
-  | ImageBlock
+  | CardBlock
   | ActionBlock
+  | SuggestedRepliesBlock
+  | TableBlock
+  | ImageBlock
+  | CodeBlock
   | FormBlock
-  | ArtifactBlock
   | ProgressBlock
-  | ErrorBlock
   | CustomBlock;
+
+// Frontend display union includes ErrorBlock for local error rendering
+export type DisplayBlock = ResponseBlock | ErrorBlock;
 
 // ── Message types ──────────────────────────────────────────────────────
 
 export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
-  blocks?: ResponseBlock[];
+  blocks?: DisplayBlock[];
 }
 
 export interface SendMessageResponse {
@@ -122,4 +129,13 @@ export interface ConversationRecord {
   metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Artifact streaming types ───────────────────────────────────────────
+
+export interface StreamingArtifact {
+  artifactId: string;
+  title: string;
+  content: string;
+  done: boolean;
 }
