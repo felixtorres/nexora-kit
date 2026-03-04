@@ -102,10 +102,15 @@ export interface FeedbackSummary {
 }
 
 export interface MetricsResponse {
-  uptime: number;
-  requests: { total: number; errors: number };
-  latency: { p95: number };
-  connections: number;
+  uptime_seconds: number;
+  requests_total: number;
+  requests_by_status: Record<string, number>;
+  requests_by_method: Record<string, number>;
+  active_connections: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  plugins_enabled: number;
+  plugins_total: number;
 }
 
 // ── API Error ──────────────────────────────────────────────────────────

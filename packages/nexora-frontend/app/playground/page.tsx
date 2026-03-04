@@ -293,7 +293,7 @@ function MetricsPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Uptime</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatUptime(m.uptime)}</div>
+            <div className="text-2xl font-bold">{formatUptime(m.uptime_seconds)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -301,9 +301,13 @@ function MetricsPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Requests</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{m.requests.total.toLocaleString()}</div>
-            {m.requests.errors > 0 && (
-              <p className="text-xs text-red-500">{m.requests.errors} errors</p>
+            <div className="text-2xl font-bold">{m.requests_total.toLocaleString()}</div>
+            {(m.requests_by_status['4xx'] ?? 0) + (m.requests_by_status['5xx'] ?? 0) > 0 && (
+              <p className="text-xs text-red-500">
+                {Object.entries(m.requests_by_status)
+                  .filter(([code]) => code.startsWith('4') || code.startsWith('5'))
+                  .reduce((sum, [, n]) => sum + n, 0)} errors
+              </p>
             )}
           </CardContent>
         </Card>
@@ -312,7 +316,7 @@ function MetricsPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">p95 Latency</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{m.latency.p95}ms</div>
+            <div className="text-2xl font-bold">{m.p95_latency_ms}ms</div>
           </CardContent>
         </Card>
         <Card>
@@ -320,7 +324,7 @@ function MetricsPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Connections</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{m.connections}</div>
+            <div className="text-2xl font-bold">{m.active_connections}</div>
           </CardContent>
         </Card>
       </div>
