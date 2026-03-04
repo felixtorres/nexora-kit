@@ -13,11 +13,24 @@ import { detectVizKind } from '@/lib/pyodide';
 import { useConversationStore } from '@/store/conversation';
 import type { Message } from '@/lib/block-types';
 
+/**
+ * ReactMarkdown passes `children` as a React node, not a plain string.
+ * Recursively extract the text content so VizRunner always receives a string.
+ */
+function extractText(node: unknown): string {
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (node && typeof node === 'object' && 'props' in (node as object)) {
+    return extractText((node as { props: { children?: unknown } }).props.children);
+  }
+  return '';
+}
+
 const markdownComponents: Components = {
   code({ className, children, ...props }) {
     const match = /language-(\w+)/.exec(className ?? '');
     const isBlock = match !== null;
-    const content = String(children).replace(/\n$/, '');
+    const content = extractText(children).replace(/\n$/, '');
 
     if (isBlock) {
       const isPython = match![1] === 'python';
