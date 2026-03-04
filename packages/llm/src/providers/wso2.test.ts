@@ -298,6 +298,70 @@ describe('Wso2Provider', () => {
     expect(count).toBe(100); // 400 chars / 4
   });
 
+  it('throws when deploymentId is not configured', () => {
+    expect(
+      () =>
+        new Wso2Provider({
+          authUrl: AUTH_URL,
+          clientId: CLIENT_ID,
+          clientSecret: CLIENT_SECRET,
+          baseUrl: BASE_URL,
+          // deploymentId intentionally omitted
+        }),
+    ).toThrow('deploymentId is required');
+  });
+
+  it('emits both text and tool_calls from a single response', async () => {
+    const responseWithBoth = {
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: 'Let me check that.',
+            tool_calls: [
+              {
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'lookup', arguments: '{"q":"test"}' },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    };
+
+    mockFetchSequence(
+      new Response(JSON.stringify(makeTokenResponse()), { status: 200 }),
+      new Response(JSON.stringify(responseWithBoth), { status: 200 }),
+    );
+
+    const provider = makeProvider();
+    const events: import('../types.js').LlmEvent[] = [];
+
+    for await (const event of provider.chat({
+      model: DEPLOYMENT_ID,
+      messages: [{ role: 'user', content: 'Hello' }],
+      stream: false,
+      tools: [{ name: 'lookup', description: 'Look up info', parameters: { type: 'object', properties: { q: { type: 'string' } } } }],
+    })) {
+      events.push(event);
+    }
+
+    const textEvent = events.find((e) => e.type === 'text');
+    expect(textEvent).toBeDefined();
+    if (textEvent?.type === 'text') {
+      expect(textEvent.content).toBe('Let me check that.');
+    }
+
+    const toolEvent = events.find((e) => e.type === 'tool_call');
+    expect(toolEvent).toBeDefined();
+    if (toolEvent?.type === 'tool_call') {
+      expect(toolEvent.name).toBe('lookup');
+    }
+  });
+
   it('exposes tokenStatus and clearCachedToken', async () => {
     fetchSpy.mockResolvedValue(
       new Response(JSON.stringify(makeTokenResponse(3600)), { status: 200 }),

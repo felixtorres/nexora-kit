@@ -44,6 +44,7 @@ export class Wso2AuthService {
   private readonly bufferSeconds: number;
   private readonly timeoutMs: number;
   private cachedToken: CachedToken | null = null;
+  private refreshPromise: Promise<string> | null = null;
 
   constructor(options: Wso2AuthOptions) {
     this.authUrl = options.authUrl;
@@ -55,13 +56,26 @@ export class Wso2AuthService {
 
   /**
    * Returns a valid Bearer token, fetching a new one from WSO2 if the cached
-   * token is absent or about to expire.
+   * token is absent or about to expire. Concurrent callers share a single
+   * in-flight refresh to avoid duplicate token requests.
    */
   async getAccessToken(): Promise<string> {
     if (this.cachedToken && Date.now() < this.cachedToken.expiresAt) {
       return this.cachedToken.token;
     }
 
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.fetchToken().finally(() => {
+      this.refreshPromise = null;
+    });
+
+    return this.refreshPromise;
+  }
+
+  private async fetchToken(): Promise<string> {
     const body = new URLSearchParams({
       grant_type: 'client_credentials',
       client_id: this.clientId,
@@ -97,7 +111,8 @@ export class Wso2AuthService {
     }
 
     const data = (await response.json()) as Wso2TokenResponse;
-    const expiresAt = Date.now() + (data.expires_in - this.bufferSeconds) * 1000;
+    const effectiveExpiry = Math.max(data.expires_in - this.bufferSeconds, 30);
+    const expiresAt = Date.now() + effectiveExpiry * 1000;
 
     this.cachedToken = { token: data.access_token, expiresAt };
     return data.access_token;
@@ -106,6 +121,7 @@ export class Wso2AuthService {
   /** Force the next call to {@link getAccessToken} to fetch a fresh token. */
   clearCachedToken(): void {
     this.cachedToken = null;
+    this.refreshPromise = null;
   }
 
   /** Diagnostic information about the current cached token state. */

@@ -1,33 +1,19 @@
 /**
- * WSO2-proxied Azure OpenAI provider for NexoraKit.
+ * OpenAI-compatible LLM provider for NexoraKit.
  *
- * Authentication flow:
- *   1. Fetch a short-lived Bearer token from the WSO2 token endpoint using
- *      OAuth2 client_credentials grant (handled by Wso2AuthService).
- *   2. Send chat completion requests to the Azure OpenAI deployment exposed
- *      through the WSO2 API Gateway, attaching the Bearer token.
+ * Works with any API that speaks the OpenAI chat completions wire format:
+ * Ollama, LM Studio, vLLM, llama.cpp server, etc.
  *
- * The provider exposes an OpenAI-compatible streaming and non-streaming
- * interface translated into NexoraKit's LlmEvent stream.
- *
- * Environment variable convention (all optional if values are provided
- * programmatically via Wso2ProviderOptions):
- *
- *   WSO2_AUTH_URL          - WSO2 token endpoint
- *   WSO2_CLIENT_ID         - OAuth2 client ID
- *   WSO2_CLIENT_SECRET     - OAuth2 client secret
- *   WSO2_BASE_URL          - Gateway base URL (before /openai/deployments/...)
- *   WSO2_DEPLOYMENT_ID     - Azure OpenAI deployment name
- *   WSO2_API_VERSION       - Azure OpenAI API version query param
+ * Unlike the WSO2 provider, this has no OAuth2 auth layer — just an optional
+ * Bearer token for services that require an API key.
  */
 
 import type { LlmLogger } from '../logger.js';
 import type { LlmProvider } from '../provider.js';
 import type { LlmEvent, LlmRequest, ModelInfo } from '../types.js';
-import { Wso2AuthService, type Wso2AuthOptions } from './wso2-auth.js';
 
 // ---------------------------------------------------------------------------
-// Types mirroring the Azure OpenAI / OpenAI Chat Completions wire format
+// Types mirroring the OpenAI Chat Completions wire format
 // ---------------------------------------------------------------------------
 
 interface OpenAiMessage {
@@ -58,13 +44,12 @@ interface OpenAiToolCall {
 }
 
 interface OpenAiChatRequest {
+  model: string;
   messages: OpenAiMessage[];
   temperature?: number;
   max_tokens?: number;
   stream: boolean;
   stream_options?: { include_usage: boolean };
-  frequency_penalty?: number;
-  presence_penalty?: number;
   tools?: OpenAiTool[];
   tool_choice?: 'auto' | 'none' | 'required';
 }
@@ -121,44 +106,25 @@ interface OpenAiStreamChunk {
 // Provider options
 // ---------------------------------------------------------------------------
 
-export interface Wso2ProviderOptions {
+export interface OpenAiCompatibleProviderOptions {
   /**
-   * WSO2 token endpoint.
-   * @default process.env.WSO2_AUTH_URL
-   * @example "https://api-gateway.example.com:443/token"
+   * Base URL of the OpenAI-compatible API.
+   * @example "http://localhost:11434" (Ollama)
+   * @example "http://localhost:1234" (LM Studio)
    */
-  authUrl?: string;
+  baseUrl: string;
 
   /**
-   * OAuth2 client ID issued by WSO2.
-   * @default process.env.WSO2_CLIENT_ID
+   * Model identifier sent in the request body.
+   * @example "llama3.2:latest"
    */
-  clientId?: string;
+  model: string;
 
   /**
-   * OAuth2 client secret issued by WSO2.
-   * @default process.env.WSO2_CLIENT_SECRET
+   * Optional API key sent as a Bearer token.
+   * Omit for local services that don't require auth.
    */
-  clientSecret?: string;
-
-  /**
-   * WSO2 gateway base URL, up to (but not including) `/openai/deployments/`.
-   * @default process.env.WSO2_BASE_URL
-   * @example "https://api-gateway.example.com:443/t/org/openaiendpoint/1"
-   */
-  baseUrl?: string;
-
-  /**
-   * Azure OpenAI deployment name embedded in the URL path.
-   * Required — set via this option or the WSO2_DEPLOYMENT_ID env var.
-   */
-  deploymentId?: string;
-
-  /**
-   * Azure OpenAI API version query parameter.
-   * @default process.env.WSO2_API_VERSION ?? "2024-12-01-preview"
-   */
-  apiVersion?: string;
+  apiKey?: string;
 
   /**
    * Default maximum output tokens when the request does not specify one.
@@ -167,26 +133,14 @@ export interface Wso2ProviderOptions {
   defaultMaxTokens?: number;
 
   /**
-   * HTTP request timeout for LLM calls in milliseconds.
-   * @default 60_000
+   * HTTP request timeout in milliseconds.
+   * @default 120_000
    */
   timeoutMs?: number;
 
   /**
-   * Additional model entries to expose. Useful when multiple Azure OpenAI
-   * deployments are accessible through the same WSO2 gateway by varying the
-   * deployment ID per request.
-   */
-  additionalModels?: ModelInfo[];
-
-  /**
-   * Override options forwarded to the internal Wso2AuthService.
-   * Normally derived from the other options above.
-   */
-  authOptions?: Partial<Wso2AuthOptions>;
-
-  /**
-   * Optional structured logger.
+   * Optional structured logger. When provided, the provider emits
+   * llm.request, llm.response, llm.usage, and llm.error log entries.
    */
   logger?: LlmLogger;
 }
@@ -195,78 +149,42 @@ export interface Wso2ProviderOptions {
 // Provider
 // ---------------------------------------------------------------------------
 
-export class Wso2Provider implements LlmProvider {
-  readonly name = 'wso2-azure-openai';
+export class OpenAiCompatibleProvider implements LlmProvider {
+  readonly name = 'openai-compatible';
 
   readonly models: ModelInfo[];
 
-  private readonly auth: Wso2AuthService;
   private readonly baseUrl: string;
-  private readonly deploymentId: string;
-  private readonly apiVersion: string;
+  private readonly model: string;
+  private readonly apiKey?: string;
   private readonly defaultMaxTokens: number;
   private readonly timeoutMs: number;
   private readonly logger?: LlmLogger;
 
-  constructor(options: Wso2ProviderOptions = {}) {
-    const authUrl =
-      options.authUrl ??
-      process.env['WSO2_AUTH_URL'] ??
-      (() => {
-        throw new Error('Wso2Provider: authUrl is required (or set WSO2_AUTH_URL)');
-      })();
+  constructor(options: OpenAiCompatibleProviderOptions) {
+    if (!options.baseUrl) {
+      throw new Error('OpenAiCompatibleProvider: baseUrl is required');
+    }
+    if (!options.model) {
+      throw new Error('OpenAiCompatibleProvider: model is required');
+    }
 
-    const clientId =
-      options.clientId ??
-      process.env['WSO2_CLIENT_ID'] ??
-      (() => {
-        throw new Error('Wso2Provider: clientId is required (or set WSO2_CLIENT_ID)');
-      })();
-
-    const clientSecret =
-      options.clientSecret ??
-      process.env['WSO2_CLIENT_SECRET'] ??
-      (() => {
-        throw new Error('Wso2Provider: clientSecret is required (or set WSO2_CLIENT_SECRET)');
-      })();
-
-    this.baseUrl =
-      options.baseUrl ??
-      process.env['WSO2_BASE_URL'] ??
-      (() => {
-        throw new Error('Wso2Provider: baseUrl is required (or set WSO2_BASE_URL)');
-      })();
-
-    this.deploymentId =
-      options.deploymentId ??
-      process.env['WSO2_DEPLOYMENT_ID'] ??
-      (() => {
-        throw new Error('Wso2Provider: deploymentId is required (or set WSO2_DEPLOYMENT_ID)');
-      })();
-
-    this.apiVersion = options.apiVersion ?? process.env['WSO2_API_VERSION'] ?? '2024-12-01-preview';
-
+    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.model = options.model;
+    this.apiKey = options.apiKey;
     this.defaultMaxTokens = options.defaultMaxTokens ?? 4096;
-    this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.timeoutMs = options.timeoutMs ?? 120_000;
     this.logger = options.logger;
 
-    this.auth = new Wso2AuthService({
-      authUrl,
-      clientId,
-      clientSecret,
-      ...options.authOptions,
-    });
-
-    // Default model entry reflecting the configured deployment
-    const defaultModel: ModelInfo = {
-      id: this.deploymentId,
-      name: `Azure OpenAI (${this.deploymentId})`,
-      provider: this.name,
-      contextWindow: 128_000,
-      maxOutputTokens: this.defaultMaxTokens,
-    };
-
-    this.models = [defaultModel, ...(options.additionalModels ?? [])];
+    this.models = [
+      {
+        id: this.model,
+        name: `OpenAI-Compatible (${this.model})`,
+        provider: this.name,
+        contextWindow: 128_000,
+        maxOutputTokens: this.defaultMaxTokens,
+      },
+    ];
   }
 
   // -------------------------------------------------------------------------
@@ -282,7 +200,6 @@ export class Wso2Provider implements LlmProvider {
   }
 
   async countTokens(messages: LlmRequest['messages']): Promise<number> {
-    // Rough heuristic: 4 characters ≈ 1 token (same as AnthropicProvider)
     let totalChars = 0;
     for (const msg of messages) {
       if (typeof msg.content === 'string') {
@@ -295,27 +212,11 @@ export class Wso2Provider implements LlmProvider {
   }
 
   // -------------------------------------------------------------------------
-  // Convenience accessors (useful for health endpoints / diagnostics)
-  // -------------------------------------------------------------------------
-
-  /** Expose underlying auth status without leaking credentials. */
-  get tokenStatus() {
-    return this.auth.getTokenStatus();
-  }
-
-  /** Force a token refresh on the next request. */
-  clearCachedToken() {
-    this.auth.clearCachedToken();
-  }
-
-  // -------------------------------------------------------------------------
   // Private helpers
   // -------------------------------------------------------------------------
 
   private buildChatUrl(): string {
-    const url = new URL(`${this.baseUrl}/openai/deployments/${this.deploymentId}/chat/completions`);
-    url.searchParams.set('api-version', this.apiVersion);
-    return url.toString();
+    return `${this.baseUrl}/v1/chat/completions`;
   }
 
   private toOpenAiMessages(request: LlmRequest): OpenAiMessage[] {
@@ -330,9 +231,6 @@ export class Wso2Provider implements LlmProvider {
         continue;
       }
 
-      // Structured content blocks — group text + tool_use from the same
-      // message into a single OpenAI message so the API sees them together.
-      // Tool results stay as separate messages.
       let textContent = '';
       const toolCalls: OpenAiToolCall[] = [];
 
@@ -349,7 +247,6 @@ export class Wso2Provider implements LlmProvider {
             },
           });
         } else if (block.type === 'tool_result') {
-          // Tool results are always separate messages
           result.push({
             role: 'tool',
             content: block.content,
@@ -358,7 +255,6 @@ export class Wso2Provider implements LlmProvider {
         }
       }
 
-      // Emit grouped assistant/user message if we have text or tool calls
       if (textContent || toolCalls.length > 0) {
         const msg: OpenAiMessage = {
           role: m.role as OpenAiMessage['role'],
@@ -374,14 +270,6 @@ export class Wso2Provider implements LlmProvider {
     return result;
   }
 
-  /**
-   * Sanitize a tool name to match the OpenAI pattern ^[a-zA-Z0-9_\.-]+$.
-   * Strips leading '@', replaces '/' with '.', and replaces ':' with '.'.
-   * Examples:
-   *   "@kyvos/kyvos-mcp.tool"  → "kyvos.kyvos-mcp.tool"
-   *   "my-plugin:greet"        → "my-plugin.greet"
-   *   "@ns/srv:tool"           → "ns.srv.tool"
-   */
   private sanitizeToolName(name: string): string {
     return name.replace(/^@/, '').replace(/\//g, '.').replace(/:/g, '.').slice(0, 64);
   }
@@ -391,11 +279,10 @@ export class Wso2Provider implements LlmProvider {
     toolNameMap?: Map<string, string>,
   ): OpenAiChatRequest {
     const body: OpenAiChatRequest = {
+      model: this.model,
       messages: this.toOpenAiMessages(request),
       temperature: request.temperature,
       max_tokens: request.maxTokens ?? this.defaultMaxTokens,
-      frequency_penalty: 0,
-      presence_penalty: 0,
       stream: request.stream,
       ...(request.stream ? { stream_options: { include_usage: true } } : {}),
     };
@@ -406,16 +293,17 @@ export class Wso2Provider implements LlmProvider {
         if (toolNameMap) {
           const existing = toolNameMap.get(sanitized);
           if (existing && existing !== t.name) {
+            const msg = `Tool name collision: "${t.name}" and "${existing}" both sanitize to "${sanitized}"`;
             if (this.logger) {
               this.logger.warn('llm.tool_collision', { original: t.name, existing, sanitized });
             } else {
-              console.warn(`[Wso2Provider] Tool name collision: "${t.name}" and "${existing}" both sanitize to "${sanitized}"`);
+              console.warn(`[OpenAiCompatibleProvider] ${msg}`);
             }
           }
           toolNameMap.set(sanitized, t.name);
         }
         return {
-          type: 'function',
+          type: 'function' as const,
           function: {
             name: sanitized,
             description: t.description,
@@ -429,26 +317,29 @@ export class Wso2Provider implements LlmProvider {
     return body;
   }
 
-  private async fetchWithAuth(url: string, body: OpenAiChatRequest): Promise<Response> {
-    const token = await this.auth.getAccessToken();
-
+  private async doFetch(url: string, body: OpenAiChatRequest): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
 
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
       return response;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`WSO2 LLM request failed: ${msg}`);
+      throw new Error(`OpenAI-compatible LLM request failed: ${msg}`);
     } finally {
       clearTimeout(timeoutId);
     }
@@ -461,19 +352,19 @@ export class Wso2Provider implements LlmProvider {
     const startMs = Date.now();
 
     this.logger?.info('llm.request', {
-      model: this.deploymentId,
+      model: this.model,
       stream: false,
       messageCount: request.messages.length,
       toolCount: request.tools?.length ?? 0,
     });
 
-    const response = await this.fetchWithAuth(url, body);
+    const response = await this.doFetch(url, body);
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       const durationMs = Date.now() - startMs;
-      this.logger?.error('llm.error', { model: this.deploymentId, status: response.status, durationMs, detail });
-      throw new Error(`WSO2 API error (HTTP ${response.status}): ${detail}`);
+      this.logger?.error('llm.error', { model: this.model, status: response.status, durationMs, detail });
+      throw new Error(`OpenAI-compatible API error (HTTP ${response.status}): ${detail}`);
     }
 
     const data = (await response.json()) as OpenAiChatResponse;
@@ -481,12 +372,12 @@ export class Wso2Provider implements LlmProvider {
     const choice = data.choices[0];
 
     if (!choice) {
-      this.logger?.error('llm.error', { model: this.deploymentId, durationMs, detail: 'empty response' });
-      throw new Error('WSO2 API returned an empty response');
+      this.logger?.error('llm.error', { model: this.model, durationMs, detail: 'empty response' });
+      throw new Error('OpenAI-compatible API returned an empty response');
     }
 
     this.logger?.info('llm.response', {
-      model: this.deploymentId,
+      model: this.model,
       stream: false,
       status: response.status,
       durationMs,
@@ -495,12 +386,10 @@ export class Wso2Provider implements LlmProvider {
       toolCallCount: choice.message.tool_calls?.length ?? 0,
     });
 
-    // Emit text content if present
     if (choice.message.content) {
       yield { type: 'text', content: choice.message.content };
     }
 
-    // Emit tool calls if present (a response can have both text and tool calls)
     if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
       for (const toolCall of choice.message.tool_calls) {
         let input: unknown = {};
@@ -516,7 +405,7 @@ export class Wso2Provider implements LlmProvider {
 
     if (data.usage) {
       this.logger?.debug('llm.usage', {
-        model: this.deploymentId,
+        model: this.model,
         inputTokens: data.usage.prompt_tokens,
         outputTokens: data.usage.completion_tokens,
         totalTokens: data.usage.total_tokens,
@@ -538,33 +427,32 @@ export class Wso2Provider implements LlmProvider {
     const startMs = Date.now();
 
     this.logger?.info('llm.request', {
-      model: this.deploymentId,
+      model: this.model,
       stream: true,
       messageCount: request.messages.length,
       toolCount: request.tools?.length ?? 0,
     });
 
-    const response = await this.fetchWithAuth(url, body);
+    const response = await this.doFetch(url, body);
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       const durationMs = Date.now() - startMs;
-      this.logger?.error('llm.error', { model: this.deploymentId, status: response.status, durationMs, detail });
-      throw new Error(`WSO2 API error (HTTP ${response.status}): ${detail}`);
+      this.logger?.error('llm.error', { model: this.model, status: response.status, durationMs, detail });
+      throw new Error(`OpenAI-compatible API error (HTTP ${response.status}): ${detail}`);
     }
 
     if (!response.body) {
-      throw new Error('WSO2 streaming response has no body');
+      throw new Error('OpenAI-compatible streaming response has no body');
     }
 
-    this.logger?.debug('llm.stream_start', { model: this.deploymentId, durationMs: Date.now() - startMs });
+    this.logger?.debug('llm.stream_start', { model: this.model, durationMs: Date.now() - startMs });
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let chunkCount = 0;
 
-    // Accumulate streaming tool call fragments
     const toolCallAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
 
     try {
@@ -574,7 +462,6 @@ export class Wso2Provider implements LlmProvider {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        // Keep the last (potentially incomplete) line in the buffer
         buffer = lines.pop() ?? '';
 
         for (const line of lines) {
@@ -592,7 +479,6 @@ export class Wso2Provider implements LlmProvider {
                 yield { type: 'text', content: delta.content };
               }
 
-              // Accumulate tool call deltas
               if (delta?.tool_calls) {
                 for (const tcDelta of delta.tool_calls) {
                   const idx = tcDelta.index;
@@ -608,7 +494,7 @@ export class Wso2Provider implements LlmProvider {
 
               if (chunk.usage) {
                 this.logger?.debug('llm.usage', {
-                  model: this.deploymentId,
+                  model: this.model,
                   inputTokens: chunk.usage.prompt_tokens,
                   outputTokens: chunk.usage.completion_tokens,
                   totalTokens: chunk.usage.total_tokens,
@@ -631,7 +517,6 @@ export class Wso2Provider implements LlmProvider {
 
     const durationMs = Date.now() - startMs;
 
-    // Emit accumulated tool calls after stream ends
     for (const [, acc] of [...toolCallAccumulator.entries()].sort(([a], [b]) => a - b)) {
       let input: unknown = {};
       try {
@@ -644,7 +529,7 @@ export class Wso2Provider implements LlmProvider {
     }
 
     this.logger?.info('llm.response', {
-      model: this.deploymentId,
+      model: this.model,
       stream: true,
       durationMs,
       chunkCount,

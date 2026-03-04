@@ -14,8 +14,10 @@
  * never required to live in the YAML file.
  */
 
+import type { LlmLogger } from './logger.js';
 import type { LlmProvider } from './provider.js';
 import { AnthropicProvider } from './providers/anthropic.js';
+import { OpenAiCompatibleProvider } from './providers/openai-compatible.js';
 import { Wso2Provider } from './providers/wso2.js';
 
 // ---------------------------------------------------------------------------
@@ -52,11 +54,25 @@ export interface Wso2LlmConfig {
   defaultMaxTokens?: number;
 }
 
+export interface OpenAiCompatibleLlmConfig {
+  provider: 'openai-compatible';
+  /** Base URL of the OpenAI-compatible API (e.g. "http://localhost:11434"). */
+  baseUrl: string;
+  /** Model identifier sent in the request body (e.g. "llama3.2:latest"). */
+  model: string;
+  /** Optional API key sent as a Bearer token. */
+  apiKey?: string;
+  /** Default max output tokens. @default 4096 */
+  defaultMaxTokens?: number;
+  /** HTTP request timeout in milliseconds. @default 120_000 */
+  timeoutMs?: number;
+}
+
 export interface StubLlmConfig {
   provider?: 'stub' | undefined;
 }
 
-export type LlmConfig = AnthropicLlmConfig | Wso2LlmConfig | StubLlmConfig;
+export type LlmConfig = AnthropicLlmConfig | Wso2LlmConfig | OpenAiCompatibleLlmConfig | StubLlmConfig;
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -81,15 +97,18 @@ export type LlmConfig = AnthropicLlmConfig | Wso2LlmConfig | StubLlmConfig;
  * });
  * ```
  */
-export function createProviderFromConfig(config?: LlmConfig): LlmProvider {
+export function createProviderFromConfig(config?: LlmConfig, logger?: LlmLogger): LlmProvider {
   const provider = config?.provider;
 
   switch (provider) {
     case 'anthropic':
-      return createAnthropicProvider(config as AnthropicLlmConfig);
+      return createAnthropicProvider(config as AnthropicLlmConfig, logger);
 
     case 'wso2-azure-openai':
-      return createWso2Provider(config as Wso2LlmConfig);
+      return createWso2Provider(config as Wso2LlmConfig, logger);
+
+    case 'openai-compatible':
+      return createOpenAiCompatibleProvider(config as OpenAiCompatibleLlmConfig, logger);
 
     case 'stub':
     case undefined:
@@ -100,7 +119,7 @@ export function createProviderFromConfig(config?: LlmConfig): LlmProvider {
       const unknown = (config as { provider: string }).provider;
       throw new Error(
         `Unknown LLM provider "${unknown}". ` +
-          `Valid options are: "anthropic", "wso2-azure-openai", "stub".`,
+          `Valid options are: "anthropic", "openai-compatible", "wso2-azure-openai", "stub".`,
       );
     }
   }
@@ -110,15 +129,16 @@ export function createProviderFromConfig(config?: LlmConfig): LlmProvider {
 // Per-provider constructors (separated for testability)
 // ---------------------------------------------------------------------------
 
-function createAnthropicProvider(config: AnthropicLlmConfig): AnthropicProvider {
+function createAnthropicProvider(config: AnthropicLlmConfig, logger?: LlmLogger): AnthropicProvider {
   return new AnthropicProvider({
     apiKey: config.apiKey, // falls through to ANTHROPIC_API_KEY in SDK
     baseURL: config.baseURL,
     defaultMaxTokens: config.defaultMaxTokens,
+    logger,
   });
 }
 
-function createWso2Provider(config: Wso2LlmConfig): Wso2Provider {
+function createWso2Provider(config: Wso2LlmConfig, logger?: LlmLogger): Wso2Provider {
   return new Wso2Provider({
     authUrl: config.wso2AuthUrl,
     clientId: config.wso2ClientId,
@@ -127,6 +147,18 @@ function createWso2Provider(config: Wso2LlmConfig): Wso2Provider {
     deploymentId: config.wso2DeploymentId,
     apiVersion: config.wso2ApiVersion,
     defaultMaxTokens: config.defaultMaxTokens,
+    logger,
+  });
+}
+
+function createOpenAiCompatibleProvider(config: OpenAiCompatibleLlmConfig, logger?: LlmLogger): OpenAiCompatibleProvider {
+  return new OpenAiCompatibleProvider({
+    baseUrl: config.baseUrl,
+    model: config.model,
+    apiKey: config.apiKey,
+    defaultMaxTokens: config.defaultMaxTokens,
+    timeoutMs: config.timeoutMs,
+    logger,
   });
 }
 
@@ -147,7 +179,7 @@ function createStubProvider(): LlmProvider {
         type: 'text' as const,
         content:
           'LLM provider not configured. ' +
-          'Set llm.provider in nexora.yaml (e.g. "anthropic" or "wso2-azure-openai").',
+          'Set llm.provider in nexora.yaml (e.g. "anthropic", "openai-compatible", or "wso2-azure-openai").',
       };
       yield { type: 'done' as const };
     },

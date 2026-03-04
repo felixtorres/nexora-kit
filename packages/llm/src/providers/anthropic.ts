@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { LlmLogger } from '../logger.js';
 import type { LlmProvider } from '../provider.js';
 import type { LlmEvent, LlmRequest, ModelInfo } from '../types.js';
 
@@ -6,6 +7,7 @@ export interface AnthropicProviderOptions {
   apiKey?: string;
   baseURL?: string;
   defaultMaxTokens?: number;
+  logger?: LlmLogger;
 }
 
 export class AnthropicProvider implements LlmProvider {
@@ -36,6 +38,7 @@ export class AnthropicProvider implements LlmProvider {
 
   private client: Anthropic;
   private defaultMaxTokens: number;
+  private readonly logger?: LlmLogger;
 
   constructor(options: AnthropicProviderOptions = {}) {
     this.client = new Anthropic({
@@ -43,6 +46,7 @@ export class AnthropicProvider implements LlmProvider {
       baseURL: options.baseURL,
     });
     this.defaultMaxTokens = options.defaultMaxTokens ?? 4096;
+    this.logger = options.logger;
   }
 
   /**
@@ -73,6 +77,14 @@ export class AnthropicProvider implements LlmProvider {
     const toolNameMap = new Map<string, string>();
     const tools = request.tools?.map((t) => {
       const sanitized = this.sanitizeToolName(t.name);
+      const existing = toolNameMap.get(sanitized);
+      if (existing && existing !== t.name) {
+        if (this.logger) {
+          this.logger.warn('llm.tool_collision', { original: t.name, existing, sanitized });
+        } else {
+          console.warn(`[AnthropicProvider] Tool name collision: "${t.name}" and "${existing}" both sanitize to "${sanitized}"`);
+        }
+      }
       toolNameMap.set(sanitized, t.name);
       return {
         name: sanitized,
@@ -96,6 +108,15 @@ export class AnthropicProvider implements LlmProvider {
     request: LlmRequest,
     toolNameMap: Map<string, string>,
   ): AsyncIterable<LlmEvent> {
+    const startMs = Date.now();
+
+    this.logger?.info('llm.request', {
+      model,
+      stream: true,
+      messageCount: request.messages.length,
+      toolCount: request.tools?.length ?? 0,
+    });
+
     const stream = this.client.messages.stream({
       model,
       system,
@@ -129,8 +150,10 @@ export class AnthropicProvider implements LlmProvider {
 
     // Get final message to extract complete tool calls
     const finalMessage = await stream.finalMessage();
+    let toolCallCount = 0;
     for (const block of finalMessage.content) {
       if (block.type === 'tool_use') {
+        toolCallCount++;
         yield {
           type: 'tool_call',
           id: block.id,
@@ -139,6 +162,20 @@ export class AnthropicProvider implements LlmProvider {
         };
       }
     }
+
+    const durationMs = Date.now() - startMs;
+    this.logger?.info('llm.response', {
+      model,
+      stream: true,
+      durationMs,
+      stopReason: finalMessage.stop_reason,
+      toolCallCount,
+    });
+    this.logger?.debug('llm.usage', {
+      model,
+      inputTokens: finalMessage.usage.input_tokens,
+      outputTokens: finalMessage.usage.output_tokens,
+    });
 
     yield { type: 'done' };
   }
@@ -151,6 +188,15 @@ export class AnthropicProvider implements LlmProvider {
     request: LlmRequest,
     toolNameMap: Map<string, string>,
   ): AsyncIterable<LlmEvent> {
+    const startMs = Date.now();
+
+    this.logger?.info('llm.request', {
+      model,
+      stream: false,
+      messageCount: request.messages.length,
+      toolCount: request.tools?.length ?? 0,
+    });
+
     const response = await this.client.messages.create({
       model,
       system,
@@ -160,10 +206,14 @@ export class AnthropicProvider implements LlmProvider {
       temperature: request.temperature,
     });
 
+    const durationMs = Date.now() - startMs;
+    let toolCallCount = 0;
+
     for (const block of response.content) {
       if (block.type === 'text') {
         yield { type: 'text', content: block.text };
       } else if (block.type === 'tool_use') {
+        toolCallCount++;
         yield {
           type: 'tool_call',
           id: block.id,
@@ -172,6 +222,20 @@ export class AnthropicProvider implements LlmProvider {
         };
       }
     }
+
+    this.logger?.info('llm.response', {
+      model,
+      stream: false,
+      durationMs,
+      stopReason: response.stop_reason,
+      hasContent: response.content.some((b) => b.type === 'text'),
+      toolCallCount,
+    });
+    this.logger?.debug('llm.usage', {
+      model,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    });
 
     yield {
       type: 'usage',
@@ -234,7 +298,7 @@ export class AnthropicProvider implements LlmProvider {
         return {
           type: 'tool_use' as const,
           id: block.id as string,
-          name: block.name as string,
+          name: this.sanitizeToolName(block.name as string),
           input: block.input as Record<string, unknown>,
         };
       }
