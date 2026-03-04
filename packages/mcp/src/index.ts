@@ -10,10 +10,14 @@ export type {
   JsonRpcResponse,
   JsonRpcNotification,
   McpConfig,
+  McpAuthConfig,
   CircuitBreakerConfig,
   McpManagerConfig,
 } from './types.js';
-export { mcpServerConfigSchema, mcpConfigSchema, DEFAULT_CIRCUIT_BREAKER_CONFIG, DEFAULT_MCP_MANAGER_CONFIG } from './types.js';
+export { mcpServerConfigSchema, mcpAuthConfigSchema, mcpConfigSchema, DEFAULT_CIRCUIT_BREAKER_CONFIG, DEFAULT_MCP_MANAGER_CONFIG } from './types.js';
+
+export { McpOAuth2Client, generateCodeVerifier, generateCodeChallenge } from './oauth2.js';
+export type { OAuth2Config, OAuth2Tokens } from './oauth2.js';
 
 export { CircuitBreaker, type CircuitBreakerState } from './circuit-breaker.js';
 

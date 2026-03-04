@@ -3,6 +3,7 @@ import type { McpTransport } from './transports.js';
 import { StdioTransport, SseTransport, HttpTransport } from './transports.js';
 import { McpServerHandle } from './server-handle.js';
 import { HealthMonitor, type HealthEventListener } from './health-monitor.js';
+import { McpOAuth2Client } from './oauth2.js';
 import type {
   McpServerConfig,
   McpToolDefinition,
@@ -33,17 +34,39 @@ const defaultTransportFactory: TransportFactory = {
       });
     }
     if (config.transport === 'http') {
+      let auth: McpOAuth2Client | undefined;
+      const headers = { ...config.headers };
+
+      if (config.auth?.type === 'oauth2') {
+        auth = new McpOAuth2Client(config.auth);
+      } else if (config.auth?.type === 'bearer') {
+        headers['Authorization'] = `Bearer ${config.auth.token}`;
+      }
+
       return new HttpTransport({
         url: config.url!,
-        headers: config.headers,
+        headers,
         timeoutMs,
+        auth,
       });
     }
-    return new SseTransport({
-      url: config.url!,
-      headers: config.headers,
-      timeoutMs,
-    });
+    {
+      let sseAuth: McpOAuth2Client | undefined;
+      const sseHeaders = { ...config.headers };
+
+      if (config.auth?.type === 'oauth2') {
+        sseAuth = new McpOAuth2Client(config.auth);
+      } else if (config.auth?.type === 'bearer') {
+        sseHeaders['Authorization'] = `Bearer ${config.auth.token}`;
+      }
+
+      return new SseTransport({
+        url: config.url!,
+        headers: sseHeaders,
+        timeoutMs,
+        auth: sseAuth,
+      });
+    }
   },
 };
 

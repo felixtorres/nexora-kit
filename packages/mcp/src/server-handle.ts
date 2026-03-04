@@ -9,7 +9,7 @@ import type {
 } from './types.js';
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from './types.js';
 
-const MCP_PROTOCOL_VERSION = '2024-11-05';
+const MCP_PROTOCOL_VERSION = '2025-03-26';
 
 export interface ServerHandleOptions {
   config: McpServerConfig;

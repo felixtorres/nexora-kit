@@ -264,6 +264,18 @@ describe('loadMcpPlugin', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain('Invalid .mcp.json');
   });
+
+  it('auto-detects SSE transport when type is http but URL ends in /sse', () => {
+    writeFile('.mcp.json', JSON.stringify({
+      mcpServers: {
+        server: { type: 'http', url: 'https://mcp.example.com/sse' },
+      },
+    }));
+
+    const result = loadMcpPlugin(tmpDir);
+    expect(result.errors).toHaveLength(0);
+    expect(result.mcpServerConfigs[0].transport).toBe('sse');
+  });
 });
 
 describe('discoverPlugins with Claude plugins', () => {

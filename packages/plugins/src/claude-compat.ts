@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { PluginManifest, ToolDefinition, Permission } from '@nexora-kit/core';
 import type { SkillDefinition } from '@nexora-kit/skills';
 import type { CommandDefinition } from '@nexora-kit/commands';
-import type { McpServerConfig } from '@nexora-kit/mcp';
+import type { McpServerConfig, McpTransportType } from '@nexora-kit/mcp';
 import { parseMdSkill } from '@nexora-kit/skills';
 import { parseMdCommand } from '@nexora-kit/commands';
 import { qualifyName } from './namespace.js';
@@ -25,6 +25,14 @@ interface ClaudeMcpJson {
     env?: Record<string, string>;
     headers?: Record<string, string>;
   }>;
+}
+
+function resolveTransportType(type?: string, url?: string): McpTransportType {
+  if (type === 'stdio') return 'stdio';
+  // URLs ending in /sse are the older SSE transport, even if type says "http"
+  if (url && /\/sse\/?$/.test(url)) return 'sse';
+  if (type === 'http') return 'http';
+  return 'sse';
 }
 
 export function isClaudePlugin(dir: string): boolean {
@@ -88,10 +96,7 @@ export function loadMcpPlugin(pluginDir: string): LoadResult {
   const mcpServerConfigs: McpServerConfig[] = [];
   if (mcpJson.mcpServers) {
     for (const [serverName, config] of Object.entries(mcpJson.mcpServers)) {
-      const transport =
-        config.type === 'http' ? ('http' as const)
-        : config.type === 'stdio' ? ('stdio' as const)
-        : ('sse' as const);
+      const transport = resolveTransportType(config.type, config.url);
       mcpServerConfigs.push({
         name: serverName,
         transport,
@@ -180,9 +185,7 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
       const mcpJson: ClaudeMcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
       if (mcpJson.mcpServers) {
         for (const [name, config] of Object.entries(mcpJson.mcpServers)) {
-          const transport = config.type === 'http' ? 'http' as const
-            : config.type === 'stdio' ? 'stdio' as const
-            : 'sse' as const;
+          const transport = resolveTransportType(config.type, config.url);
 
           mcpServerConfigs.push({
             name,

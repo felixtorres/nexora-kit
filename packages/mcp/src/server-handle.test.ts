@@ -37,7 +37,7 @@ describe('McpServerHandle', () => {
 
     expect(transport.connect).toHaveBeenCalled();
     expect(transport.request).toHaveBeenCalledWith('initialize', expect.objectContaining({
-      protocolVersion: '2024-11-05',
+      protocolVersion: '2025-03-26',
     }));
     expect(transport.notify).toHaveBeenCalledWith('notifications/initialized');
     expect(transport.request).toHaveBeenCalledWith('tools/list');

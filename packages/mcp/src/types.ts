@@ -5,6 +5,10 @@ import type { Logger } from '@nexora-kit/core';
 
 export type McpTransportType = 'stdio' | 'sse' | 'http';
 
+export type McpAuthConfig =
+  | { type: 'oauth2'; clientId?: string; clientSecret?: string; scopes?: string[]; callbackPort?: number }
+  | { type: 'bearer'; token: string };
+
 export interface McpServerConfig {
   name: string;
   transport: McpTransportType;
@@ -13,6 +17,7 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  auth?: McpAuthConfig;
 }
 
 // --- Server status ---
@@ -85,6 +90,20 @@ export interface JsonRpcNotification {
 
 // --- Zod schemas for mcp.yaml ---
 
+export const mcpAuthConfigSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('oauth2'),
+    clientId: z.string().optional(),
+    clientSecret: z.string().optional(),
+    scopes: z.array(z.string()).optional(),
+    callbackPort: z.number().int().positive().optional(),
+  }),
+  z.object({
+    type: z.literal('bearer'),
+    token: z.string().min(1),
+  }),
+]);
+
 export const mcpServerConfigSchema = z
   .object({
     name: z.string().min(1),
@@ -94,6 +113,7 @@ export const mcpServerConfigSchema = z
     env: z.record(z.string()).optional(),
     url: z.string().url().optional(),
     headers: z.record(z.string()).optional(),
+    auth: mcpAuthConfigSchema.optional(),
   })
   .refine(
     (data) => {
