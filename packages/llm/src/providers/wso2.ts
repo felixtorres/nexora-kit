@@ -30,8 +30,30 @@ import { Wso2AuthService, type Wso2AuthOptions } from './wso2-auth.js';
 // ---------------------------------------------------------------------------
 
 interface OpenAiMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_call_id?: string;
+  tool_calls?: OpenAiToolCall[];
+}
+
+interface OpenAiToolFunction {
+  name: string;
+  description?: string;
+  parameters: Record<string, unknown>;
+}
+
+interface OpenAiTool {
+  type: 'function';
+  function: OpenAiToolFunction;
+}
+
+interface OpenAiToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 interface OpenAiChatRequest {
@@ -39,12 +61,19 @@ interface OpenAiChatRequest {
   temperature?: number;
   max_tokens?: number;
   stream: boolean;
+  stream_options?: { include_usage: boolean };
   frequency_penalty?: number;
   presence_penalty?: number;
+  tools?: OpenAiTool[];
+  tool_choice?: 'auto' | 'none' | 'required';
 }
 
 interface OpenAiChoice {
-  message: { role: string; content: string | null };
+  message: {
+    role: string;
+    content: string | null;
+    tool_calls?: OpenAiToolCall[];
+  };
   finish_reason: string | null;
 }
 
@@ -60,9 +89,20 @@ interface OpenAiChatResponse {
 }
 
 // Streaming delta types
+interface OpenAiToolCallDelta {
+  index: number;
+  id?: string;
+  type?: 'function';
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
 interface OpenAiStreamDelta {
   role?: string;
   content?: string | null;
+  tool_calls?: OpenAiToolCallDelta[];
 }
 
 interface OpenAiStreamChoice {
@@ -267,23 +307,95 @@ export class Wso2Provider implements LlmProvider {
   }
 
   private toOpenAiMessages(request: LlmRequest): OpenAiMessage[] {
-    return request.messages
-      .filter((m) => m.role !== 'tool') // tool results not supported in this provider
-      .map((m) => ({
-        role: m.role as 'system' | 'user' | 'assistant',
-        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      }));
+    const result: OpenAiMessage[] = [];
+
+    for (const m of request.messages) {
+      if (typeof m.content === 'string') {
+        result.push({
+          role: m.role as OpenAiMessage['role'],
+          content: m.content,
+        });
+        continue;
+      }
+
+      // Structured content blocks
+      for (const block of m.content) {
+        if (block.type === 'text') {
+          result.push({ role: m.role as OpenAiMessage['role'], content: block.text });
+        } else if (block.type === 'tool_use') {
+          // Assistant message with a tool call — name must be sanitized to match
+          // the wire pattern ^[a-zA-Z0-9_\.-]+$ just as it was when tools were declared.
+          result.push({
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: block.id,
+                type: 'function',
+                function: {
+                  name: this.sanitizeToolName(block.name),
+                  arguments: JSON.stringify(block.input),
+                },
+              },
+            ],
+          });
+        } else if (block.type === 'tool_result') {
+          // Tool result message
+          result.push({
+            role: 'tool',
+            content: block.content,
+            tool_call_id: block.toolUseId,
+          });
+        }
+      }
+    }
+
+    return result;
   }
 
-  private buildRequestBody(request: LlmRequest): OpenAiChatRequest {
-    return {
+  /**
+   * Sanitize a tool name to match the OpenAI pattern ^[a-zA-Z0-9_\.-]+$.
+   * Strips leading '@', replaces '/' with '.', and replaces ':' with '.'.
+   * Examples:
+   *   "@kyvos/kyvos-mcp.tool"  → "kyvos.kyvos-mcp.tool"
+   *   "my-plugin:greet"        → "my-plugin.greet"
+   *   "@ns/srv:tool"           → "ns.srv.tool"
+   */
+  private sanitizeToolName(name: string): string {
+    return name.replace(/^@/, '').replace(/\//g, '.').replace(/:/g, '.');
+  }
+
+  private buildRequestBody(
+    request: LlmRequest,
+    toolNameMap?: Map<string, string>,
+  ): OpenAiChatRequest {
+    const body: OpenAiChatRequest = {
       messages: this.toOpenAiMessages(request),
       temperature: request.temperature,
       max_tokens: request.maxTokens ?? this.defaultMaxTokens,
       frequency_penalty: 0,
       presence_penalty: 0,
       stream: request.stream,
+      ...(request.stream ? { stream_options: { include_usage: true } } : {}),
     };
+
+    if (request.tools && request.tools.length > 0) {
+      body.tools = request.tools.map((t) => {
+        const sanitized = this.sanitizeToolName(t.name);
+        toolNameMap?.set(sanitized, t.name);
+        return {
+          type: 'function',
+          function: {
+            name: sanitized,
+            description: t.description,
+            parameters: t.parameters as Record<string, unknown>,
+          },
+        };
+      });
+      body.tool_choice = 'auto';
+    }
+
+    return body;
   }
 
   private async fetchWithAuth(url: string, body: OpenAiChatRequest): Promise<Response> {
@@ -313,7 +425,8 @@ export class Wso2Provider implements LlmProvider {
 
   private async *blockChat(request: LlmRequest): AsyncIterable<LlmEvent> {
     const url = this.buildChatUrl();
-    const body = this.buildRequestBody(request);
+    const toolNameMap = new Map<string, string>();
+    const body = this.buildRequestBody(request, toolNameMap);
 
     const response = await this.fetchWithAuth(url, body);
 
@@ -325,11 +438,25 @@ export class Wso2Provider implements LlmProvider {
     const data = (await response.json()) as OpenAiChatResponse;
     const choice = data.choices[0];
 
-    if (!choice?.message?.content) {
+    if (!choice) {
       throw new Error('WSO2 API returned an empty response');
     }
 
-    yield { type: 'text', content: choice.message.content };
+    // Emit tool calls if present
+    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
+      for (const toolCall of choice.message.tool_calls) {
+        let input: unknown = {};
+        try {
+          input = JSON.parse(toolCall.function.arguments);
+        } catch {
+          input = { _raw: toolCall.function.arguments };
+        }
+        const originalName = toolNameMap.get(toolCall.function.name) ?? toolCall.function.name;
+        yield { type: 'tool_call', id: toolCall.id, name: originalName, input };
+      }
+    } else if (choice.message.content) {
+      yield { type: 'text', content: choice.message.content };
+    }
 
     if (data.usage) {
       yield {
@@ -344,7 +471,8 @@ export class Wso2Provider implements LlmProvider {
 
   private async *streamChat(request: LlmRequest): AsyncIterable<LlmEvent> {
     const url = this.buildChatUrl();
-    const body = this.buildRequestBody(request);
+    const toolNameMap = new Map<string, string>();
+    const body = this.buildRequestBody(request, toolNameMap);
 
     const response = await this.fetchWithAuth(url, body);
 
@@ -360,6 +488,9 @@ export class Wso2Provider implements LlmProvider {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+
+    // Accumulate streaming tool call fragments
+    const toolCallAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
 
     try {
       while (true) {
@@ -385,6 +516,20 @@ export class Wso2Provider implements LlmProvider {
                 yield { type: 'text', content: delta.content };
               }
 
+              // Accumulate tool call deltas
+              if (delta?.tool_calls) {
+                for (const tcDelta of delta.tool_calls) {
+                  const idx = tcDelta.index;
+                  if (!toolCallAccumulator.has(idx)) {
+                    toolCallAccumulator.set(idx, { id: '', name: '', arguments: '' });
+                  }
+                  const acc = toolCallAccumulator.get(idx)!;
+                  if (tcDelta.id) acc.id = tcDelta.id;
+                  if (tcDelta.function?.name) acc.name = tcDelta.function.name;
+                  if (tcDelta.function?.arguments) acc.arguments += tcDelta.function.arguments;
+                }
+              }
+
               if (chunk.usage) {
                 yield {
                   type: 'usage',
@@ -400,6 +545,18 @@ export class Wso2Provider implements LlmProvider {
       }
     } finally {
       reader.releaseLock();
+    }
+
+    // Emit accumulated tool calls after stream ends
+    for (const [, acc] of [...toolCallAccumulator.entries()].sort(([a], [b]) => a - b)) {
+      let input: unknown = {};
+      try {
+        input = JSON.parse(acc.arguments);
+      } catch {
+        input = { _raw: acc.arguments };
+      }
+      const originalName = toolNameMap.get(acc.name) ?? acc.name;
+      yield { type: 'tool_call', id: acc.id, name: originalName, input };
     }
 
     yield { type: 'done' };

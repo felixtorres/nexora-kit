@@ -11,9 +11,27 @@ export interface AnthropicProviderOptions {
 export class AnthropicProvider implements LlmProvider {
   readonly name = 'anthropic';
   readonly models: ModelInfo[] = [
-    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'anthropic', contextWindow: 200_000, maxOutputTokens: 16_384 },
-    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200_000, maxOutputTokens: 8_192 },
-    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'anthropic', contextWindow: 200_000, maxOutputTokens: 32_000 },
+    {
+      id: 'claude-sonnet-4-6',
+      name: 'Claude Sonnet 4.6',
+      provider: 'anthropic',
+      contextWindow: 200_000,
+      maxOutputTokens: 16_384,
+    },
+    {
+      id: 'claude-haiku-4-5-20251001',
+      name: 'Claude Haiku 4.5',
+      provider: 'anthropic',
+      contextWindow: 200_000,
+      maxOutputTokens: 8_192,
+    },
+    {
+      id: 'claude-opus-4-6',
+      name: 'Claude Opus 4.6',
+      provider: 'anthropic',
+      contextWindow: 200_000,
+      maxOutputTokens: 32_000,
+    },
   ];
 
   private client: Anthropic;
@@ -27,28 +45,46 @@ export class AnthropicProvider implements LlmProvider {
     this.defaultMaxTokens = options.defaultMaxTokens ?? 4096;
   }
 
+  /**
+   * Sanitize a tool name to match Anthropic's pattern ^[a-zA-Z0-9_-]{1,64}$.
+   * Strips leading '@', replaces '/', ':', and '.' with '_'.
+   * Examples:
+   *   "@kyvos/kyvos-mcp.tool"  → "kyvos_kyvos-mcp_tool"
+   *   "my-plugin:greet"        → "my-plugin_greet"
+   */
+  private sanitizeToolName(name: string): string {
+    return name.replace(/^@/, '').replace(/[/:.]/g, '_').slice(0, 64);
+  }
+
   async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
     // Separate system message from conversation
     const systemMessages = request.messages.filter((m) => m.role === 'system');
     const conversationMessages = request.messages.filter((m) => m.role !== 'system');
 
-    const system = systemMessages
-      .map((m) => (typeof m.content === 'string' ? m.content : ''))
-      .filter(Boolean)
-      .join('\n\n') || undefined;
+    const system =
+      systemMessages
+        .map((m) => (typeof m.content === 'string' ? m.content : ''))
+        .filter(Boolean)
+        .join('\n\n') || undefined;
 
     const messages = conversationMessages.map((m) => this.toAnthropicMessage(m));
 
-    const tools = request.tools?.map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.parameters as Anthropic.Tool['input_schema'],
-    }));
+    // Build tool name map: sanitized → original, so tool calls can be reverse-mapped
+    const toolNameMap = new Map<string, string>();
+    const tools = request.tools?.map((t) => {
+      const sanitized = this.sanitizeToolName(t.name);
+      toolNameMap.set(sanitized, t.name);
+      return {
+        name: sanitized,
+        description: t.description,
+        input_schema: t.parameters as Anthropic.Tool['input_schema'],
+      };
+    });
 
     if (request.stream) {
-      yield* this.streamChat(request.model, system, messages, tools, request);
+      yield* this.streamChat(request.model, system, messages, tools, request, toolNameMap);
     } else {
-      yield* this.blockChat(request.model, system, messages, tools, request);
+      yield* this.blockChat(request.model, system, messages, tools, request, toolNameMap);
     }
   }
 
@@ -58,6 +94,7 @@ export class AnthropicProvider implements LlmProvider {
     messages: Anthropic.MessageParam[],
     tools: Anthropic.Tool[] | undefined,
     request: LlmRequest,
+    toolNameMap: Map<string, string>,
   ): AsyncIterable<LlmEvent> {
     const stream = this.client.messages.stream({
       model,
@@ -97,7 +134,7 @@ export class AnthropicProvider implements LlmProvider {
         yield {
           type: 'tool_call',
           id: block.id,
-          name: block.name,
+          name: toolNameMap.get(block.name) ?? block.name,
           input: block.input as Record<string, unknown>,
         };
       }
@@ -112,6 +149,7 @@ export class AnthropicProvider implements LlmProvider {
     messages: Anthropic.MessageParam[],
     tools: Anthropic.Tool[] | undefined,
     request: LlmRequest,
+    toolNameMap: Map<string, string>,
   ): AsyncIterable<LlmEvent> {
     const response = await this.client.messages.create({
       model,
@@ -129,7 +167,7 @@ export class AnthropicProvider implements LlmProvider {
         yield {
           type: 'tool_call',
           id: block.id,
-          name: block.name,
+          name: toolNameMap.get(block.name) ?? block.name,
           input: block.input as Record<string, unknown>,
         };
       }
@@ -157,13 +195,20 @@ export class AnthropicProvider implements LlmProvider {
     return Math.ceil(totalChars / 4);
   }
 
-  private toAnthropicMessage(msg: { role: string; content: string | unknown[] }): Anthropic.MessageParam {
+  private toAnthropicMessage(msg: {
+    role: string;
+    content: string | unknown[];
+  }): Anthropic.MessageParam {
     if (msg.role === 'tool') {
       // Convert tool results to Anthropic format
       const blocks = Array.isArray(msg.content) ? msg.content : [];
       const toolResults = blocks
-        .filter((b): b is { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean } =>
-          typeof b === 'object' && b !== null && 'type' in b && b.type === 'tool_result')
+        .filter(
+          (
+            b,
+          ): b is { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean } =>
+            typeof b === 'object' && b !== null && 'type' in b && b.type === 'tool_result',
+        )
         .map((b) => ({
           type: 'tool_result' as const,
           tool_use_id: b.toolUseId,
