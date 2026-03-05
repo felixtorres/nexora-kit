@@ -1,0 +1,24 @@
+name: Data Agent
+version: 1.0.0
+namespace: data-agent
+description: Database exploration and analysis agent powered by db-insight-graph MCP tools
+author: felix
+
+permissions:
+  - llm:invoke
+  - mcp:connect
+
+config:
+  schema:
+    connection_string:
+      type: string
+      description: Database connection string (leave empty to use dbinsight default config)
+      default: ""
+    default_schema:
+      type: string
+      description: Default database schema to explore
+      default: public
+    glossary_path:
+      type: string
+      description: Path to business glossary YAML file for domain term lookups
+      default: ""

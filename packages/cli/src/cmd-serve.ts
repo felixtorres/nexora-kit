@@ -229,6 +229,7 @@ export const serveCommand: CliCommand = {
       auth,
       conversationStore: storageBackend.conversationStore,
       messageStore: storageBackend.messageStore,
+      usageEventStore,
       plugins: lifecycle,
       admin: adminService,
       logger: logger.child({ component: 'gateway' }),

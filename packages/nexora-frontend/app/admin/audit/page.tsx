@@ -100,7 +100,7 @@ export default function AuditPage() {
               {events.map((event) => (
                 <tr key={event.id} className="hover:bg-muted/20">
                   <td className="px-4 py-2 text-xs text-muted-foreground font-mono whitespace-nowrap">
-                    {new Date(event.timestamp).toLocaleString()}
+                    {new Date(event.createdAt).toLocaleString()}
                   </td>
                   <td className="px-4 py-2">{event.actor}</td>
                   <td className="px-4 py-2">

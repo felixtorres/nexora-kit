@@ -1,0 +1,11 @@
+name: search
+description: Search for tables and columns by name or description
+args:
+  - name: query
+    type: string
+    required: true
+    description: Search query — table name, column name, or description
+prompt: |
+  The user wants to search the database for "{{query}}". Call `generate_context` with `focus` set to "{{query}}".
+
+  Present the matching tables and columns in a concise list with brief descriptions.

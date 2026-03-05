@@ -1,0 +1,10 @@
+name: status
+description: Show database cache stats, connection info, and scan freshness
+prompt: |
+  The user wants to check the data-agent status. Call `cache_control` with `operation`: `stats`.
+
+  Present the results showing:
+  - Cache size and hit rate
+  - Last scan timestamp
+  - Number of cached tables and relationships
+  - Connection status

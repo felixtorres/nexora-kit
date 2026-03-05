@@ -1,0 +1,21 @@
+name: scan
+description: Scan a database to build or refresh the metadata graph
+args:
+  - name: incremental
+    type: boolean
+    required: false
+    default: false
+    description: Only scan tables that changed since last scan
+    alias: i
+  - name: schema
+    type: string
+    required: false
+    description: Schema to scan (defaults to plugin config)
+    alias: s
+prompt: |
+  The user wants to scan a database. Call `scan_database` with:
+  - `confirmed`: true
+  - `incremental`: {{incremental}}
+  {{#schema}}- `schema`: {{schema}}{{/schema}}
+
+  Report the scan results: tables found, relationships discovered, and time taken.

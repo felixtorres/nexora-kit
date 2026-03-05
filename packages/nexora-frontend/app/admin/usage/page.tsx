@@ -20,7 +20,16 @@ export default function UsagePage() {
   const [breakdown, setBreakdown] = useState<BreakdownMode>('plugin');
   const { data, isLoading } = useUsageAnalytics({ breakdown });
 
-  const rows = data?.data ?? [];
+  const rawRows = data?.data ?? [];
+  // Normalize: plugin breakdown returns totalInputTokens/totalOutputTokens,
+  // daily breakdown returns inputTokens/outputTokens (no totalTokens)
+  const rows = rawRows.map((r) => ({
+    ...r,
+    inputTokens: r.inputTokens || r.totalInputTokens || 0,
+    outputTokens: r.outputTokens || r.totalOutputTokens || 0,
+    totalTokens: r.totalTokens || (r.inputTokens || r.totalInputTokens || 0) + (r.outputTokens || r.totalOutputTokens || 0),
+    requestCount: r.requestCount || 0,
+  }));
   const totalTokens = data?.totalTokens ?? rows.reduce((sum, r) => sum + r.totalTokens, 0);
 
   return (

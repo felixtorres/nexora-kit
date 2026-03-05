@@ -24,6 +24,8 @@ export default function PluginsPage() {
 
   const plugins = data?.plugins ?? [];
 
+  const isEnabled = (plugin: { state?: string }) => plugin.state === 'enabled';
+
   const handleToggle = (name: string, currentlyEnabled: boolean) => {
     togglePlugin.mutate({ name, enabled: !currentlyEnabled });
   };
@@ -64,12 +66,12 @@ export default function PluginsPage() {
                 <CardAction>
                   <div className="flex items-center gap-2">
                     <Button
-                      variant={plugin.enabled ? 'outline' : 'default'}
+                      variant={isEnabled(plugin) ? 'outline' : 'default'}
                       size="sm"
-                      onClick={() => handleToggle(plugin.namespace, plugin.enabled)}
+                      onClick={() => handleToggle(plugin.namespace, isEnabled(plugin))}
                       disabled={togglePlugin.isPending}
                     >
-                      {plugin.enabled ? 'Disable' : 'Enable'}
+                      {isEnabled(plugin) ? 'Disable' : 'Enable'}
                     </Button>
                     <Button
                       variant="ghost"
@@ -83,8 +85,8 @@ export default function PluginsPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Badge variant={plugin.enabled ? 'default' : 'secondary'}>
-                    {plugin.enabled ? 'Enabled' : 'Disabled'}
+                  <Badge variant={isEnabled(plugin) ? 'default' : 'secondary'}>
+                    {isEnabled(plugin) ? 'Enabled' : 'Disabled'}
                   </Badge>
                   {plugin.version && <span className="text-xs font-mono">v{plugin.version}</span>}
                 </div>

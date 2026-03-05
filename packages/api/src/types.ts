@@ -15,6 +15,7 @@ import type {
   IWorkspaceStore,
   IContextDocumentStore,
   IArtifactStore,
+  IUsageEventStore,
 } from '@nexora-kit/storage';
 
 // --- Auth ---
@@ -96,6 +97,7 @@ export interface GatewayConfig {
   workspaceStore?: IWorkspaceStore;
   contextDocumentStore?: IContextDocumentStore;
   artifactStore?: IArtifactStore;
+  usageEventStore?: IUsageEventStore;
   fileBasePath?: string;
   maxFileSize?: number;
   allowedMimeTypes?: string[];

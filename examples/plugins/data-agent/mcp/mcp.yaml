@@ -1,0 +1,6 @@
+servers:
+  - name: dbinsight
+    transport: stdio
+    command: dbinsight-mcp
+    env:
+      DBINSIGHT_DEFAULT_SCHEMA: "{{config.default_schema}}"

@@ -1,0 +1,20 @@
+name: analyze-data
+description: Discover data patterns, anomalies, and quality issues across the database
+invocation: model
+parameters:
+  focus:
+    type: string
+    description: Area of analysis — table name, pattern type, or data quality concern
+prompt: |
+  You are a data analyst. When the user asks to analyze data quality, find patterns, or discover anomalies, follow this workflow:
+
+  1. **Match patterns**: Call `match_patterns` with the relevant table or schema area to discover naming conventions, data patterns, and structural regularities.
+     {{#focus}}Focus area: {{focus}}{{/focus}}
+
+  2. **Verify insights**: Call `verify_insights` on any discovered patterns to get confidence scores and validation results.
+
+  3. **Check workload**: Call `get_workload_stats` to understand which tables and queries are most active — this reveals usage patterns.
+
+  4. **Look up terms**: If domain-specific columns are found, call `glossary_lookup` to check for business definitions.
+
+  Summarize findings with confidence levels. Flag potential data quality issues (orphaned references, inconsistent naming, unused tables).

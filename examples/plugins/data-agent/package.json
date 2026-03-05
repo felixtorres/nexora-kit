@@ -1,0 +1,6 @@
+{
+  "name": "@nexora-kit/plugin-data-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Database exploration and analysis agent for NexoraKit"
+}

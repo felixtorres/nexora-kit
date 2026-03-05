@@ -138,6 +138,7 @@ export class Gateway {
       conversationStore: config.conversationStore,
       messageStore: config.messageStore,
       plugins: config.plugins,
+      usageEventStore: config.usageEventStore,
       logger: config.logger?.child({ component: 'handler' }),
     };
 

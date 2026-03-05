@@ -61,17 +61,20 @@ export interface PluginSummary {
   namespace: string;
   name: string;
   version?: string;
-  enabled: boolean;
+  state: string;
+  description?: string;
+  toolCount?: number;
 }
 
 export type { ConversationRecord } from "@/lib/block-types";
 
 export interface AuditEvent {
-  id: string;
+  id: number;
   actor: string;
   action: string;
   target?: string;
-  timestamp: string;
+  createdAt: string;
+  result: 'success' | 'failure';
   details?: Record<string, unknown>;
 }
 
@@ -82,6 +85,9 @@ export interface UsageSummary {
   outputTokens: number;
   totalTokens: number;
   requestCount: number;
+  // API plugin breakdown uses totalInputTokens/totalOutputTokens
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
 }
 
 export interface FeedbackItem {

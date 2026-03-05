@@ -1,6 +1,6 @@
 import type { AgentLoop, MessageStore, ResponseBlock, Logger } from '@nexora-kit/core';
 import type { PluginLifecycleManager } from '@nexora-kit/plugins';
-import type { IConversationStore } from '@nexora-kit/storage';
+import type { IConversationStore, IUsageEventStore } from '@nexora-kit/storage';
 import type { ApiRequest, ApiResponse } from './types.js';
 import {
   chatRequestSchema,
@@ -15,6 +15,7 @@ export interface HandlerDeps {
   conversationStore?: IConversationStore;
   messageStore?: MessageStore;
   plugins?: PluginLifecycleManager;
+  usageEventStore?: IUsageEventStore;
   logger?: Logger;
 }
 
@@ -197,6 +198,8 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     const loopStart = Date.now();
     let fullText = '';
     const allBlocks: ResponseBlock[] = [];
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     for await (const event of deps.agentLoop.run(
       {
@@ -213,16 +216,37 @@ export function createSendMessageHandler(deps: HandlerDeps) {
         fullText += event.content;
       } else if (event.type === 'blocks') {
         allBlocks.push(...event.blocks);
+      } else if (event.type === 'usage') {
+        totalInputTokens += event.inputTokens;
+        totalOutputTokens += event.outputTokens;
       }
     }
+
+    const durationMs = Date.now() - loopStart;
 
     deps.logger?.info('agent_loop.done', {
       conversationId,
       userId: req.auth.userId,
-      durationMs: Date.now() - loopStart,
+      durationMs,
       outputLength: fullText.length,
       blockCount: allBlocks.length,
     });
+
+    // Record usage event
+    if (deps.usageEventStore && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+      try {
+        await deps.usageEventStore.insert({
+          pluginName: pluginNamespaces?.[0] ?? '__core__',
+          userId: req.auth.userId,
+          model: undefined,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          latencyMs: durationMs,
+        });
+      } catch {
+        deps.logger?.warn('usage.record_failed', { conversationId });
+      }
+    }
 
     // Update message stats + auto-title
     if (deps.conversationStore) {
@@ -285,6 +309,8 @@ export function createChatHandler(deps: HandlerDeps) {
     const loopStart = Date.now();
     let fullText = '';
     const allBlocks: ResponseBlock[] = [];
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     for await (const event of deps.agentLoop.run(
       {
@@ -301,17 +327,38 @@ export function createChatHandler(deps: HandlerDeps) {
         fullText += event.content;
       } else if (event.type === 'blocks') {
         allBlocks.push(...event.blocks);
+      } else if (event.type === 'usage') {
+        totalInputTokens += event.inputTokens;
+        totalOutputTokens += event.outputTokens;
       }
     }
+
+    const durationMs = Date.now() - loopStart;
 
     deps.logger?.info('agent_loop.done', {
       conversationId: resolvedConversationId,
       userId: req.auth.userId,
-      durationMs: Date.now() - loopStart,
+      durationMs,
       outputLength: fullText.length,
       blockCount: allBlocks.length,
       endpoint: 'chat',
     });
+
+    // Record usage event
+    if (deps.usageEventStore && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+      try {
+        await deps.usageEventStore.insert({
+          pluginName: pluginNamespaces?.[0] ?? '__core__',
+          userId: req.auth.userId,
+          model: undefined,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          latencyMs: durationMs,
+        });
+      } catch {
+        deps.logger?.warn('usage.record_failed', { conversationId: resolvedConversationId });
+      }
+    }
 
     return jsonResponse(200, {
       conversationId: resolvedConversationId,

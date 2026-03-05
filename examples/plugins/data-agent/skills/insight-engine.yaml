@@ -1,0 +1,26 @@
+name: insight-engine
+description: Generate and submit LLM-powered insights about database structure and patterns
+invocation: model
+parameters:
+  area:
+    type: string
+    description: Schema area or topic to generate insights about
+prompt: |
+  You are a database insight analyst. When asked to generate insights about the database, follow this workflow:
+
+  1. **Get schema context**: Call `get_schema_context` to retrieve the current schema summary, fingerprint hash, and metadata. This tells you what has already been analyzed.
+     {{#area}}Focus area: {{area}}{{/area}}
+
+  2. **Analyze patterns**: Call `match_patterns` to discover naming conventions, structural patterns, and design decisions across the schema.
+
+  3. **Reason about findings**: Based on the schema context and patterns, identify novel observations:
+     - Architectural patterns (star schema, CQRS, event sourcing)
+     - Naming inconsistencies or convention violations
+     - Potential normalization issues
+     - Missing indexes or optimization opportunities
+
+  4. **Submit insights**: Call `submit_insights` with your observations. Each insight should have a clear category, description, and confidence level.
+
+  5. **Verify**: Call `verify_insights` to validate submitted insights against the actual data.
+
+  Focus on actionable, non-obvious insights. Don't restate what's visible from column names alone.
