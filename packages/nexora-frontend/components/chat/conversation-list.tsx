@@ -1,10 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { Plus, MessageSquare, Loader2 } from "lucide-react";
+import { Plus, MessageSquare, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useConversationList } from "@/hooks/use-conversation";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useConversationList, useDeleteConversation } from "@/hooks/use-conversation";
 import type { ConversationRecord } from "@/lib/block-types";
 
 function formatTime(iso: string): string {
@@ -30,8 +39,21 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
   const params = useParams();
   const activeId = params?.conversationId as string | undefined;
   const { data, isLoading } = useConversationList();
+  const deleteConversation = useDeleteConversation();
+  const [deleteTarget, setDeleteTarget] = useState<ConversationRecord | null>(null);
 
   const conversations = data?.items ?? [];
+
+  function handleDelete() {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    deleteConversation.mutate(id, {
+      onSuccess: () => {
+        if (activeId === id) router.push("/chat");
+        setDeleteTarget(null);
+      },
+    });
+  }
 
   return (
     <div className="flex h-full w-64 flex-col border-r bg-muted/20">
@@ -61,30 +83,69 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
         ) : (
           <div className="space-y-0.5 p-1.5">
             {conversations.map((conv: ConversationRecord) => (
-              <button
+              <div
                 key={conv.id}
-                onClick={() => router.push(`/chat/${conv.id}`)}
-                className={`flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                className={`group flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
                   activeId === conv.id
                     ? "bg-accent text-accent-foreground"
                     : ""
                 }`}
               >
-                <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">
-                    {conv.title || "New conversation"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {conv.messageCount} messages &middot;{" "}
-                    {formatTime(conv.updatedAt)}
-                  </p>
-                </div>
-              </button>
+                <button
+                  className="flex min-w-0 flex-1 items-start gap-2"
+                  onClick={() => router.push(`/chat/${conv.id}`)}
+                >
+                  <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">
+                      {conv.title || "New conversation"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {conv.messageCount} messages &middot;{" "}
+                      {formatTime(conv.updatedAt)}
+                    </p>
+                  </div>
+                </button>
+                <button
+                  className="mt-0.5 shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteTarget(conv);
+                  }}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         )}
       </ScrollArea>
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Conversation</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete{" "}
+              <strong>{deleteTarget?.title || "this conversation"}</strong>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleteConversation.isPending}
+            >
+              {deleteConversation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

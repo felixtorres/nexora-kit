@@ -68,6 +68,17 @@ export function useCreateConversation() {
   });
 }
 
+export function useDeleteConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.conversations.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+}
+
 export function useSendMessage() {
   const { addMessage, setIsSending } = useConversationStore();
   const queryClient = useQueryClient();
