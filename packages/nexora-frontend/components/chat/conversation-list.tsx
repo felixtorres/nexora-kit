@@ -108,7 +108,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
           </Button>
         </div>
 
-        <ScrollArea className="min-h-0 flex-1">
+        <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-0">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -124,7 +124,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
               {conversations.map((conv: ConversationRecord) => (
                 <div
                   key={conv.id}
-                  className={`group flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                  className={`group/conv flex w-full items-center rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
                     activeId === conv.id
                       ? "bg-accent text-accent-foreground"
                       : ""
@@ -145,11 +145,12 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
                     </div>
                   </button>
                   <button
-                    className="mt-0.5 shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    className="ml-1 shrink-0 rounded-sm p-1 text-muted-foreground/60 opacity-0 transition-all group-hover/conv:opacity-100 hover:text-destructive hover:bg-destructive/10"
                     onClick={(e) => {
                       e.stopPropagation();
                       setDeleteTarget(conv);
                     }}
+                    aria-label="Delete conversation"
                   >
                     <Trash2 className="size-3.5" />
                   </button>

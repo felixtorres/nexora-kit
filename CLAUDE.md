@@ -63,3 +63,22 @@ For non-trivial features, create planning docs before writing code:
 3. **Progress Log** in `DEVELOPMENT_LOG.md` — status, daily entries, blockers
 
 Skip these for small bug fixes or single-file changes — use your judgment.
+
+## Frontend Lessons
+
+### Radix ScrollArea breaks flex truncation
+Radix UI's `ScrollArea` injects an inner content wrapper with inline `style="min-width:100%;display:table"`. The `display:table` makes the wrapper grow to fit content, breaking `truncate` and `min-w-0` flex patterns — flex children expand past the viewport and get clipped invisibly.
+**Fix:** Override the inline style on the ScrollArea's content div:
+```tsx
+<ScrollArea className="[&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-0">
+```
+
+### Tailwind `group-hover` conflicts with shadcn sidebar
+The shadcn sidebar uses `group` on wrapper elements. If a child component also uses `group` for hover states, `group-hover:` matches the wrong ancestor. **Fix:** Use named groups: `group/name` and `group-hover/name:`.
+
+### UI debugging
+Use Playwright for headless screenshots when debugging layout issues:
+```bash
+cd /tmp && npm init -y && npm install playwright && npx playwright install chromium
+```
+Then write a `.mjs` script to set localStorage auth, navigate, hover, and screenshot. Dump computed styles/widths to understand layout chain.
