@@ -1,20 +1,18 @@
 import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
-import type { AgentLoop, ChatEvent } from '@nexora-kit/core';
+import type { AgentLoop } from '@nexora-kit/core';
+import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import type { AuthProvider, AuthIdentity } from './types.js';
 import { wsChatMessageSchema, wsPingMessageSchema, wsCancelMessageSchema } from './types.js';
-import { computeAcceptKey, decodeFrame, encodeFrame, sendJsonFrame, type DecodedFrame } from './ws-utils.js';
 
 export interface WsConnection {
   id: string;
-  socket: Socket;
+  socket: WebSocket;
   auth: AuthIdentity;
   alive: boolean;
   messageTimestamps: number[];
   activeChats: number;
   activeAbortControllers: Map<string, AbortController>;
-  /** Buffer for accumulating partial TCP chunks until a complete WS frame is available. */
-  recvBuffer: Buffer;
 }
 
 export interface WsRateLimitConfig {
@@ -31,6 +29,7 @@ export class WebSocketManager {
   private readonly auth: AuthProvider;
   private readonly heartbeatMs: number;
   private readonly rateLimits: WsRateLimitConfig;
+  private readonly server = new WebSocketServer({ noServer: true });
   private nextId = 1;
 
   constructor(options: {
@@ -45,8 +44,11 @@ export class WebSocketManager {
     this.rateLimits = options.rateLimits ?? {};
   }
 
-  async handleUpgrade(req: IncomingMessage, socket: Socket): Promise<void> {
-    // Authenticate — parse query params since WS can't send custom headers
+  async handleUpgrade(
+    req: IncomingMessage,
+    socket: Socket,
+    head: Buffer = Buffer.alloc(0),
+  ): Promise<void> {
     const headers: Record<string, string | string[] | undefined> = {};
     for (const [key, value] of Object.entries(req.headers)) {
       headers[key] = value;
@@ -57,7 +59,6 @@ export class WebSocketManager {
       query[key] = value;
     }
 
-    // Synthesize Authorization header from ?token= if no header present
     if (!headers['authorization'] && query.token) {
       headers['authorization'] = `Bearer ${query.token}`;
     }
@@ -73,16 +74,15 @@ export class WebSocketManager {
     if (!identity) {
       const origin = req.headers['origin'] ?? '*';
       socket.write(
-        'HTTP/1.1 401 Unauthorized\r\n' +
-        `Access-Control-Allow-Origin: ${origin}\r\n` +
-        '\r\n',
+        'HTTP/1.1 401 Unauthorized\r\n' + `Access-Control-Allow-Origin: ${origin}\r\n` + '\r\n',
       );
       socket.destroy();
-      console.error(`[ws] auth failed for ${url.pathname} hasToken=${!!query.token} origin=${origin}`);
+      console.error(
+        `[ws] auth failed for ${url.pathname} hasToken=${!!query.token} origin=${origin}`,
+      );
       return;
     }
 
-    // Per-user connection limit
     if (this.rateLimits.maxConnectionsPerUser) {
       const currentCount = this.userConnectionCount.get(identity.userId) ?? 0;
       if (currentCount >= this.rateLimits.maxConnectionsPerUser) {
@@ -92,72 +92,23 @@ export class WebSocketManager {
       }
     }
 
-    // WebSocket handshake
-    const key = req.headers['sec-websocket-key'];
-    if (!key || typeof key !== 'string') {
-      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-
-    const accept = computeAcceptKey(key.trim());
-
-    socket.write(
-      'HTTP/1.1 101 Switching Protocols\r\n' +
-      'Upgrade: websocket\r\n' +
-      'Connection: Upgrade\r\n' +
-      `Sec-WebSocket-Accept: ${accept}\r\n` +
-      '\r\n',
-    );
-
-    const connId = `ws-${this.nextId++}`;
-    const conn: WsConnection = {
-      id: connId,
-      socket,
-      auth: identity,
-      alive: true,
-      messageTimestamps: [],
-      activeChats: 0,
-      activeAbortControllers: new Map(),
-      recvBuffer: Buffer.alloc(0),
-    };
-    this.connections.set(connId, conn);
-
-    // Track per-user connections
-    this.userConnectionCount.set(
-      identity.userId,
-      (this.userConnectionCount.get(identity.userId) ?? 0) + 1,
-    );
-
-    socket.on('data', (data: Buffer) => {
-      this.handleData(conn, data);
+    this.server.handleUpgrade(req, socket, head, (ws) => {
+      this.attachConnection(ws, identity);
     });
-
-    const removeConnection = () => {
-      this.connections.delete(connId);
-      const count = this.userConnectionCount.get(identity.userId) ?? 1;
-      if (count <= 1) {
-        this.userConnectionCount.delete(identity.userId);
-      } else {
-        this.userConnectionCount.set(identity.userId, count - 1);
-      }
-    };
-
-    socket.on('close', removeConnection);
-    socket.on('error', removeConnection);
   }
 
   startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
-      for (const [id, conn] of this.connections) {
+      for (const conn of this.connections.values()) {
         if (!conn.alive) {
-          conn.socket.destroy();
-          this.connections.delete(id);
+          conn.socket.terminate();
           continue;
         }
         conn.alive = false;
-        conn.socket.write(encodeFrame(Buffer.alloc(0), 0x9)); // Ping
+        if (conn.socket.readyState === WebSocket.OPEN) {
+          conn.socket.ping();
+        }
       }
     }, this.heartbeatMs);
 
@@ -183,57 +134,71 @@ export class WebSocketManager {
 
   closeAll(): void {
     for (const conn of this.connections.values()) {
-      // Send close frame
-      conn.socket.write(encodeFrame(Buffer.alloc(0), 0x8));
-      conn.socket.destroy();
+      for (const controller of conn.activeAbortControllers.values()) {
+        controller.abort();
+      }
+      conn.socket.close();
     }
     this.connections.clear();
     this.userConnectionCount.clear();
   }
 
-  private handleData(conn: WsConnection, data: Buffer): void {
-    // Accumulate incoming TCP data into the connection's receive buffer
-    conn.recvBuffer = conn.recvBuffer.length > 0
-      ? Buffer.concat([conn.recvBuffer, data])
-      : data;
+  private attachConnection(ws: WebSocket, identity: AuthIdentity): void {
+    const connId = `ws-${this.nextId++}`;
+    const conn: WsConnection = {
+      id: connId,
+      socket: ws,
+      auth: identity,
+      alive: true,
+      messageTimestamps: [],
+      activeChats: 0,
+      activeAbortControllers: new Map(),
+    };
+    this.connections.set(connId, conn);
+    this.userConnectionCount.set(
+      identity.userId,
+      (this.userConnectionCount.get(identity.userId) ?? 0) + 1,
+    );
 
-    // Extract and process all complete frames from the buffer
-    while (conn.recvBuffer.length > 0) {
-      const frame = decodeFrame(conn.recvBuffer);
-      if (!frame) break; // Incomplete frame — wait for more data
+    let removed = false;
+    const removeConnection = () => {
+      if (removed) return;
+      removed = true;
+      this.connections.delete(connId);
+      for (const controller of conn.activeAbortControllers.values()) {
+        controller.abort();
+      }
+      conn.activeAbortControllers.clear();
+      const count = this.userConnectionCount.get(identity.userId) ?? 1;
+      if (count <= 1) {
+        this.userConnectionCount.delete(identity.userId);
+      } else {
+        this.userConnectionCount.set(identity.userId, count - 1);
+      }
+    };
 
-      // Advance buffer past the consumed frame
-      conn.recvBuffer = conn.recvBuffer.subarray(frame.bytesConsumed);
-
-      this.handleFrame(conn, frame);
-    }
+    ws.on('message', (data, isBinary) => {
+      this.handleMessage(conn, data, isBinary);
+    });
+    ws.on('pong', () => {
+      conn.alive = true;
+    });
+    ws.on('close', removeConnection);
+    ws.on('error', removeConnection);
   }
 
-  private handleFrame(conn: WsConnection, frame: DecodedFrame): void {
-    // Pong
-    if (frame.opcode === 0xA) {
-      conn.alive = true;
+  private handleMessage(conn: WsConnection, data: RawData, isBinary: boolean): void {
+    if (isBinary) {
+      conn.socket.close(1003, 'Binary frames not supported');
       return;
     }
 
-    // Close
-    if (frame.opcode === 0x8) {
-      conn.socket.write(encodeFrame(Buffer.alloc(0), 0x8));
-      conn.socket.destroy();
-      this.connections.delete(conn.id);
-      return;
-    }
-
-    // Text frame
-    if (frame.opcode !== 0x1) return;
-
-    // Per-connection message rate limit
     if (this.rateLimits.maxMessagesPerMinute) {
       const now = Date.now();
       const windowStart = now - 60_000;
       conn.messageTimestamps = conn.messageTimestamps.filter((t) => t > windowStart);
       if (conn.messageTimestamps.length >= this.rateLimits.maxMessagesPerMinute) {
-        sendJsonFrame(conn.socket, { type: 'error', message: 'Message rate limit exceeded' });
+        sendJson(conn.socket, { type: 'error', message: 'Message rate limit exceeded' });
         return;
       }
       conn.messageTimestamps.push(now);
@@ -241,20 +206,18 @@ export class WebSocketManager {
 
     let message: unknown;
     try {
-      message = JSON.parse(frame.payload.toString());
+      message = JSON.parse(rawDataToString(data));
     } catch {
-      sendJsonFrame(conn.socket, { type: 'error', message: 'Invalid JSON' });
+      sendJson(conn.socket, { type: 'error', message: 'Invalid JSON' });
       return;
     }
 
-    // Ping message
     const pingResult = wsPingMessageSchema.safeParse(message);
     if (pingResult.success) {
-      sendJsonFrame(conn.socket, { type: 'pong' });
+      sendJson(conn.socket, { type: 'pong' });
       return;
     }
 
-    // Cancel message
     const cancelResult = wsCancelMessageSchema.safeParse(message);
     if (cancelResult.success) {
       const controller = conn.activeAbortControllers.get(cancelResult.data.conversationId);
@@ -265,63 +228,84 @@ export class WebSocketManager {
       return;
     }
 
-    // Chat message
     const chatResult = wsChatMessageSchema.safeParse(message);
     if (chatResult.success) {
-      // Per-connection concurrent chat cap
-      if (this.rateLimits.maxConcurrentChats && conn.activeChats >= this.rateLimits.maxConcurrentChats) {
-        sendJsonFrame(conn.socket, { type: 'error', message: 'Too many concurrent chats' });
+      if (
+        this.rateLimits.maxConcurrentChats &&
+        conn.activeChats >= this.rateLimits.maxConcurrentChats
+      ) {
+        sendJson(conn.socket, { type: 'error', message: 'Too many concurrent chats' });
         return;
       }
       this.handleChat(conn, chatResult.data).catch((err) => {
         const detail = err instanceof Error ? err.message : String(err);
-        console.error(`[ws] handleChat error:`, detail);
-        sendJsonFrame(conn.socket, { type: 'error', message: `Chat processing failed: ${detail}` });
+        console.error('[ws] handleChat error:', detail);
+        sendJson(conn.socket, { type: 'error', message: `Chat processing failed: ${detail}` });
       });
       return;
     }
 
-    sendJsonFrame(conn.socket, { type: 'error', message: 'Unknown message type' });
+    sendJson(conn.socket, { type: 'error', message: 'Unknown message type' });
   }
 
   private async handleChat(
     conn: WsConnection,
-    msg: { conversationId?: string; input: string | { type: string; [key: string]: unknown }; pluginNamespaces?: string[]; metadata?: Record<string, unknown> },
+    msg: {
+      conversationId?: string;
+      input: string | { type: string; [key: string]: unknown };
+      pluginNamespaces?: string[];
+      metadata?: Record<string, unknown>;
+    },
   ): Promise<void> {
     conn.activeChats++;
-    const conversationId = msg.conversationId ?? `ws-conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const conversationId =
+      msg.conversationId ?? `ws-conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const abortController = new AbortController();
     conn.activeAbortControllers.set(conversationId, abortController);
 
     try {
-      // Normalize input: string shorthand → ChatInputText
-      const chatInput = typeof msg.input === 'string'
-        ? { type: 'text' as const, text: msg.input }
-        : msg.input as { type: 'text'; text: string };
+      const chatInput =
+        typeof msg.input === 'string'
+          ? { type: 'text' as const, text: msg.input }
+          : (msg.input as { type: 'text'; text: string });
 
-      sendJsonFrame(conn.socket, { type: 'conversation', conversationId });
+      sendJson(conn.socket, { type: 'conversation', conversationId });
 
-      for await (const event of this.agentLoop.run({
-        conversationId,
-        input: chatInput,
-        teamId: conn.auth.teamId,
-        userId: conn.auth.userId,
-        pluginNamespaces: msg.pluginNamespaces,
-        metadata: msg.metadata,
-      }, abortController.signal)) {
-        if (conn.socket.destroyed || abortController.signal.aborted) break;
-        // Envelope: { type, conversationId, payload }
-        sendJsonFrame(conn.socket, { type: event.type, conversationId, payload: event });
+      for await (const event of this.agentLoop.run(
+        {
+          conversationId,
+          input: chatInput,
+          teamId: conn.auth.teamId,
+          userId: conn.auth.userId,
+          pluginNamespaces: msg.pluginNamespaces,
+          metadata: msg.metadata,
+        },
+        abortController.signal,
+      )) {
+        if (conn.socket.readyState !== WebSocket.OPEN || abortController.signal.aborted) break;
+        sendJson(conn.socket, { type: event.type, conversationId, payload: event });
       }
 
       if (abortController.signal.aborted) {
-        sendJsonFrame(conn.socket, { type: 'cancelled', conversationId });
+        sendJson(conn.socket, { type: 'cancelled', conversationId });
       }
     } finally {
       conn.activeChats--;
       conn.activeAbortControllers.delete(conversationId);
     }
   }
+}
+
+function rawDataToString(data: RawData): string {
+  if (typeof data === 'string') return data;
+  if (Array.isArray(data)) return Buffer.concat(data).toString();
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString();
+  return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString();
+}
+
+function sendJson(socket: WebSocket, data: unknown): void {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify(data));
 }
 
 /** Check if an HTTP request is a WebSocket upgrade */

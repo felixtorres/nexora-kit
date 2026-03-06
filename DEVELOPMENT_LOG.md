@@ -3,15 +3,22 @@
 ## 2026-03-06
 
 ### Completed
+
 - Reviewed and fixed verbiage across all 10 example plugin skills (schema consistency, broken templates, contradictory wording, impossible instructions, naming)
 - Audited NexoraKit plugin system vs Claude Code plugin system — identified major compatibility gaps
 - Created PRD: `docs/PRD_CLAUDE_PLUGIN_COMPAT.md`
 - Created Dev Plan: `docs/DEV_PLAN_CLAUDE_PLUGIN_COMPAT.md` — 6-phase plan covering dual-format loader, SKILL.md behavioral parser, behavioral execution, unified commands, hooks, and MCP config compat
+- Reviewed custom WebSocket transport and documented protocol/interoperability gaps in `docs/WEBSOCKET_IMPLEMENTATION_REVIEW.md`
+- Created PRD: `docs/PRD_WEBSOCKET_TRANSPORT.md`
+- Created Dev Plan: `docs/DEV_PLAN_WEBSOCKET_TRANSPORT.md`
 
 ### In Progress
+
 - Claude Plugin Compatibility — Phase 1-5 COMPLETE, Phase 6 largely done (landed in Phase 1)
+- WebSocket Transport Migration — replacing hand-rolled RFC 6455 handling with `ws`
 
 ### Decisions Made
+
 - **D1 Model tiers**: Provider-agnostic tiers (fast/balanced/powerful), map Claude names automatically
 - **D2 Fork mode**: Map to existing SubAgentRunner, agent types become tool filters. Bots NOT replaced.
 - **D3 Hooks**: Disabled by default, permission-gated when admin enables
@@ -19,6 +26,7 @@
 - **D5 Templates**: Format determines syntax — YAML=Mustache, SKILL.md=$ARGUMENTS. No mixing.
 
 ### Phase 1 Deliverables
+
 - `core/types.ts`: Added `SkillResources`, `PluginFormat`, extended `PluginManifest` with `format`, `author`, `homepage`, `repository`, `license`, `keywords`
 - `skills/types.ts`: Added `resources?: SkillResources` to `SkillDefinition`
 - New: `plugins/resource-discovery.ts` — discovers scripts/, references/, assets/ per skill directory
@@ -28,9 +36,11 @@
 - Tests: 17 new tests across resource-discovery.test.ts, claude-compat.test.ts, loader.test.ts — all 462 pass
 
 ### Blockers
-- None
+
+- WebSocket browser interoperability failure with custom transport layer; migration to `ws` is the chosen fix
 
 ### Phase 2 Deliverables
+
 - `skills/types.ts`: Added `SkillExecutionMode`, `SkillHookConfig`, `SkillHooks`, and 10 Claude-compatible fields to `SkillDefinition` (executionMode, body, argumentHint, disableModelInvocation, userInvocable, allowedTools, modelOverride, context, agentType, hooks)
 - New: `skills/skill-md-parser.ts` — Full Claude SKILL.md frontmatter parser with Zod validation. Parses allowed-tools (comma-separated), maps invocation semantics (user-invocable/disable-model-invocation → NexoraKit invocation enum), supports hooks
 - `skills/md-parser.ts` — Auto-detection: peeks at frontmatter for Claude-specific fields, routes to behavioral parser or prompt parser accordingly
@@ -38,6 +48,7 @@
 - Tests: 25 new tests (skill-md-parser.test.ts, model-tiers.test.ts), 557 total passing, full monorepo green
 
 ### Phase 3 Deliverables
+
 - New: `core/skill-activation.ts` — `SkillActivationManager` tracks active behavioral skills per conversation. Supports activate/deactivate/deactivateAll, returns combined instructions for inline skills, computes tool restriction intersection across active skills.
 - `core/system-prompt-builder.ts` — New `activeSkillInstructions` component injected after base prompt, before artifacts/skill index.
 - `core/agent-loop.ts` — Accepts `skillActivationManager` option. Each turn: injects active skill instructions into system prompt. After tool selection: filters tools by `allowedTools` from active skills (internal `_`-prefixed tools always allowed).
@@ -45,16 +56,19 @@
 - Tests: 13 new tests (skill-activation.test.ts), 569 total passing, full monorepo green (30/30)
 
 ### Phase 4 Deliverables
+
 - `plugins/lifecycle.ts` — User-invocable behavioral skills auto-register as commands in CommandRegistry during `enable()`. Handler dispatches to skill tool with `_arguments` for $ARGUMENTS substitution. Skips non-behavioral skills and respects `userInvocable: false`. Does not override existing commands with same name. Cleanup handled by existing `unregisterNamespace()` on disable.
 - Tests: 5 new tests covering registration, skip conditions, collision handling, and cleanup.
 
 ### Phase 5 Deliverables
+
 - New: `core/hooks/hook-events.ts` — HookEventName types (PreToolUse, PostToolUse, SessionStart, SessionEnd), HookEventPayload, HookResult, HookVerdict
 - New: `core/hooks/hook-registry.ts` — HookRegistry: stores hooks per namespace, disabled by default, admin enables per namespace, supports skill-scoped hooks, filters by event + active skills
 - New: `core/hooks/hook-runner.ts` — Spawns hook command as child process, sends JSON payload on stdin. Exit 0 = allow (stdout = injected context), exit 2 = block (stderr = reason), other = allow + log. Handles EPIPE gracefully. `runHooks()` aggregates multiple hooks — any block = blocked.
 - Tests: 17 new tests (hook-registry.test.ts, hook-runner.test.ts)
 
 ### Next Steps
+
 - Phase 6 (MCP Config Compat) — already done: ${CLAUDE_PLUGIN_ROOT} substitution, .mcp.json parsing, inline mcpServers all landed in Phase 1
 - Integration testing: end-to-end test with a real Claude-format plugin
 - Documentation: update docs/ with new plugin compatibility guide

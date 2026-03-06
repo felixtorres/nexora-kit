@@ -448,16 +448,16 @@ export class Gateway {
         });
       });
 
-      this.server.on('upgrade', (req: IncomingMessage, socket: Socket) => {
+      this.server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
         if (isWebSocketUpgrade(req)) {
           // Route client WS: /v1/agents/:slug/ws
           const isClientWs = req.url?.match(/\/v1\/agents\/[^/]+\/ws/) && this.clientWsManager;
           if (isClientWs) {
-            this.clientWsManager!.handleUpgrade(req, socket).catch(() => {
+            this.clientWsManager!.handleUpgrade(req, socket, head).catch(() => {
               socket.destroy();
             });
           } else {
-            this.wsManager.handleUpgrade(req, socket).catch((err) => {
+            this.wsManager.handleUpgrade(req, socket, head).catch((err) => {
               console.error('[gateway] ws upgrade failed:', err);
               socket.destroy();
             });

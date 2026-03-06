@@ -73,17 +73,12 @@ export function useWebSocket(conversationId: string | null) {
 
       cleanupWs();
 
-      const wsUrl = serverUrl
-        .replace(/^http/, 'ws')
-        .replace(/\/$/, '')
-        .replace(/\/\/localhost([:\/])/, '//127.0.0.1$1');
+      const wsUrl = serverUrl.replace(/^http/, 'ws').replace(/\/$/, '');
       const fullUrl = `${wsUrl}/v1/ws?token=${encodeURIComponent(apiKey)}`;
-      console.log(`[nexora-ws] connecting to ${wsUrl}/v1/ws`);
       const ws = new WebSocket(fullUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[nexora-ws] connected');
         setIsConnected(true);
         reconnectAttemptRef.current = 0;
 
@@ -131,7 +126,8 @@ export function useWebSocket(conversationId: string | null) {
             break;
           }
           case 'error': {
-            const errorMsg = (data.payload as { message?: string })?.message ?? data.message ?? 'Unknown error';
+            const errorMsg =
+              (data.payload as { message?: string })?.message ?? data.message ?? 'Unknown error';
             s.addMessage(cid, {
               role: 'assistant',
               content: '',
@@ -153,7 +149,9 @@ export function useWebSocket(conversationId: string | null) {
             break;
           }
           case 'artifact_create': {
-            const p = data.payload as { artifactId?: string; title?: string; content?: string } | undefined;
+            const p = data.payload as
+              | { artifactId?: string; title?: string; content?: string }
+              | undefined;
             if (p?.artifactId) {
               s.initArtifact(p.artifactId, p.title ?? '', p.content ?? '');
             }
@@ -174,7 +172,9 @@ export function useWebSocket(conversationId: string | null) {
             break;
           }
           case 'tool_call': {
-            const p = data.payload as { id?: string; name?: string; input?: Record<string, unknown> } | undefined;
+            const p = data.payload as
+              | { id?: string; name?: string; input?: Record<string, unknown> }
+              | undefined;
             if (p?.id && p?.name) {
               s.addToolCall({
                 type: 'tool_call',
@@ -194,39 +194,28 @@ export function useWebSocket(conversationId: string | null) {
             break;
           }
           case 'tool_result': {
-            const p = data.payload as { toolUseId?: string; content?: string; isError?: boolean } | undefined;
+            const p = data.payload as
+              | { toolUseId?: string; content?: string; isError?: boolean }
+              | undefined;
             if (p?.toolUseId) {
               s.updateToolCallResult(p.toolUseId, p.content ?? '', p.isError);
             }
             break;
           }
           case 'turn_start': {
-            const p = data.payload as { turn?: number; maxTurns?: number } | undefined;
-            if (p?.turn) {
-              s.addActivity({
-                type: 'activity', event: 'turn_start',
-                label: `Turn ${p.turn}/${p.maxTurns ?? '?'}`,
-                timestamp: Date.now(),
-              });
-            }
             break;
           }
           case 'turn_continue': {
-            const p = data.payload as { currentTurn?: number; additionalTurns?: number } | undefined;
-            if (p) {
-              s.addActivity({
-                type: 'activity', event: 'turn_continue',
-                label: `Extended by ${p.additionalTurns ?? 0} turns`,
-                timestamp: Date.now(),
-              });
-            }
             break;
           }
           case 'compaction': {
-            const p = data.payload as { compactedMessages?: number; summaryTokens?: number } | undefined;
+            const p = data.payload as
+              | { compactedMessages?: number; summaryTokens?: number }
+              | undefined;
             if (p) {
               s.addActivity({
-                type: 'activity', event: 'compaction',
+                type: 'activity',
+                event: 'compaction',
                 label: `Compacted ${p.compactedMessages ?? 0} messages`,
                 detail: p.summaryTokens ? `${p.summaryTokens} token summary` : undefined,
                 timestamp: Date.now(),
@@ -238,7 +227,8 @@ export function useWebSocket(conversationId: string | null) {
             const p = data.payload as { agentId?: string; task?: string } | undefined;
             if (p?.agentId) {
               s.addActivity({
-                type: 'activity', event: 'sub_agent_start',
+                type: 'activity',
+                event: 'sub_agent_start',
                 label: `Sub-agent: ${p.task ?? 'working'}`,
                 detail: p.agentId,
                 timestamp: Date.now(),
@@ -250,7 +240,8 @@ export function useWebSocket(conversationId: string | null) {
             const p = data.payload as { agentId?: string; tokensUsed?: number } | undefined;
             if (p?.agentId) {
               s.addActivity({
-                type: 'activity', event: 'sub_agent_end',
+                type: 'activity',
+                event: 'sub_agent_end',
                 label: `Sub-agent done`,
                 detail: p.tokensUsed ? `${p.tokensUsed} tokens` : undefined,
                 timestamp: Date.now(),
@@ -262,7 +253,8 @@ export function useWebSocket(conversationId: string | null) {
             const content = (data.payload as { content?: string })?.content ?? '';
             if (content) {
               s.addActivity({
-                type: 'activity', event: 'thinking',
+                type: 'activity',
+                event: 'thinking',
                 label: 'Thinking',
                 detail: content,
                 timestamp: Date.now(),
@@ -275,13 +267,11 @@ export function useWebSocket(conversationId: string | null) {
         }
       };
 
-      ws.onerror = (e) => {
-        console.error('[nexora-ws] connection error', e);
+      ws.onerror = () => {
         setIsConnected(false);
       };
 
       ws.onclose = (e) => {
-        console.warn(`[nexora-ws] closed code=${e.code} reason=${e.reason || '(none)'} url=${ws.url}`);
         setIsConnected(false);
         if (pingTimerRef.current) {
           clearInterval(pingTimerRef.current);
@@ -291,7 +281,7 @@ export function useWebSocket(conversationId: string | null) {
         // Reconnect with exponential backoff
         const delay = Math.min(
           RECONNECT_BASE_MS * 2 ** reconnectAttemptRef.current,
-          RECONNECT_MAX_MS
+          RECONNECT_MAX_MS,
         );
         reconnectAttemptRef.current++;
         reconnectTimerRef.current = setTimeout(() => {
@@ -309,44 +299,38 @@ export function useWebSocket(conversationId: string | null) {
     return cleanupWs;
   }, [hydrated, conversationId, serverUrl, apiKey, cleanupWs]);
 
-  const sendMessage = useCallback(
-    (input: string) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      if (!conversationIdRef.current) return;
+  const sendMessage = useCallback((input: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (!conversationIdRef.current) return;
 
-      const s = storeRef.current;
-      s.addMessage(conversationIdRef.current, { role: 'user', content: input });
-      s.startStreaming();
+    const s = storeRef.current;
+    s.addMessage(conversationIdRef.current, { role: 'user', content: input });
+    s.startStreaming();
 
-      const msg = {
-        type: 'chat',
-        conversationId: conversationIdRef.current,
-        input,
-      };
-      s.addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
-      wsRef.current.send(JSON.stringify(msg));
-    },
-    []
-  );
+    const msg = {
+      type: 'chat',
+      conversationId: conversationIdRef.current,
+      input,
+    };
+    s.addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+    wsRef.current.send(JSON.stringify(msg));
+  }, []);
 
-  const sendAction = useCallback(
-    (actionId: string, payload: Record<string, unknown>) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      if (!conversationIdRef.current) return;
+  const sendAction = useCallback((actionId: string, payload: Record<string, unknown>) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (!conversationIdRef.current) return;
 
-      const s = storeRef.current;
-      s.startStreaming();
+    const s = storeRef.current;
+    s.startStreaming();
 
-      const msg = {
-        type: 'chat',
-        conversationId: conversationIdRef.current,
-        input: { type: 'action', actionId, payload },
-      };
-      s.addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
-      wsRef.current.send(JSON.stringify(msg));
-    },
-    []
-  );
+    const msg = {
+      type: 'chat',
+      conversationId: conversationIdRef.current,
+      input: { type: 'action', actionId, payload },
+    };
+    s.addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+    wsRef.current.send(JSON.stringify(msg));
+  }, []);
 
   const cancel = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;

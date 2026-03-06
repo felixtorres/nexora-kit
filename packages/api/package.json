@@ -12,13 +12,15 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@nexora-kit/core": "*",
-    "@nexora-kit/storage": "*",
-    "@nexora-kit/plugins": "*",
     "@nexora-kit/admin": "*",
+    "@nexora-kit/core": "*",
+    "@nexora-kit/plugins": "*",
+    "@nexora-kit/storage": "*",
+    "ws": "^8.19.0",
     "zod": "*"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "vitest": "^4.0.0"
   }
 }

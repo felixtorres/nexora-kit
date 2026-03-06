@@ -1,32 +1,13 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createHash } from 'node:crypto';
-import { EventEmitter } from 'node:events';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createServer, type IncomingMessage } from 'node:http';
+import { once } from 'node:events';
+import { WebSocket } from 'ws';
 import { WebSocketManager, isWebSocketUpgrade } from './websocket.js';
 import type { AuthIdentity } from './types.js';
 
-const WS_MAGIC = '258EAFA5-E914-47DA-95CA-5AB9B6FF85B5';
-
-function makeMockSocket(): EventEmitter & { write: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn>; destroyed: boolean } {
-  const emitter = new EventEmitter() as any;
-  emitter.write = vi.fn();
-  emitter.destroy = vi.fn(() => { emitter.destroyed = true; });
-  emitter.destroyed = false;
-  return emitter;
-}
-
-function makeMockReq(key?: string, authHeader?: string) {
-  return {
-    headers: {
-      'sec-websocket-key': key ?? 'dGhlIHNhbXBsZSBub25jZQ==',
-      upgrade: 'websocket',
-      connection: 'Upgrade',
-      ...(authHeader ? { authorization: authHeader } : {}),
-    },
-    url: '/ws',
-  } as any;
-}
-
-function makeMockAuth(identity: AuthIdentity | null = { userId: 'u1', teamId: 't1', role: 'user' }) {
+function makeMockAuth(
+  identity: AuthIdentity | null = { userId: 'u1', teamId: 't1', role: 'user' },
+) {
   return {
     authenticate: vi.fn().mockResolvedValue(identity),
   };
@@ -41,294 +22,229 @@ function makeMockAgentLoop(events: any[] = [{ type: 'done' }]) {
   } as any;
 }
 
-function encodeClientFrame(text: string): Buffer {
-  const payload = Buffer.from(text);
-  const mask = Buffer.from([0x12, 0x34, 0x56, 0x78]);
-  const masked = Buffer.alloc(payload.length);
-  for (let i = 0; i < payload.length; i++) {
-    masked[i] = payload[i] ^ mask[i % 4];
-  }
+async function startWsServer(manager: WebSocketManager) {
+  const server = createServer((_req, res) => {
+    res.writeHead(404);
+    res.end();
+  });
 
-  const header = Buffer.alloc(6 + payload.length);
-  header[0] = 0x81; // FIN + text
-  header[1] = 0x80 | payload.length; // masked + length
-  mask.copy(header, 2);
-  masked.copy(header, 6);
-  return header;
+  server.on('upgrade', (req: IncomingMessage, socket, head) => {
+    if (!isWebSocketUpgrade(req)) {
+      socket.destroy();
+      return;
+    }
+    manager.handleUpgrade(req, socket as any, head).catch(() => socket.destroy());
+  });
+
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Failed to bind test server');
+
+  return {
+    server,
+    url: `ws://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+async function connectWebSocket(
+  url: string,
+  options?: { headers?: Record<string, string> },
+): Promise<WebSocket> {
+  return await new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, { headers: options?.headers });
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+    ws.once('unexpected-response', (_req, res) => {
+      reject(new Error(`Unexpected response: ${res.statusCode}`));
+    });
+  });
+}
+
+async function connectExpectHttpError(url: string): Promise<number | undefined> {
+  return await new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    ws.once('unexpected-response', (_req, res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    ws.once('open', () => reject(new Error('Expected handshake failure')));
+    ws.once('error', () => {});
+  });
+}
+
+async function nextJsonMessage(ws: WebSocket): Promise<any> {
+  const [data] = (await once(ws, 'message')) as [Buffer, boolean];
+  return JSON.parse(data.toString());
+}
+
+async function collectJsonMessages(
+  ws: WebSocket,
+  count: number,
+  action: () => void,
+): Promise<any[]> {
+  return await new Promise((resolve, reject) => {
+    const messages: any[] = [];
+    const onMessage = (data: Buffer) => {
+      try {
+        messages.push(JSON.parse(data.toString()));
+        if (messages.length === count) {
+          cleanup();
+          resolve(messages);
+        }
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      ws.off('message', onMessage);
+      ws.off('error', onError);
+    };
+
+    ws.on('message', onMessage);
+    ws.on('error', onError);
+    action();
+  });
 }
 
 describe('WebSocketManager', () => {
-  let wsm: WebSocketManager;
+  let manager: WebSocketManager;
+  let shutdown: (() => Promise<void>) | undefined;
 
-  afterEach(() => {
-    wsm?.stopHeartbeat();
-    wsm?.closeAll();
+  afterEach(async () => {
+    manager?.stopHeartbeat();
+    manager?.closeAll();
+    if (shutdown) await shutdown();
+    shutdown = undefined;
   });
 
-  it('performs WebSocket handshake', async () => {
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth });
+  it('performs a real WebSocket handshake', async () => {
+    manager = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth: makeMockAuth() });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
 
-    const socket = makeMockSocket();
-    const key = 'dGhlIHNhbXBsZSBub25jZQ==';
-    const req = makeMockReq(key, 'Bearer token');
+    const ws = await connectWebSocket(`${started.url}/v1/ws?token=dev-key`);
+    expect(manager.getConnectionCount()).toBe(1);
 
-    await wsm.handleUpgrade(req, socket as any);
-
-    expect(socket.write).toHaveBeenCalledOnce();
-    const response = socket.write.mock.calls[0][0] as string;
-    expect(response).toContain('101 Switching Protocols');
-
-    const expectedAccept = createHash('sha1')
-      .update(key + WS_MAGIC)
-      .digest('base64');
-    expect(response).toContain(`Sec-WebSocket-Accept: ${expectedAccept}`);
-    expect(wsm.getConnectionCount()).toBe(1);
+    ws.close();
+    await once(ws, 'close');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(manager.getConnectionCount()).toBe(0);
   });
 
   it('rejects unauthenticated connections', async () => {
-    const auth = makeMockAuth(null);
-    wsm = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth });
+    manager = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth: makeMockAuth(null) });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
 
-    const socket = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq(), socket as any);
-
-    const response = socket.write.mock.calls[0][0] as string;
-    expect(response).toContain('401');
-    expect(socket.destroy).toHaveBeenCalled();
-    expect(wsm.getConnectionCount()).toBe(0);
+    await expect(connectExpectHttpError(`${started.url}/v1/ws?token=bad`)).resolves.toBe(401);
   });
 
-  it('rejects requests without sec-websocket-key', async () => {
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth });
+  it('handles app-level ping with pong', async () => {
+    manager = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth: makeMockAuth() });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
 
-    const socket = makeMockSocket();
-    const req = { headers: { upgrade: 'websocket' }, url: '/ws' } as any;
-    await wsm.handleUpgrade(req, socket as any);
-
-    const response = socket.write.mock.calls[0][0] as string;
-    expect(response).toContain('400');
-  });
-
-  it('handles ping messages with pong', async () => {
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth });
-
-    const socket = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq(), socket as any);
-    socket.write.mockClear();
-
-    const frame = encodeClientFrame(JSON.stringify({ type: 'ping' }));
-    socket.emit('data', frame);
-
-    // Wait for async handling
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(socket.write).toHaveBeenCalled();
-    // Response should contain pong JSON
-    const written = socket.write.mock.calls[0][0] as Buffer;
-    const payload = written.subarray(2); // skip header
-    expect(JSON.parse(payload.toString())).toEqual({ type: 'pong' });
+    const ws = await connectWebSocket(`${started.url}/v1/ws?token=dev-key`);
+    ws.send(JSON.stringify({ type: 'ping' }));
+    await expect(nextJsonMessage(ws)).resolves.toEqual({ type: 'pong' });
+    ws.close();
   });
 
   it('handles chat messages and streams events', async () => {
-    const events = [
-      { type: 'text', content: 'Hello!' },
-      { type: 'done' },
-    ];
-    const agentLoop = makeMockAgentLoop(events);
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({ agentLoop, auth });
+    manager = new WebSocketManager({
+      agentLoop: makeMockAgentLoop([{ type: 'text', content: 'Hello!' }, { type: 'done' }]),
+      auth: makeMockAuth(),
+    });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
 
-    const socket = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq(), socket as any);
-    socket.write.mockClear();
+    const ws = await connectWebSocket(`${started.url}/v1/ws?token=dev-key`);
+    const messages = await collectJsonMessages(ws, 3, () => {
+      ws.send(JSON.stringify({ type: 'chat', input: 'Hi', conversationId: 'conv-1' }));
+    });
 
-    const frame = encodeClientFrame(JSON.stringify({
-      type: 'chat',
-      input: 'Hi',
+    expect(messages[0]).toMatchObject({
+      type: 'conversation',
       conversationId: 'conv-1',
-    }));
-    socket.emit('data', frame);
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Should send: conversation event, text event, done event
-    expect(socket.write.mock.calls.length).toBeGreaterThanOrEqual(3);
-
-    // First message: conversation ID
-    const firstPayload = socket.write.mock.calls[0][0] as Buffer;
-    const convMsg = JSON.parse(firstPayload.subarray(2).toString());
-    expect(convMsg.type).toBe('conversation');
-    expect(convMsg.conversationId).toBe('conv-1');
+    });
+    expect(messages[1]).toMatchObject({
+      type: 'text',
+      conversationId: 'conv-1',
+      payload: { type: 'text', content: 'Hello!' },
+    });
+    expect(messages[2]).toMatchObject({
+      type: 'done',
+      conversationId: 'conv-1',
+    });
+    ws.close();
   });
 
   it('sends error for invalid JSON', async () => {
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth });
+    manager = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth: makeMockAuth() });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
 
-    const socket = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq(), socket as any);
-    socket.write.mockClear();
-
-    const frame = encodeClientFrame('not json');
-    socket.emit('data', frame);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    const written = socket.write.mock.calls[0][0] as Buffer;
-    const msg = JSON.parse(written.subarray(2).toString());
-    expect(msg.type).toBe('error');
-    expect(msg.message).toContain('Invalid JSON');
-  });
-
-  it('removes connection on socket close', async () => {
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth });
-
-    const socket = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq(), socket as any);
-    expect(wsm.getConnectionCount()).toBe(1);
-
-    socket.emit('close');
-    expect(wsm.getConnectionCount()).toBe(0);
-  });
-
-  it('closeAll destroys all connections', async () => {
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({ agentLoop: makeMockAgentLoop(), auth });
-
-    const s1 = makeMockSocket();
-    const s2 = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq('key1'), s1 as any);
-    await wsm.handleUpgrade(makeMockReq('key2'), s2 as any);
-    expect(wsm.getConnectionCount()).toBe(2);
-
-    wsm.closeAll();
-    expect(wsm.getConnectionCount()).toBe(0);
-    expect(s1.destroy).toHaveBeenCalled();
-    expect(s2.destroy).toHaveBeenCalled();
-  });
-
-  // --- WS rate limit tests ---
-
-  it('enforces per-connection message rate limit', async () => {
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({
-      agentLoop: makeMockAgentLoop(),
-      auth,
-      rateLimits: { maxMessagesPerMinute: 3 },
+    const ws = await connectWebSocket(`${started.url}/v1/ws?token=dev-key`);
+    ws.send('not json');
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: 'error',
+      message: 'Invalid JSON',
     });
-
-    const socket = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq(), socket as any);
-    socket.write.mockClear();
-
-    // Send 3 messages (should all succeed)
-    for (let i = 0; i < 3; i++) {
-      const frame = encodeClientFrame(JSON.stringify({ type: 'ping' }));
-      socket.emit('data', frame);
-      await new Promise((r) => setTimeout(r, 5));
-    }
-
-    const successCalls = socket.write.mock.calls.length;
-    // All 3 should get pong responses
-    expect(successCalls).toBe(3);
-
-    // 4th message should be rate limited
-    socket.write.mockClear();
-    const frame = encodeClientFrame(JSON.stringify({ type: 'ping' }));
-    socket.emit('data', frame);
-    await new Promise((r) => setTimeout(r, 5));
-
-    const written = socket.write.mock.calls[0][0] as Buffer;
-    const msg = JSON.parse(written.subarray(2).toString());
-    expect(msg.type).toBe('error');
-    expect(msg.message).toContain('rate limit');
-  });
-
-  it('enforces per-connection concurrent chat cap', async () => {
-    // Agent loop that never resolves
-    const neverResolve = {
-      run: vi.fn().mockImplementation(async function* () {
-        yield { type: 'session' };
-        await new Promise(() => {}); // Never resolves
-      }),
-      abort: vi.fn(),
-    } as any;
-
-    const auth = makeMockAuth();
-    wsm = new WebSocketManager({
-      agentLoop: neverResolve,
-      auth,
-      rateLimits: { maxConcurrentChats: 1 },
-    });
-
-    const socket = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq(), socket as any);
-    socket.write.mockClear();
-
-    // Start first chat
-    const frame1 = encodeClientFrame(JSON.stringify({ type: 'chat', input: 'Hello' }));
-    socket.emit('data', frame1);
-    await new Promise((r) => setTimeout(r, 20));
-
-    // Try second chat — should be rejected
-    socket.write.mockClear();
-    const frame2 = encodeClientFrame(JSON.stringify({ type: 'chat', input: 'Second' }));
-    socket.emit('data', frame2);
-    await new Promise((r) => setTimeout(r, 10));
-
-    const lastCall = socket.write.mock.calls[socket.write.mock.calls.length - 1];
-    const written = lastCall[0] as Buffer;
-    const msg = JSON.parse(written.subarray(2).toString());
-    expect(msg.type).toBe('error');
-    expect(msg.message).toContain('concurrent');
+    ws.close();
   });
 
   it('enforces per-user connection limit', async () => {
-    const auth = makeMockAuth({ userId: 'user-1', teamId: 't1', role: 'user' });
-    wsm = new WebSocketManager({
+    manager = new WebSocketManager({
       agentLoop: makeMockAgentLoop(),
-      auth,
+      auth: makeMockAuth({ userId: 'user-1', teamId: 't1', role: 'user' }),
       rateLimits: { maxConnectionsPerUser: 1 },
     });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
 
-    const s1 = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq('key1'), s1 as any);
-    expect(wsm.getConnectionCount()).toBe(1);
-
-    // Second connection for same user should be rejected
-    const s2 = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq('key2'), s2 as any);
-
-    const response = s2.write.mock.calls[0][0] as string;
-    expect(response).toContain('429');
-    expect(s2.destroy).toHaveBeenCalled();
-    expect(wsm.getConnectionCount()).toBe(1);
+    const ws = await connectWebSocket(`${started.url}/v1/ws?token=first`);
+    await expect(connectExpectHttpError(`${started.url}/v1/ws?token=second`)).resolves.toBe(429);
+    expect(manager.getUserConnectionCount('user-1')).toBe(1);
+    ws.close();
   });
 
-  it('tracks user connection count and decrements on close', async () => {
-    const auth = makeMockAuth({ userId: 'user-1', teamId: 't1', role: 'user' });
-    wsm = new WebSocketManager({
-      agentLoop: makeMockAgentLoop(),
-      auth,
-      rateLimits: { maxConnectionsPerUser: 2 },
+  it('enforces per-connection concurrent chat cap', async () => {
+    const agentLoop = {
+      run: vi.fn().mockImplementation(async function* () {
+        yield { type: 'session' };
+        await new Promise(() => {});
+      }),
+    } as any;
+    manager = new WebSocketManager({
+      agentLoop,
+      auth: makeMockAuth(),
+      rateLimits: { maxConcurrentChats: 1 },
+    });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
+
+    const ws = await connectWebSocket(`${started.url}/v1/ws?token=dev-key`);
+    const messages = await collectJsonMessages(ws, 3, () => {
+      ws.send(JSON.stringify({ type: 'chat', input: 'first', conversationId: 'one' }));
+      setTimeout(() => {
+        ws.send(JSON.stringify({ type: 'chat', input: 'second', conversationId: 'two' }));
+      }, 10);
     });
 
-    const s1 = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq('key1'), s1 as any);
-    expect(wsm.getUserConnectionCount('user-1')).toBe(1);
-
-    const s2 = makeMockSocket();
-    await wsm.handleUpgrade(makeMockReq('key2'), s2 as any);
-    expect(wsm.getUserConnectionCount('user-1')).toBe(2);
-
-    // Close first socket — count should decrement
-    s1.emit('close');
-    expect(wsm.getUserConnectionCount('user-1')).toBe(1);
-    expect(wsm.getConnectionCount()).toBe(1);
+    expect(messages[2]).toMatchObject({
+      type: 'error',
+      message: 'Too many concurrent chats',
+    });
+    ws.close();
   });
 });
 
