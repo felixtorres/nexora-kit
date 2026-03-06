@@ -11,6 +11,7 @@ import { FormBlock } from './form-block';
 import { ProgressBlock } from './progress-block';
 import { SuggestedRepliesBlock } from './suggested-replies-block';
 import { ToolCallBlock } from './tool-call-block';
+import { ActivityBlock } from './activity-block';
 
 interface BlockRendererProps {
   block: DisplayBlock;
@@ -44,6 +45,8 @@ export function BlockRenderer({ block, allBlocks, index, onAction, onReply }: Bl
       return <SuggestedRepliesBlock block={block} onReply={onReply ?? noop} />;
     case 'tool_call':
       return <ToolCallBlock block={block} />;
+    case 'activity':
+      return <ActivityBlock block={block} />;
     case 'error':
       return (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">

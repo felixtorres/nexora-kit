@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, ResponseBlock, StreamingArtifact, ToolCallBlock } from "@/lib/block-types";
+import type { ActivityBlock, Message, ResponseBlock, StreamingArtifact, ToolCallBlock } from "@/lib/block-types";
 
 // ── Dev Panel types ────────────────────────────────────────────────────
 
@@ -26,6 +26,7 @@ interface ConversationState {
   streamingText: string;
   streamingBlocks: ResponseBlock[];
   streamingToolCalls: ToolCallBlock[];
+  streamingActivities: ActivityBlock[];
   artifacts: Map<string, StreamingArtifact>;
 
   // Dev panel state
@@ -44,6 +45,7 @@ interface ConversationState {
   addToolCall: (tc: ToolCallBlock) => void;
   updateToolCallStatus: (id: string, status: ToolCallBlock['status']) => void;
   updateToolCallResult: (id: string, result: string, isError?: boolean) => void;
+  addActivity: (activity: ActivityBlock) => void;
   finalizeStreaming: (conversationId: string) => void;
   clearStreaming: () => void;
 
@@ -66,12 +68,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   streamingText: "",
   streamingBlocks: [],
   streamingToolCalls: [],
+  streamingActivities: [],
   artifacts: new Map(),
   devEvents: [],
   lastUsage: null,
 
   setActiveConversation: (id) =>
-    set({ activeConversationId: id, isSending: false, isStreaming: false }),
+    set({
+      activeConversationId: id,
+      isSending: false,
+      isStreaming: false,
+      streamingText: "",
+      streamingBlocks: [],
+      streamingToolCalls: [],
+      streamingActivities: [],
+    }),
 
   setMessages: (conversationId, messages) =>
     set((state) => ({
@@ -95,7 +106,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   setIsSending: (sending) => set({ isSending: sending }),
 
   startStreaming: () =>
-    set({ isStreaming: true, streamingText: "", streamingBlocks: [], streamingToolCalls: [], isSending: true }),
+    set({ isStreaming: true, streamingText: "", streamingBlocks: [], streamingToolCalls: [], streamingActivities: [], isSending: true }),
 
   appendStreamingText: (text) =>
     set((state) => ({ streamingText: state.streamingText + text })),
@@ -122,11 +133,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       ),
     })),
 
+  addActivity: (activity) =>
+    set((state) => ({
+      streamingActivities: [...state.streamingActivities, activity],
+    })),
+
   finalizeStreaming: (conversationId) => {
-    const { streamingText, streamingBlocks, streamingToolCalls } = get();
-    const toolBlocks: ToolCallBlock[] = streamingToolCalls;
+    const { streamingText, streamingBlocks, streamingToolCalls, streamingActivities } = get();
     const allBlocks = [
-      ...toolBlocks,
+      ...streamingActivities,
+      ...streamingToolCalls,
       ...(streamingBlocks.length > 0 ? streamingBlocks : []),
     ];
     const blocks = allBlocks.length > 0 ? allBlocks : undefined;
@@ -146,6 +162,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingText: "",
       streamingBlocks: [],
       streamingToolCalls: [],
+      streamingActivities: [],
     });
   },
 
@@ -156,6 +173,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingText: "",
       streamingBlocks: [],
       streamingToolCalls: [],
+      streamingActivities: [],
     }),
 
   initArtifact: (artifactId, title, content) =>

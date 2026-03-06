@@ -100,6 +100,21 @@ export interface ErrorBlock {
   code?: string;
 }
 
+// ActivityBlock is frontend-only — renders agent lifecycle events with muted styling
+export interface ActivityBlock {
+  type: 'activity';
+  event:
+    | 'turn_start'
+    | 'turn_continue'
+    | 'compaction'
+    | 'sub_agent_start'
+    | 'sub_agent_end'
+    | 'thinking';
+  label: string;
+  detail?: string;
+  timestamp: number;
+}
+
 export type ResponseBlock =
   | TextBlock
   | CardBlock
@@ -112,8 +127,8 @@ export type ResponseBlock =
   | ProgressBlock
   | CustomBlock;
 
-// Frontend display union includes ErrorBlock and ToolCallBlock for local rendering
-export type DisplayBlock = ResponseBlock | ErrorBlock | ToolCallBlock;
+// Frontend display union includes ErrorBlock, ToolCallBlock, and ActivityBlock for local rendering
+export type DisplayBlock = ResponseBlock | ErrorBlock | ToolCallBlock | ActivityBlock;
 
 // ── Message types ──────────────────────────────────────────────────────
 

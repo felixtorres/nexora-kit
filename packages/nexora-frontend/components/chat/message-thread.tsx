@@ -71,8 +71,18 @@ interface MessageBubbleProps {
   onReply?: (text: string) => void;
 }
 
+/** Content block types that already represent the response text */
+const CONTENT_BLOCK_TYPES = new Set(['text', 'code', 'table', 'card', 'image', 'form']);
+
 function MessageBubble({ message, onAction, onReply }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+  const blocks = message.blocks && message.blocks.length > 0 ? message.blocks : null;
+
+  // Show raw text content only when blocks don't already cover it.
+  // Activity blocks and tool_call blocks are metadata — the text IS the response.
+  // But text/code/table/card etc. blocks already contain the formatted response.
+  const hasContentBlocks = blocks?.some((b) => CONTENT_BLOCK_TYPES.has(b.type)) ?? false;
+  const showText = !!message.content && !hasContentBlocks;
 
   return (
     <div className={`flex items-start gap-3 px-4 py-4 ${isUser ? '' : 'bg-muted/30'}`}>
@@ -87,8 +97,8 @@ function MessageBubble({ message, onAction, onReply }: MessageBubbleProps) {
 
       {/* Content */}
       <div className="min-w-0 flex-1 space-y-3 pt-0.5">
-        {message.blocks && message.blocks.length > 0 ? (
-          message.blocks.map((block: DisplayBlock, i: number) => (
+        {blocks && (
+          blocks.map((block: DisplayBlock, i: number) => (
             <BlockRenderer
               key={i}
               block={block}
@@ -98,7 +108,8 @@ function MessageBubble({ message, onAction, onReply }: MessageBubbleProps) {
               onReply={onReply}
             />
           ))
-        ) : (
+        )}
+        {showText && (
           <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:my-2 prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-li:my-0.5 prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-0">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -129,6 +140,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
   const streamingText = useConversationStore((s) => s.streamingText);
   const streamingBlocks = useConversationStore((s) => s.streamingBlocks);
   const streamingToolCalls = useConversationStore((s) => s.streamingToolCalls);
+  const streamingActivities = useConversationStore((s) => s.streamingActivities);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -140,7 +152,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
     if (viewport) {
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, isSending, streamingText, streamingBlocks, streamingToolCalls]);
+  }, [messages, isSending, streamingText, streamingBlocks, streamingToolCalls, streamingActivities]);
 
   if (messages.length === 0 && !isSending) {
     return (
@@ -158,17 +170,19 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
         ))}
 
         {/* Streaming assistant response */}
-        {isStreaming && (streamingText || streamingBlocks.length > 0 || streamingToolCalls.length > 0) && (
+        {isStreaming && (streamingText || streamingBlocks.length > 0 || streamingToolCalls.length > 0 || streamingActivities.length > 0) && (
           <MessageBubble
             message={{
               role: 'assistant',
               content: streamingText,
-              blocks: [
-                ...streamingToolCalls,
-                ...(streamingBlocks.length > 0 ? streamingBlocks : []),
-              ].length > 0
-                ? [...streamingToolCalls, ...(streamingBlocks.length > 0 ? streamingBlocks : [])]
-                : undefined,
+              blocks: (() => {
+                const all = [
+                  ...streamingActivities,
+                  ...streamingToolCalls,
+                  ...(streamingBlocks.length > 0 ? streamingBlocks : []),
+                ];
+                return all.length > 0 ? all : undefined;
+              })(),
             }}
             onAction={onAction}
             onReply={onReply}
@@ -177,7 +191,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
 
         {/* Show dots only when streaming hasn't produced content yet */}
         {isSending && !isStreaming && <StreamingIndicator />}
-        {isStreaming && !streamingText && streamingBlocks.length === 0 && <StreamingIndicator />}
+        {isStreaming && !streamingText && streamingBlocks.length === 0 && streamingActivities.length === 0 && <StreamingIndicator />}
       </div>
     </ScrollArea>
   );
