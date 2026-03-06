@@ -470,16 +470,6 @@ export class AgentLoop {
         skillIndexSuffix = parts.join('\n\n');
       }
 
-      // Build available commands list for the system prompt
-      let commandListSuffix = '';
-      if (this.commandDispatcher?.listCommands) {
-        const cmds = this.commandDispatcher.listCommands();
-        if (cmds.length > 0) {
-          const lines = cmds.map((c) => `- \`/${c.qualifiedName}\` — ${c.description}`);
-          commandListSuffix = `## Available Slash Commands\nUsers can type these commands directly in the chat:\n${lines.join('\n')}`;
-        }
-      }
-
       // Agent loop: LLM call → tool execution → repeat
       let turn = 0;
       let effectiveMaxTurns = this.maxTurns;
@@ -540,7 +530,6 @@ export class AgentLoop {
           workspacePrefix: workspacePromptPrefix || undefined,
           basePrompt: request.systemPrompt ?? this.systemPrompt,
           commandPrompt,
-          commandListSuffix: commandListSuffix || undefined,
           artifactSuffix: artifactPromptSuffix || undefined,
           skillIndexSuffix: skillIndexSuffix || undefined,
           workingMemoryNotes: [...workingMemoryNotes, ...turnReminders],

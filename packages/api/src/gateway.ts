@@ -303,6 +303,15 @@ export class Gateway {
     this.router.get(`${prefix}/plugins`, createPluginsListHandler(deps));
     this.router.get(`${prefix}/plugins/:name`, createPluginDetailHandler(deps));
     this.router.get(`${prefix}/health`, createHealthHandler(deps));
+    this.router.get(`${prefix}/commands`, async () => {
+      const cmds = config.commandDispatcher?.listCommands?.() ?? [];
+      return jsonResponse(200, {
+        commands: cmds.map((c) => ({
+          name: `/${c.qualifiedName}`,
+          description: c.description,
+        })),
+      });
+    });
     this.router.get(`${prefix}/metrics`, async () => jsonResponse(200, this.metrics.snapshot()));
     this.router.get(`${prefix}/openapi.json`, async () =>
       jsonResponse(200, buildOpenApiSpec(prefix)),

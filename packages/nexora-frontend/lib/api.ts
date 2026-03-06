@@ -179,6 +179,11 @@ export const api = {
     get: () => request<MetricsResponse>("/metrics"),
   },
 
+  commands: {
+    list: () =>
+      request<{ commands: Array<{ name: string; description: string }> }>("/commands"),
+  },
+
   bots: {
     list: () => request<{ bots: Bot[] }>("/admin/bots"),
     get: (id: string) => request<Bot>(`/admin/bots/${id}`),

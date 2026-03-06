@@ -105,6 +105,7 @@ export interface GatewayConfig {
   wsHeartbeatMs?: number;
   allowedOrigins?: string[];
   maxBodyBytes?: number;
+  commandDispatcher?: { listCommands?(): Array<{ qualifiedName: string; description: string }> };
   publicMetrics?: boolean;
   wsMaxMessagesPerMinute?: number;
   wsMaxConcurrentChats?: number;

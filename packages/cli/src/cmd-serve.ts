@@ -9,7 +9,14 @@ import type { LogLevel } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
 import { PluginLifecycleManager, discoverPlugins } from '@nexora-kit/plugins';
-import { ToolIndex, ToolSelector } from '@nexora-kit/tool-registry';
+import {
+  ToolIndex,
+  AdaptiveToolSelector,
+  ConversationToolMemory,
+  createSearchToolsHandler,
+  SEARCH_TOOLS_NAME,
+  getSearchToolsDefinition,
+} from '@nexora-kit/tool-registry';
 import { SkillRegistry, SkillHandlerFactory, SkillIndexAdapter } from '@nexora-kit/skills';
 import { CommandRegistry, CommandDispatcher } from '@nexora-kit/commands';
 import { McpManager } from '@nexora-kit/mcp';
@@ -44,6 +51,11 @@ interface InstanceConfig {
       triggerRatio?: number;
       keepRecentGroups?: number;
       maxSummaryTokens?: number;
+    };
+    toolSelection?: {
+      searchModeThreshold?: number;
+      passthroughBudgetRatio?: number;
+      essentialTools?: string[];
     };
   };
   rateLimit?: { windowMs?: number; maxRequests?: number };
@@ -124,7 +136,26 @@ export const serveCommand: CliCommand = {
     // --- Tools & Skills ---
     const toolDispatcher = new ToolDispatcher();
     const toolIndex = new ToolIndex();
-    const toolSelector = new ToolSelector({ index: toolIndex });
+    const conversationToolMemory = new ConversationToolMemory();
+    const toolSelectionConfig = config.agent?.toolSelection;
+    const toolSelector = new AdaptiveToolSelector({
+      index: toolIndex,
+      conversationToolMemory,
+      searchModeThreshold: toolSelectionConfig?.searchModeThreshold,
+      passthroughBudgetRatio: toolSelectionConfig?.passthroughBudgetRatio,
+      essentialTools: toolSelectionConfig?.essentialTools,
+      innerSelectorOptions: { index: toolIndex },
+    });
+
+    // Register _search_tools handler in the dispatcher (NOT in toolIndex)
+    const searchToolsHandler = createSearchToolsHandler({
+      toolIndex,
+      conversationToolMemory,
+    });
+    toolDispatcher.register(
+      getSearchToolsDefinition(),
+      async (input, context) => searchToolsHandler(input, context),
+    );
     const skillRegistry = new SkillRegistry();
     const commandRegistry = new CommandRegistry();
     const commandDispatcher = new CommandDispatcher(commandRegistry);
@@ -249,6 +280,7 @@ export const serveCommand: CliCommand = {
       messageStore: storageBackend.messageStore,
       usageEventStore,
       plugins: lifecycle,
+      commandDispatcher,
       admin: adminService,
       logger: logger.child({ component: 'gateway' }),
       rateLimit: config.rateLimit
