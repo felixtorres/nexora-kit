@@ -23,37 +23,28 @@ export function useWebSocket(conversationId: string | null) {
   const apiKey = useSettings((s) => s.apiKey);
   const hydrated = useSettingsHydrated();
 
-  const {
-    startStreaming,
-    appendStreamingText,
-    setStreamingBlocks,
-    addToolCall,
-    updateToolCallStatus,
-    updateToolCallResult,
-    finalizeStreaming,
-    clearStreaming,
-    addMessage,
-    initArtifact,
-    appendArtifactDelta,
-    markArtifactDone,
-    addDevEvent,
-    setLastUsage,
-  } = useConversationStore();
+  // Store actions behind a ref so connect() has a stable identity.
+  // Zustand actions are stable, but listing 15 deps makes the useCallback
+  // fragile and triggers reconnects on any subtle reference change.
+  const storeRef = useRef(useConversationStore.getState());
+  useEffect(() => {
+    // Keep ref current — Zustand actions are stable so this is cheap
+    storeRef.current = useConversationStore.getState();
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
-  const statusRef = useRef<WsStatus>('disconnected');
   const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationIdRef = useRef(conversationId);
-  const connectRef = useRef<() => void>(() => {});
   const [isConnected, setIsConnected] = useState(false);
 
+  // Keep conversationId ref in sync
   useEffect(() => {
     conversationIdRef.current = conversationId;
   });
 
-  const cleanup = useCallback(() => {
+  const cleanupWs = useCallback(() => {
     if (pingTimerRef.current) {
       clearInterval(pingTimerRef.current);
       pingTimerRef.current = null;
@@ -72,218 +63,270 @@ export function useWebSocket(conversationId: string | null) {
     }
   }, []);
 
-  const connect = useCallback(() => {
-    if (!serverUrl || !conversationIdRef.current) return;
-
-    cleanup();
-    statusRef.current = 'connecting';
-
-    const wsUrl = serverUrl.replace(/^http/, 'ws').replace(/\/$/, '');
-    const params = apiKey ? `?token=${encodeURIComponent(apiKey)}` : '';
-    const ws = new WebSocket(`${wsUrl}/v1/ws${params}`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      statusRef.current = 'connected';
-      setIsConnected(true);
-      reconnectAttemptRef.current = 0;
-
-      // Start ping keepalive
-      pingTimerRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, PING_INTERVAL);
-    };
-
-    ws.onmessage = (event) => {
-      let data: WsEvent;
-      try {
-        data = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-
-      // Record all received events for Dev Panel (skip pong/ping noise)
-      if (data.type !== 'pong') {
-        addDevEvent({ direction: 'received', timestamp: Date.now(), data });
-      }
-
-      const cid = conversationIdRef.current;
-      if (!cid) return;
-
-      switch (data.type) {
-        case 'text': {
-          const content = (data.payload as { content?: string })?.content ?? '';
-          appendStreamingText(content);
-          break;
-        }
-        case 'blocks': {
-          const blocks = (data.payload as { blocks?: ResponseBlock[] })?.blocks ?? [];
-          setStreamingBlocks(blocks);
-          break;
-        }
-        case 'done': {
-          finalizeStreaming(cid);
-          break;
-        }
-        case 'cancelled': {
-          // Finalize with whatever partial content we have
-          finalizeStreaming(cid);
-          break;
-        }
-        case 'error': {
-          const errorMsg = (data.payload as { message?: string })?.message ?? data.message ?? 'Unknown error';
-          // Add error as a frontend-only error block message
-          addMessage(cid, {
-            role: 'assistant',
-            content: '',
-            blocks: [{ type: 'error' as const, message: errorMsg }],
-          });
-          clearStreaming();
-          break;
-        }
-        case 'conversation': {
-          // Server assigned/confirmed conversation ID — no action needed for operator WS
-          break;
-        }
-        case 'usage': {
-          const p = data.payload as { inputTokens?: number; outputTokens?: number } | undefined;
-          if (p) {
-            setLastUsage({
-              inputTokens: p.inputTokens ?? 0,
-              outputTokens: p.outputTokens ?? 0,
-            });
-          }
-          break;
-        }
-        case 'artifact_create': {
-          const p = data.payload as { artifactId?: string; title?: string; content?: string } | undefined;
-          if (p?.artifactId) {
-            initArtifact(p.artifactId, p.title ?? '', p.content ?? '');
-          }
-          break;
-        }
-        case 'artifact_stream': {
-          const p = data.payload as { artifactId?: string; delta?: string } | undefined;
-          if (p?.artifactId && p.delta) {
-            appendArtifactDelta(p.artifactId, p.delta);
-          }
-          break;
-        }
-        case 'artifact_done': {
-          const p = data.payload as { artifactId?: string } | undefined;
-          if (p?.artifactId) {
-            markArtifactDone(p.artifactId);
-          }
-          break;
-        }
-        case 'tool_call': {
-          const p = data.payload as { id?: string; name?: string; input?: Record<string, unknown> } | undefined;
-          if (p?.id && p?.name) {
-            addToolCall({
-              type: 'tool_call',
-              id: p.id,
-              name: p.name,
-              input: p.input,
-              status: 'executing',
-            });
-          }
-          break;
-        }
-        case 'tool_status': {
-          const p = data.payload as { id?: string; status?: string } | undefined;
-          if (p?.id && p?.status) {
-            updateToolCallStatus(p.id, p.status as 'executing' | 'completed' | 'error');
-          }
-          break;
-        }
-        case 'tool_result': {
-          const p = data.payload as { toolUseId?: string; content?: string; isError?: boolean } | undefined;
-          if (p?.toolUseId) {
-            updateToolCallResult(p.toolUseId, p.content ?? '', p.isError);
-          }
-          break;
-        }
-        case 'pong':
-          break;
-      }
-    };
-
-    ws.onerror = () => {
-      statusRef.current = 'error';
-      setIsConnected(false);
-    };
-
-    ws.onclose = () => {
-      statusRef.current = 'disconnected';
-      setIsConnected(false);
-      if (pingTimerRef.current) {
-        clearInterval(pingTimerRef.current);
-        pingTimerRef.current = null;
-      }
-
-      // Reconnect with exponential backoff
-      const delay = Math.min(
-        RECONNECT_BASE_MS * 2 ** reconnectAttemptRef.current,
-        RECONNECT_MAX_MS
-      );
-      reconnectAttemptRef.current++;
-      reconnectTimerRef.current = setTimeout(() => {
-        if (conversationIdRef.current) connectRef.current();
-      }, delay);
-    };
-  }, [
-    serverUrl,
-    apiKey,
-    cleanup,
-    startStreaming,
-    appendStreamingText,
-    setStreamingBlocks,
-    addToolCall,
-    updateToolCallStatus,
-    updateToolCallResult,
-    finalizeStreaming,
-    clearStreaming,
-    addMessage,
-    initArtifact,
-    appendArtifactDelta,
-    markArtifactDone,
-    addDevEvent,
-    setLastUsage,
-  ]);
+  // Stable connect function — only depends on serverUrl and apiKey (primitives).
+  // All store interactions go through storeRef.
+  const connectRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    connectRef.current = connect;
-  });
+    connectRef.current = () => {
+      if (!serverUrl || !apiKey || !conversationIdRef.current) return;
 
-  // Wait for settings to hydrate from localStorage before connecting.
-  // Without this, the first connect attempt uses default (empty) apiKey → 401.
+      cleanupWs();
+
+      const wsUrl = serverUrl
+        .replace(/^http/, 'ws')
+        .replace(/\/$/, '')
+        .replace(/\/\/localhost([:\/])/, '//127.0.0.1$1');
+      const fullUrl = `${wsUrl}/v1/ws?token=${encodeURIComponent(apiKey)}`;
+      console.log(`[nexora-ws] connecting to ${wsUrl}/v1/ws`);
+      const ws = new WebSocket(fullUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('[nexora-ws] connected');
+        setIsConnected(true);
+        reconnectAttemptRef.current = 0;
+
+        pingTimerRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, PING_INTERVAL);
+      };
+
+      ws.onmessage = (event) => {
+        let data: WsEvent;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        const s = storeRef.current;
+
+        if (data.type !== 'pong') {
+          s.addDevEvent({ direction: 'received', timestamp: Date.now(), data });
+        }
+
+        const cid = conversationIdRef.current;
+        if (!cid) return;
+
+        switch (data.type) {
+          case 'text': {
+            const content = (data.payload as { content?: string })?.content ?? '';
+            s.appendStreamingText(content);
+            break;
+          }
+          case 'blocks': {
+            const blocks = (data.payload as { blocks?: ResponseBlock[] })?.blocks ?? [];
+            s.setStreamingBlocks(blocks);
+            break;
+          }
+          case 'done': {
+            s.finalizeStreaming(cid);
+            break;
+          }
+          case 'cancelled': {
+            s.finalizeStreaming(cid);
+            break;
+          }
+          case 'error': {
+            const errorMsg = (data.payload as { message?: string })?.message ?? data.message ?? 'Unknown error';
+            s.addMessage(cid, {
+              role: 'assistant',
+              content: '',
+              blocks: [{ type: 'error' as const, message: errorMsg }],
+            });
+            s.clearStreaming();
+            break;
+          }
+          case 'conversation':
+            break;
+          case 'usage': {
+            const p = data.payload as { inputTokens?: number; outputTokens?: number } | undefined;
+            if (p) {
+              s.setLastUsage({
+                inputTokens: p.inputTokens ?? 0,
+                outputTokens: p.outputTokens ?? 0,
+              });
+            }
+            break;
+          }
+          case 'artifact_create': {
+            const p = data.payload as { artifactId?: string; title?: string; content?: string } | undefined;
+            if (p?.artifactId) {
+              s.initArtifact(p.artifactId, p.title ?? '', p.content ?? '');
+            }
+            break;
+          }
+          case 'artifact_stream': {
+            const p = data.payload as { artifactId?: string; delta?: string } | undefined;
+            if (p?.artifactId && p.delta) {
+              s.appendArtifactDelta(p.artifactId, p.delta);
+            }
+            break;
+          }
+          case 'artifact_done': {
+            const p = data.payload as { artifactId?: string } | undefined;
+            if (p?.artifactId) {
+              s.markArtifactDone(p.artifactId);
+            }
+            break;
+          }
+          case 'tool_call': {
+            const p = data.payload as { id?: string; name?: string; input?: Record<string, unknown> } | undefined;
+            if (p?.id && p?.name) {
+              s.addToolCall({
+                type: 'tool_call',
+                id: p.id,
+                name: p.name,
+                input: p.input,
+                status: 'executing',
+              });
+            }
+            break;
+          }
+          case 'tool_status': {
+            const p = data.payload as { id?: string; status?: string } | undefined;
+            if (p?.id && p?.status) {
+              s.updateToolCallStatus(p.id, p.status as 'executing' | 'completed' | 'error');
+            }
+            break;
+          }
+          case 'tool_result': {
+            const p = data.payload as { toolUseId?: string; content?: string; isError?: boolean } | undefined;
+            if (p?.toolUseId) {
+              s.updateToolCallResult(p.toolUseId, p.content ?? '', p.isError);
+            }
+            break;
+          }
+          case 'turn_start': {
+            const p = data.payload as { turn?: number; maxTurns?: number } | undefined;
+            if (p?.turn) {
+              s.addActivity({
+                type: 'activity', event: 'turn_start',
+                label: `Turn ${p.turn}/${p.maxTurns ?? '?'}`,
+                timestamp: Date.now(),
+              });
+            }
+            break;
+          }
+          case 'turn_continue': {
+            const p = data.payload as { currentTurn?: number; additionalTurns?: number } | undefined;
+            if (p) {
+              s.addActivity({
+                type: 'activity', event: 'turn_continue',
+                label: `Extended by ${p.additionalTurns ?? 0} turns`,
+                timestamp: Date.now(),
+              });
+            }
+            break;
+          }
+          case 'compaction': {
+            const p = data.payload as { compactedMessages?: number; summaryTokens?: number } | undefined;
+            if (p) {
+              s.addActivity({
+                type: 'activity', event: 'compaction',
+                label: `Compacted ${p.compactedMessages ?? 0} messages`,
+                detail: p.summaryTokens ? `${p.summaryTokens} token summary` : undefined,
+                timestamp: Date.now(),
+              });
+            }
+            break;
+          }
+          case 'sub_agent_start': {
+            const p = data.payload as { agentId?: string; task?: string } | undefined;
+            if (p?.agentId) {
+              s.addActivity({
+                type: 'activity', event: 'sub_agent_start',
+                label: `Sub-agent: ${p.task ?? 'working'}`,
+                detail: p.agentId,
+                timestamp: Date.now(),
+              });
+            }
+            break;
+          }
+          case 'sub_agent_end': {
+            const p = data.payload as { agentId?: string; tokensUsed?: number } | undefined;
+            if (p?.agentId) {
+              s.addActivity({
+                type: 'activity', event: 'sub_agent_end',
+                label: `Sub-agent done`,
+                detail: p.tokensUsed ? `${p.tokensUsed} tokens` : undefined,
+                timestamp: Date.now(),
+              });
+            }
+            break;
+          }
+          case 'thinking': {
+            const content = (data.payload as { content?: string })?.content ?? '';
+            if (content) {
+              s.addActivity({
+                type: 'activity', event: 'thinking',
+                label: 'Thinking',
+                detail: content,
+                timestamp: Date.now(),
+              });
+            }
+            break;
+          }
+          case 'pong':
+            break;
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.error('[nexora-ws] connection error', e);
+        setIsConnected(false);
+      };
+
+      ws.onclose = (e) => {
+        console.warn(`[nexora-ws] closed code=${e.code} reason=${e.reason || '(none)'} url=${ws.url}`);
+        setIsConnected(false);
+        if (pingTimerRef.current) {
+          clearInterval(pingTimerRef.current);
+          pingTimerRef.current = null;
+        }
+
+        // Reconnect with exponential backoff
+        const delay = Math.min(
+          RECONNECT_BASE_MS * 2 ** reconnectAttemptRef.current,
+          RECONNECT_MAX_MS
+        );
+        reconnectAttemptRef.current++;
+        reconnectTimerRef.current = setTimeout(() => {
+          if (conversationIdRef.current) connectRef.current();
+        }, delay);
+      };
+    };
+  }, [serverUrl, apiKey, cleanupWs]);
+
+  // Main connection effect — stable deps, strict-mode safe.
   useEffect(() => {
-    if (hydrated && conversationId && serverUrl) {
-      connect();
+    if (hydrated && conversationId && serverUrl && apiKey) {
+      connectRef.current();
     }
-    return cleanup;
-  }, [hydrated, conversationId, serverUrl, connect, cleanup]);
+    return cleanupWs;
+  }, [hydrated, conversationId, serverUrl, apiKey, cleanupWs]);
 
   const sendMessage = useCallback(
     (input: string) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       if (!conversationIdRef.current) return;
 
-      // Add user message to store
-      addMessage(conversationIdRef.current, { role: 'user', content: input });
-      startStreaming();
+      const s = storeRef.current;
+      s.addMessage(conversationIdRef.current, { role: 'user', content: input });
+      s.startStreaming();
 
       const msg = {
         type: 'chat',
         conversationId: conversationIdRef.current,
         input,
       };
-      addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+      s.addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
       wsRef.current.send(JSON.stringify(msg));
     },
-    [addMessage, startStreaming, addDevEvent]
+    []
   );
 
   const sendAction = useCallback(
@@ -291,28 +334,29 @@ export function useWebSocket(conversationId: string | null) {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       if (!conversationIdRef.current) return;
 
-      startStreaming();
+      const s = storeRef.current;
+      s.startStreaming();
 
       const msg = {
         type: 'chat',
         conversationId: conversationIdRef.current,
         input: { type: 'action', actionId, payload },
       };
-      addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+      s.addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
       wsRef.current.send(JSON.stringify(msg));
     },
-    [startStreaming, addDevEvent]
+    []
   );
 
   const cancel = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     if (!conversationIdRef.current) return;
 
+    const s = storeRef.current;
     const msg = { type: 'cancel', conversationId: conversationIdRef.current };
-    addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
+    s.addDevEvent({ direction: 'sent', timestamp: Date.now(), data: msg });
     wsRef.current.send(JSON.stringify(msg));
-  }, [addDevEvent]);
-
+  }, []);
 
   return { sendMessage, sendAction, cancel, isConnected };
 }

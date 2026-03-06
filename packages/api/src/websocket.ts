@@ -13,6 +13,8 @@ export interface WsConnection {
   messageTimestamps: number[];
   activeChats: number;
   activeAbortControllers: Map<string, AbortController>;
+  /** Buffer for accumulating partial TCP chunks until a complete WS frame is available. */
+  recvBuffer: Buffer;
 }
 
 export interface WsRateLimitConfig {
@@ -69,8 +71,14 @@ export class WebSocketManager {
     });
 
     if (!identity) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      const origin = req.headers['origin'] ?? '*';
+      socket.write(
+        'HTTP/1.1 401 Unauthorized\r\n' +
+        `Access-Control-Allow-Origin: ${origin}\r\n` +
+        '\r\n',
+      );
       socket.destroy();
+      console.error(`[ws] auth failed for ${url.pathname} hasToken=${!!query.token} origin=${origin}`);
       return;
     }
 
@@ -86,13 +94,13 @@ export class WebSocketManager {
 
     // WebSocket handshake
     const key = req.headers['sec-websocket-key'];
-    if (!key) {
+    if (!key || typeof key !== 'string') {
       socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
       socket.destroy();
       return;
     }
 
-    const accept = computeAcceptKey(key);
+    const accept = computeAcceptKey(key.trim());
 
     socket.write(
       'HTTP/1.1 101 Switching Protocols\r\n' +
@@ -111,6 +119,7 @@ export class WebSocketManager {
       messageTimestamps: [],
       activeChats: 0,
       activeAbortControllers: new Map(),
+      recvBuffer: Buffer.alloc(0),
     };
     this.connections.set(connId, conn);
 
@@ -183,9 +192,24 @@ export class WebSocketManager {
   }
 
   private handleData(conn: WsConnection, data: Buffer): void {
-    const frame = decodeFrame(data);
-    if (!frame) return;
+    // Accumulate incoming TCP data into the connection's receive buffer
+    conn.recvBuffer = conn.recvBuffer.length > 0
+      ? Buffer.concat([conn.recvBuffer, data])
+      : data;
 
+    // Extract and process all complete frames from the buffer
+    while (conn.recvBuffer.length > 0) {
+      const frame = decodeFrame(conn.recvBuffer);
+      if (!frame) break; // Incomplete frame — wait for more data
+
+      // Advance buffer past the consumed frame
+      conn.recvBuffer = conn.recvBuffer.subarray(frame.bytesConsumed);
+
+      this.handleFrame(conn, frame);
+    }
+  }
+
+  private handleFrame(conn: WsConnection, frame: DecodedFrame): void {
     // Pong
     if (frame.opcode === 0xA) {
       conn.alive = true;
@@ -249,8 +273,10 @@ export class WebSocketManager {
         sendJsonFrame(conn.socket, { type: 'error', message: 'Too many concurrent chats' });
         return;
       }
-      this.handleChat(conn, chatResult.data).catch(() => {
-        sendJsonFrame(conn.socket, { type: 'error', message: 'Chat processing failed' });
+      this.handleChat(conn, chatResult.data).catch((err) => {
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error(`[ws] handleChat error:`, detail);
+        sendJsonFrame(conn.socket, { type: 'error', message: `Chat processing failed: ${detail}` });
       });
       return;
     }

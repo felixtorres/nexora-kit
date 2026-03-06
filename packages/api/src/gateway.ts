@@ -457,7 +457,8 @@ export class Gateway {
               socket.destroy();
             });
           } else {
-            this.wsManager.handleUpgrade(req, socket).catch(() => {
+            this.wsManager.handleUpgrade(req, socket).catch((err) => {
+              console.error('[gateway] ws upgrade failed:', err);
               socket.destroy();
             });
           }

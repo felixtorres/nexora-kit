@@ -1,15 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type Bot, type Agent, type PluginSummary } from '@/lib/api';
-import { useSettings } from '@/store/settings';
+import { useSettings, useSettingsHydrated } from '@/store/settings';
+
+/** Shorthand: queries should only run after settings hydrate from localStorage. */
+function useApiReady() {
+  const serverUrl = useSettings((s) => s.serverUrl);
+  const apiKey = useSettings((s) => s.apiKey);
+  const hydrated = useSettingsHydrated();
+  return { serverUrl, enabled: hydrated && !!serverUrl && !!apiKey };
+}
 
 // ── Bots ───────────────────────────────────────────────────────────────
 
 export function useBotList() {
-  const serverUrl = useSettings((s) => s.serverUrl);
+  const { serverUrl, enabled } = useApiReady();
   return useQuery({
     queryKey: ['bots', serverUrl],
     queryFn: () => api.bots.list(),
-    enabled: !!serverUrl,
+    enabled,
   });
 }
 
@@ -41,11 +49,11 @@ export function useDeleteBot() {
 // ── Agents ─────────────────────────────────────────────────────────────
 
 export function useAgentList() {
-  const serverUrl = useSettings((s) => s.serverUrl);
+  const { serverUrl, enabled } = useApiReady();
   return useQuery({
     queryKey: ['agents', serverUrl],
     queryFn: () => api.agents.list(),
-    enabled: !!serverUrl,
+    enabled,
   });
 }
 
@@ -77,11 +85,11 @@ export function useDeleteAgent() {
 // ── Plugins ────────────────────────────────────────────────────────────
 
 export function usePluginList() {
-  const serverUrl = useSettings((s) => s.serverUrl);
+  const { serverUrl, enabled } = useApiReady();
   return useQuery({
     queryKey: ['plugins', serverUrl],
     queryFn: () => api.plugins.list(),
-    enabled: !!serverUrl,
+    enabled,
   });
 }
 
@@ -111,11 +119,11 @@ export function useAuditLog(params?: {
   since?: string;
   limit?: number;
 }) {
-  const serverUrl = useSettings((s) => s.serverUrl);
+  const { serverUrl, enabled } = useApiReady();
   return useQuery({
     queryKey: ['audit', serverUrl, params],
     queryFn: () => api.audit.list(params),
-    enabled: !!serverUrl,
+    enabled,
   });
 }
 
@@ -134,10 +142,10 @@ export function useUsageAnalytics(params?: {
   pluginName?: string;
   breakdown?: 'plugin' | 'daily';
 }) {
-  const serverUrl = useSettings((s) => s.serverUrl);
+  const { serverUrl, enabled } = useApiReady();
   return useQuery({
     queryKey: ['usage', serverUrl, params],
     queryFn: () => api.usage.get(params),
-    enabled: !!serverUrl,
+    enabled,
   });
 }

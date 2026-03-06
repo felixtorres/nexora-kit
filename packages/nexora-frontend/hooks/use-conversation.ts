@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useConversationStore } from '@/store/conversation';
-import { useSettings } from '@/store/settings';
+import { useSettings, useSettingsHydrated } from '@/store/settings';
 import type { Message } from '@/lib/block-types';
 
 /**
@@ -39,21 +39,25 @@ export function normalizeMessage(raw: unknown): Message {
 
 export function useConversationList() {
   const serverUrl = useSettings((s) => s.serverUrl);
+  const apiKey = useSettings((s) => s.apiKey);
+  const hydrated = useSettingsHydrated();
 
   return useQuery({
     queryKey: ['conversations', serverUrl],
     queryFn: () => api.conversations.list({ limit: 50 }),
-    enabled: !!serverUrl,
+    enabled: hydrated && !!serverUrl && !!apiKey,
   });
 }
 
 export function useAgentList() {
   const serverUrl = useSettings((s) => s.serverUrl);
+  const apiKey = useSettings((s) => s.apiKey);
+  const hydrated = useSettingsHydrated();
 
   return useQuery({
     queryKey: ['agents', serverUrl],
     queryFn: () => api.agents.list(),
-    enabled: !!serverUrl,
+    enabled: hydrated && !!serverUrl && !!apiKey,
   });
 }
 

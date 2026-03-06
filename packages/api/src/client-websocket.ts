@@ -3,7 +3,7 @@ import type { Socket } from 'node:net';
 import type { AgentLoop } from '@nexora-kit/core';
 import type { IAgentStore, IEndUserStore, IConversationStore } from '@nexora-kit/storage';
 import { authenticateEndUser, type EndUserIdentity } from './end-user-auth.js';
-import { computeAcceptKey, decodeFrame, encodeFrame, sendJsonFrame } from './ws-utils.js';
+import { computeAcceptKey, decodeFrame, encodeFrame, sendJsonFrame, type DecodedFrame } from './ws-utils.js';
 import { wsChatMessageSchema, wsPingMessageSchema, wsCancelMessageSchema } from './types.js';
 
 export interface ClientWsConnection {
@@ -16,6 +16,7 @@ export interface ClientWsConnection {
   messageTimestamps: number[];
   activeChats: number;
   activeAbortControllers: Map<string, AbortController>;
+  recvBuffer: Buffer;
 }
 
 export interface ClientWsManagerDeps {
@@ -144,6 +145,7 @@ export class ClientWebSocketManager {
       messageTimestamps: [],
       activeChats: 0,
       activeAbortControllers: new Map(),
+      recvBuffer: Buffer.alloc(0),
     };
     this.connections.set(connId, conn);
 
@@ -210,9 +212,21 @@ export class ClientWebSocketManager {
   }
 
   private handleData(conn: ClientWsConnection, data: Buffer): void {
-    const frame = decodeFrame(data);
-    if (!frame) return;
+    conn.recvBuffer = conn.recvBuffer.length > 0
+      ? Buffer.concat([conn.recvBuffer, data])
+      : data;
 
+    while (conn.recvBuffer.length > 0) {
+      const frame = decodeFrame(conn.recvBuffer);
+      if (!frame) break;
+
+      conn.recvBuffer = conn.recvBuffer.subarray(frame.bytesConsumed);
+
+      this.handleFrame(conn, frame);
+    }
+  }
+
+  private handleFrame(conn: ClientWsConnection, frame: DecodedFrame): void {
     // Pong
     if (frame.opcode === 0xA) {
       conn.alive = true;

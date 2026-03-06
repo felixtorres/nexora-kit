@@ -10,6 +10,8 @@ export function computeAcceptKey(clientKey: string): string {
 export interface DecodedFrame {
   opcode: number;
   payload: Buffer;
+  /** Total bytes consumed from the input buffer (header + mask + payload). */
+  bytesConsumed: number;
 }
 
 export function decodeFrame(data: Buffer): DecodedFrame | null {
@@ -39,7 +41,8 @@ export function decodeFrame(data: Buffer): DecodedFrame | null {
 
   if (data.length < offset + payloadLength) return null;
 
-  const payload = data.subarray(offset, offset + payloadLength);
+  // Copy payload so unmasking doesn't corrupt the shared buffer
+  const payload = Buffer.from(data.subarray(offset, offset + payloadLength));
 
   if (maskKey) {
     for (let i = 0; i < payload.length; i++) {
@@ -47,7 +50,7 @@ export function decodeFrame(data: Buffer): DecodedFrame | null {
     }
   }
 
-  return { opcode, payload };
+  return { opcode, payload, bytesConsumed: offset + payloadLength };
 }
 
 export function encodeFrame(payload: Buffer, opcode: number): Buffer {
