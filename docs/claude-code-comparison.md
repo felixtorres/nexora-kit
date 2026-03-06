@@ -89,26 +89,19 @@ Both systems:
 
 | Feature | Claude Code | NexoraKit |
 |---------|------------|-----------|
-| **Parallel tool execution** | Sequential (one tool at a time) | Concurrent via `Promise.all` when LLM emits multiple tool calls |
-| **Context compaction** | Drops old messages when context is full | LLM-based summarization preserves key decisions and facts |
+| **Parallel tool execution** | Supported (multiple tool calls in one response) | Same — concurrent via `Promise.all` |
+| **Context compaction** | Automatic compression as context fills | Explicit `ContextCompactor` with atomic group preservation and configurable trigger ratio |
 | **Working memory** | `CLAUDE.md` and conversation history | Explicit `_note_to_self` / `_recall` tools that survive compaction |
-| **Adaptive turns** | Fixed turn limit | `_request_continue` tool dynamically grants more turns |
+| **Adaptive turns** | Internal turn management | `_request_continue` tool lets the agent explicitly request more turns |
 | **Tool status events** | Tool calls visible in terminal | Structured `tool_status` events (executing → completed/error) |
 | **Structured output** | Text + artifacts | 9 block types (cards, tables, forms, actions, progress bars, etc.) |
 | **Bot orchestration** | N/A (single agent) | Multi-bot fan-out with LLM-driven synthesis |
 
-### The Critical Difference: Parallel Tools
+### Shared: Parallel Tool Execution
 
-When an LLM emits three tool calls in one response, Claude Code executes them sequentially. NexoraKit runs them concurrently:
+Both systems support parallel tool calls — when the LLM emits multiple tool calls in a single response, they execute concurrently rather than sequentially. Claude Code encourages this explicitly ("make all independent tool calls in parallel"). NexoraKit uses `Promise.all` for the same effect.
 
-```
-Claude Code:       tool A → tool B → tool C  (serial)
-NexoraKit:         tool A ─┐
-                   tool B ─┤  Promise.all()
-                   tool C ─┘
-```
-
-This matters for latency-sensitive deployments where tools involve network calls (MCP servers, database queries, API calls). A three-tool turn that takes 9 seconds serially can complete in 3 seconds parallel.
+The difference is in **tool selection**, not execution. Claude Code manages a modest set of core tools with deferred discovery for the rest. NexoraKit must select a relevant subset from potentially hundreds of plugin-provided tools before the LLM ever sees them.
 
 ---
 
@@ -116,23 +109,26 @@ This matters for latency-sensitive deployments where tools involve network calls
 
 ### Claude Code's Approach
 
-Claude Code ships with a fixed set of built-in tools:
+Claude Code has a set of core tools, some always available and others loaded on demand via a deferred discovery mechanism (`ToolSearch`):
 
 | Tool | Purpose |
 |------|---------|
-| `Read` | Read files |
+| `Read` | Read files (including images, PDFs, notebooks) |
 | `Write` | Create files |
 | `Edit` | Patch files with string replacement |
 | `Bash` | Execute shell commands |
 | `Glob` | Find files by pattern |
-| `Grep` | Search file contents |
-| `Agent` | Spawn sub-agents |
+| `Grep` | Search file contents (ripgrep-based) |
+| `Agent` | Spawn specialized sub-agents |
 | `WebFetch` | Fetch URLs |
 | `WebSearch` | Search the web |
 | `NotebookEdit` | Edit Jupyter notebooks |
-| `TodoWrite` | Track tasks |
+| `Task*` | Task tracking (create, update, list, get) |
+| `LSP` | Language server protocol queries |
+| `Skill` | Execute user-invocable skills |
+| `AskUserQuestion` | Prompt the user for input |
 
-These tools are always available. The LLM sees all of them (with some conditional registration). There is no tool selection — the model sees the full set every turn.
+Not all tools are loaded immediately — Claude Code uses a deferred tool discovery mechanism (`ToolSearch`) where the agent searches for and loads tools on demand. This is a form of progressive tool loading, though the total set of built-in tools is small enough that the approach is lightweight. Claude Code also supports MCP servers, which can add many additional tools.
 
 ### NexoraKit's Approach
 
@@ -142,7 +138,7 @@ NexoraKit has no hardcoded tools. All tools come from three sources:
 2. **MCP servers** — tools exposed by connected MCP servers
 3. **Built-in agent tools** — `_note_to_self`, `_recall`, `_save_to_memory`, `_spawn_agent`, `_request_continue` (auto-registered by the agent loop)
 
-Because a deployment can have hundreds of tools across many plugins, NexoraKit adds a **tool selection layer** that Claude Code doesn't need:
+Because a deployment can have hundreds of tools across many plugins, NexoraKit adds a **weighted tool selection layer** beyond simple discovery:
 
 ```
 All registered tools (potentially hundreds)
@@ -159,7 +155,7 @@ ToolSelector.select(query, budget)
 Top-K tools that fit within token budget
 ```
 
-This is a problem Claude Code doesn't face — with ~12 built-in tools, the full set always fits in context. But a NexoraKit deployment with 20 plugins, each exposing 5-10 tools, can't send 200 tool definitions to the LLM every turn. The selector ensures only relevant tools consume context tokens.
+Claude Code handles this differently — it has a relatively small set of core tools supplemented by deferred tool discovery and MCP tools. The total tool count stays manageable. NexoraKit faces a harder version of this problem: a deployment with 20 plugins, each exposing 5-10 tools, can't send 200 tool definitions to the LLM every turn. The weighted scorer ensures only relevant tools consume context tokens.
 
 ### Tool Namespacing
 
@@ -178,11 +174,7 @@ The `GLOBAL_NAMESPACE` (`__global__`) is reserved for tools that should always b
 
 ### Claude Code
 
-Claude Code manages context primarily through message truncation. When the conversation exceeds the context window, old messages are dropped. The model's `CLAUDE.md` file and conversation transcripts provide some persistence, but within a conversation, context management is relatively simple:
-
-- Messages fill up the context window
-- Old messages are compressed or dropped when space runs out
-- The model has no explicit awareness of its context budget
+Claude Code automatically compresses prior messages as the conversation approaches context limits. This happens transparently — the system summarizes older parts of the conversation to make room for new messages. The model has no explicit tools to control this process; it happens at the infrastructure level.
 
 ### NexoraKit
 
@@ -200,7 +192,7 @@ Key innovations:
 
 **Adaptive tool budget**: When messages consume more than 70% of available context, the tool budget shrinks linearly (down to 30% of its normal size at 90%). This gracefully degrades tool selection in long conversations rather than hard-failing.
 
-**LLM-based compaction**: Instead of dropping old messages, NexoraKit summarizes them via a cheap LLM call. The compactor groups messages into "atomic groups" (assistant message + its tool calls + tool results) and never splits them. Recent groups are kept verbatim; older groups are summarized into a compressed prefix.
+**LLM-based compaction**: Like Claude Code, NexoraKit summarizes old messages rather than dropping them. The key difference is that compaction is an explicit, configurable subsystem. The `ContextCompactor` groups messages into "atomic groups" (assistant message + its tool calls + tool results) and never splits them. Recent groups are kept verbatim; older groups are summarized into a compressed prefix. The trigger ratio (default 75% of context budget) and the model used for summarization (auto-selects cheapest available) are both configurable.
 
 ```
 Before:  [msg 1] [msg 2] ... [msg 16] [msg 17] [msg 18] [msg 19] [msg 20]
@@ -406,7 +398,7 @@ Key differences:
 | Max concurrent | Not documented | Configurable (default 3) |
 | Tool filtering | By agent type | Internal tools available, `_spawn_agent` excluded at max depth |
 | Isolation | Separate conversation, optional worktree | Separate conversation, shared tool registry |
-| Agent types | 5 specialized types | Generic — all sub-agents get the same tools |
+| Agent types | Several specialized types (`Explore`, `Plan`, `claude-code-guide`, etc.) | Generic — all sub-agents get the same tools |
 
 NexoraKit doesn't have specialized sub-agent types like `Explore` or `Plan`. Instead, tool filtering is based on depth and explicit `allowedTools` lists (when used with behavioral skills).
 
@@ -422,7 +414,7 @@ Claude Code's persistent memory is file-based:
 - Auto-memory (`~/.claude/projects/`) — facts saved across sessions
 - Conversation transcripts — previous session logs searchable via Grep
 
-The model doesn't have explicit tools for note-taking within a conversation. Its working memory is the conversation context itself.
+Claude Code has task tracking tools (`TaskCreate`, `TaskUpdate`, etc.) for in-conversation TODO management, but no explicit scratchpad or note-to-self mechanism. Its working memory is the conversation context itself, supplemented by auto-memory files that persist facts across sessions.
 
 ### NexoraKit
 
@@ -450,7 +442,7 @@ Claude Code uses a single system prompt assembled from:
 3. Auto-memory entries
 4. Environment context (git status, OS, shell)
 
-The prompt is relatively static within a session.
+The prompt structure is set at session start, though available tools change as deferred tools are discovered.
 
 ### NexoraKit
 
@@ -539,7 +531,7 @@ Action blocks are particularly notable — they let the agent present interactiv
 
 ### Conversation Management
 
-Claude Code conversations are ephemeral terminal sessions with optional transcript saving. NexoraKit has full conversation lifecycle management:
+Claude Code saves conversation transcripts locally and supports resuming previous sessions (`--resume`, `--continue`). However, conversations are primarily terminal sessions without structured metadata, search, or API access. NexoraKit has full conversation lifecycle management:
 
 - Create, list, get, update, delete conversations via REST API
 - Message persistence with full history
@@ -585,8 +577,8 @@ All backends implement the same store interfaces. Switching backends is a config
 | **LSP integration** | Language server protocol support from plugins |
 | **Output styles** | Plugin-defined terminal output formatting |
 | **Auto-memory** | Automatic fact extraction and persistence across sessions |
-| **Specialized sub-agent types** | `Explore`, `Plan`, `claude-code-guide` with tool filtering |
-| **Conversation resume** | Resume previous sessions with full context |
+| **Specialized sub-agent types** | `Explore`, `Plan`, `claude-code-guide`, etc. — each with tailored tool access |
+| **Conversation resume** | `--resume` / `--continue` to pick up previous sessions |
 | **Web search** | Built-in `WebSearch` tool |
 | **Keyboard shortcuts & TUI** | Terminal UI with rich key bindings |
 
