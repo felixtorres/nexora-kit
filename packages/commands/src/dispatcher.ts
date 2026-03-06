@@ -59,6 +59,13 @@ export class CommandDispatcher {
     }
   }
 
+  listCommands(): Array<{ qualifiedName: string; description: string }> {
+    return this.registry.list().map((entry) => ({
+      qualifiedName: entry.qualifiedName,
+      description: entry.definition.description,
+    }));
+  }
+
   generateHelp(): string {
     return this.parser.generateHelp();
   }

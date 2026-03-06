@@ -11,6 +11,7 @@ import { ConfigLayer } from '@nexora-kit/config';
 import type { SkillDefinition, SkillHandlerFactory, SkillRegistry } from '@nexora-kit/skills';
 import type { CommandDefinition, CommandRegistry } from '@nexora-kit/commands';
 import type { McpManager, McpServerConfig } from '@nexora-kit/mcp';
+import { resolveTemplates } from '@nexora-kit/mcp';
 import { resolveDependencies } from './dependency.js';
 import { wrapWithErrorBoundary } from './error-boundary.js';
 import { loadPlugin } from './loader.js';
@@ -408,13 +409,22 @@ export class PluginLifecycleManager {
   private async startMcpServers(namespace: string, configs: McpServerConfig[]): Promise<void> {
     if (!this.mcpManager) return;
 
+    // Resolve {{config.*}} templates in MCP server configs using the plugin's config values
+    const resolver = {
+      get: (key: string): string | undefined => {
+        const value = this.configResolver.get(`${namespace}.${key}`, { pluginNamespace: namespace });
+        return value !== undefined ? String(value) : undefined;
+      },
+    };
+    const resolvedConfigs = resolveTemplates(configs, resolver);
+
     this.logger?.info('mcp.starting', {
       namespace,
-      servers: configs.map((c) => ({ name: c.name, transport: c.transport })),
+      servers: resolvedConfigs.map((c) => ({ name: c.name, transport: c.transport })),
     });
 
     try {
-      await this.mcpManager.startServers(namespace, configs);
+      await this.mcpManager.startServers(namespace, resolvedConfigs);
 
       // Register MCP tools in the dispatcher
       const mcpTools = this.mcpManager.getTools(namespace);

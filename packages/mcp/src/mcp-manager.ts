@@ -189,9 +189,15 @@ export class McpManager {
     const start = Date.now();
     try {
       const result = await entry.handle.callTool(entry.mcpToolName, input);
-      this.logger?.debug('mcp.tool.called', {
+      const resultObj = result as { content?: unknown[]; isError?: boolean } | null;
+      this.logger?.info('mcp.tool.called', {
         tool: qualifiedName,
         durationMs: Date.now() - start,
+        isError: resultObj?.isError,
+        contentBlocks: Array.isArray(resultObj?.content) ? resultObj.content.length : 0,
+        resultLength: Array.isArray(resultObj?.content)
+          ? resultObj.content.reduce((sum: number, c: any) => sum + (c?.text?.length ?? 0), 0)
+          : 0,
       });
       return result;
     } catch (err) {
@@ -257,11 +263,23 @@ export class McpManager {
       const result = await this.callTool(qualifiedName, input);
       if (typeof result === 'string') return result;
 
-      // MCP tools return { content: [{ type, text }] } — extract text
+      // MCP tools return { content: [{ type, text }], isError? } — extract text
       if (result && typeof result === 'object' && 'content' in result) {
-        const content = (result as any).content;
-        if (Array.isArray(content)) {
-          return content
+        const mcpResult = result as { content?: unknown[]; isError?: boolean };
+
+        // Surface MCP-level errors so the LLM sees them clearly
+        if (mcpResult.isError) {
+          const errorText = Array.isArray(mcpResult.content)
+            ? mcpResult.content
+                .filter((c: any) => c.type === 'text')
+                .map((c: any) => c.text)
+                .join('\n')
+            : JSON.stringify(result);
+          throw new Error(errorText);
+        }
+
+        if (Array.isArray(mcpResult.content)) {
+          return mcpResult.content
             .filter((c: any) => c.type === 'text')
             .map((c: any) => c.text)
             .join('\n');

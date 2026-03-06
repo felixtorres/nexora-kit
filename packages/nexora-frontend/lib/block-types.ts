@@ -82,6 +82,17 @@ export interface CustomBlock {
   data: unknown;
 }
 
+// Tool call block rendered as a collapsible status indicator (like Claude's UI)
+export interface ToolCallBlock {
+  type: 'tool_call';
+  id: string;
+  name: string;
+  input?: Record<string, unknown>;
+  status: 'executing' | 'completed' | 'error';
+  result?: string;
+  isError?: boolean;
+}
+
 // ErrorBlock is not in backend ResponseBlock union but kept for frontend-only error rendering
 export interface ErrorBlock {
   type: 'error';
@@ -101,8 +112,8 @@ export type ResponseBlock =
   | ProgressBlock
   | CustomBlock;
 
-// Frontend display union includes ErrorBlock for local error rendering
-export type DisplayBlock = ResponseBlock | ErrorBlock;
+// Frontend display union includes ErrorBlock and ToolCallBlock for local rendering
+export type DisplayBlock = ResponseBlock | ErrorBlock | ToolCallBlock;
 
 // ── Message types ──────────────────────────────────────────────────────
 

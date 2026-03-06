@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, ResponseBlock, StreamingArtifact } from "@/lib/block-types";
+import type { Message, ResponseBlock, StreamingArtifact, ToolCallBlock } from "@/lib/block-types";
 
 // ── Dev Panel types ────────────────────────────────────────────────────
 
@@ -25,6 +25,7 @@ interface ConversationState {
   isStreaming: boolean;
   streamingText: string;
   streamingBlocks: ResponseBlock[];
+  streamingToolCalls: ToolCallBlock[];
   artifacts: Map<string, StreamingArtifact>;
 
   // Dev panel state
@@ -40,6 +41,9 @@ interface ConversationState {
   startStreaming: () => void;
   appendStreamingText: (text: string) => void;
   setStreamingBlocks: (blocks: ResponseBlock[]) => void;
+  addToolCall: (tc: ToolCallBlock) => void;
+  updateToolCallStatus: (id: string, status: ToolCallBlock['status']) => void;
+  updateToolCallResult: (id: string, result: string, isError?: boolean) => void;
   finalizeStreaming: (conversationId: string) => void;
   clearStreaming: () => void;
 
@@ -61,6 +65,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   isStreaming: false,
   streamingText: "",
   streamingBlocks: [],
+  streamingToolCalls: [],
   artifacts: new Map(),
   devEvents: [],
   lastUsage: null,
@@ -90,7 +95,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   setIsSending: (sending) => set({ isSending: sending }),
 
   startStreaming: () =>
-    set({ isStreaming: true, streamingText: "", streamingBlocks: [], isSending: true }),
+    set({ isStreaming: true, streamingText: "", streamingBlocks: [], streamingToolCalls: [], isSending: true }),
 
   appendStreamingText: (text) =>
     set((state) => ({ streamingText: state.streamingText + text })),
@@ -98,9 +103,33 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   setStreamingBlocks: (blocks) =>
     set({ streamingBlocks: blocks }),
 
+  addToolCall: (tc) =>
+    set((state) => ({
+      streamingToolCalls: [...state.streamingToolCalls, tc],
+    })),
+
+  updateToolCallStatus: (id, status) =>
+    set((state) => ({
+      streamingToolCalls: state.streamingToolCalls.map((tc) =>
+        tc.id === id ? { ...tc, status } : tc
+      ),
+    })),
+
+  updateToolCallResult: (id, result, isError) =>
+    set((state) => ({
+      streamingToolCalls: state.streamingToolCalls.map((tc) =>
+        tc.id === id ? { ...tc, result, isError, status: isError ? 'error' as const : 'completed' as const } : tc
+      ),
+    })),
+
   finalizeStreaming: (conversationId) => {
-    const { streamingText, streamingBlocks } = get();
-    const blocks = streamingBlocks.length > 0 ? streamingBlocks : undefined;
+    const { streamingText, streamingBlocks, streamingToolCalls } = get();
+    const toolBlocks: ToolCallBlock[] = streamingToolCalls;
+    const allBlocks = [
+      ...toolBlocks,
+      ...(streamingBlocks.length > 0 ? streamingBlocks : []),
+    ];
+    const blocks = allBlocks.length > 0 ? allBlocks : undefined;
     const content = streamingText || (blocks ? "" : "");
     const assistantMessage: Message = {
       role: "assistant",
@@ -116,6 +145,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       isSending: false,
       streamingText: "",
       streamingBlocks: [],
+      streamingToolCalls: [],
     });
   },
 
@@ -125,6 +155,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       isSending: false,
       streamingText: "",
       streamingBlocks: [],
+      streamingToolCalls: [],
     }),
 
   initArtifact: (artifactId, title, content) =>

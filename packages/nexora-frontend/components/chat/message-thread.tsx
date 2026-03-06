@@ -128,6 +128,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
   const isStreaming = useConversationStore((s) => s.isStreaming);
   const streamingText = useConversationStore((s) => s.streamingText);
   const streamingBlocks = useConversationStore((s) => s.streamingBlocks);
+  const streamingToolCalls = useConversationStore((s) => s.streamingToolCalls);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -139,7 +140,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
     if (viewport) {
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, isSending, streamingText, streamingBlocks]);
+  }, [messages, isSending, streamingText, streamingBlocks, streamingToolCalls]);
 
   if (messages.length === 0 && !isSending) {
     return (
@@ -157,12 +158,17 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
         ))}
 
         {/* Streaming assistant response */}
-        {isStreaming && (streamingText || streamingBlocks.length > 0) && (
+        {isStreaming && (streamingText || streamingBlocks.length > 0 || streamingToolCalls.length > 0) && (
           <MessageBubble
             message={{
               role: 'assistant',
               content: streamingText,
-              blocks: streamingBlocks.length > 0 ? streamingBlocks : undefined,
+              blocks: [
+                ...streamingToolCalls,
+                ...(streamingBlocks.length > 0 ? streamingBlocks : []),
+              ].length > 0
+                ? [...streamingToolCalls, ...(streamingBlocks.length > 0 ? streamingBlocks : [])]
+                : undefined,
             }}
             onAction={onAction}
             onReply={onReply}

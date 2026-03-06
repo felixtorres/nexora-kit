@@ -5,7 +5,7 @@ import { InMemoryMessageStore, type MessageStore } from './memory.js';
 import { NoopObservability } from './observability.js';
 import { ActionRouter } from './action-router.js';
 import { filterPersistableBlocks } from './blocks.js';
-import { truncateToolResult, estimateTokens } from './token-utils.js';
+import { estimateTokens } from './token-utils.js';
 import { ContextCompactor, type CompactionConfig } from './compaction.js';
 import { InMemoryWorkingMemory } from './working-memory.js';
 import { getBuiltinToolDefinitions } from './builtin-tools.js';
@@ -106,10 +106,6 @@ export interface AgentLoopOptions {
    *  messages that exceed this limit. When omitted, auto-derived from
    *  ModelInfo.contextWindow - maxOutputTokens - toolTokenBudget. */
   maxContextTokens?: number;
-  /** Maximum tokens to store per tool result in message history.
-   *  Results exceeding this are truncated at a line boundary.
-   *  The full result is still yielded as a ChatEvent.  Defaults to 2000. */
-  maxToolResultTokens?: number;
   /** Maximum tokens for the skill index section in the system prompt.
    *  Overflow namespaces get a one-line summary. Defaults to 500. */
   skillIndexTokenBudget?: number;
@@ -149,7 +145,6 @@ export class AgentLoop {
   private readonly artifactTokenBudget: number;
   private readonly skillIndexProvider?: SkillIndexProvider;
   private readonly maxContextTokens: number;
-  private readonly maxToolResultTokens: number;
   private readonly skillIndexTokenBudget: number;
   private readonly maxContinueTurns: number;
   private readonly compactor?: ContextCompactor;
@@ -180,7 +175,6 @@ export class AgentLoop {
     this.artifactStreamChunkSize = options.artifactStreamChunkSize ?? 500;
     this.artifactTokenBudget = options.artifactTokenBudget ?? 500;
     this.skillIndexProvider = options.skillIndexProvider;
-    this.maxToolResultTokens = options.maxToolResultTokens ?? 2000;
     this.skillIndexTokenBudget = options.skillIndexTokenBudget ?? 500;
     this.maxContinueTurns = options.maxContinueTurns ?? 10;
     this.enableWorkingMemory = options.enableWorkingMemory ?? true;
@@ -476,6 +470,16 @@ export class AgentLoop {
         skillIndexSuffix = parts.join('\n\n');
       }
 
+      // Build available commands list for the system prompt
+      let commandListSuffix = '';
+      if (this.commandDispatcher?.listCommands) {
+        const cmds = this.commandDispatcher.listCommands();
+        if (cmds.length > 0) {
+          const lines = cmds.map((c) => `- \`/${c.qualifiedName}\` — ${c.description}`);
+          commandListSuffix = `## Available Slash Commands\nUsers can type these commands directly in the chat:\n${lines.join('\n')}`;
+        }
+      }
+
       // Agent loop: LLM call → tool execution → repeat
       let turn = 0;
       let effectiveMaxTurns = this.maxTurns;
@@ -511,6 +515,7 @@ export class AgentLoop {
             namespaces: conversation.pluginNamespaces,
             tokenBudget: this.toolTokenBudget,
             recentToolNames: this.getRecentToolNames(conversation),
+            conversationId: conversation.id,
           });
           tools = selection.tools;
 
@@ -535,6 +540,7 @@ export class AgentLoop {
           workspacePrefix: workspacePromptPrefix || undefined,
           basePrompt: request.systemPrompt ?? this.systemPrompt,
           commandPrompt,
+          commandListSuffix: commandListSuffix || undefined,
           artifactSuffix: artifactPromptSuffix || undefined,
           skillIndexSuffix: skillIndexSuffix || undefined,
           workingMemoryNotes: [...workingMemoryNotes, ...turnReminders],
@@ -832,13 +838,11 @@ export class AgentLoop {
             }
           }
 
-          // Truncate tool result for message history (full result already yielded above)
-          const storedContent = truncateToolResult(result.content, this.maxToolResultTokens);
           const toolMessageContent: MessageContent[] = [
             {
               type: 'tool_result',
               toolUseId: result.toolUseId,
-              content: storedContent,
+              content: result.content,
               isError: result.isError,
             },
           ];

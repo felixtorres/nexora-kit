@@ -49,8 +49,8 @@ describe('Model-aware context ceiling', () => {
   });
 });
 
-describe('Tool result truncation', () => {
-  it('truncates large tool results in message history', async () => {
+describe('Tool results stored without truncation', () => {
+  it('stores full tool result in message history (context compaction handles budget)', async () => {
     const llm = createMockLlm([
       [
         { type: 'tool_call', id: 'tc-1', name: 'big-data', input: {} },
@@ -75,11 +75,10 @@ describe('Tool result truncation', () => {
     const loop = new AgentLoop({
       llm,
       toolDispatcher: dispatcher,
-      maxToolResultTokens: 100, // 100 tokens = ~400 chars
     });
     const events = await collectEvents(loop);
 
-    // Full result should still be yielded as event
+    // Full result yielded as event and stored in history
     const toolResult = events.find((e) => e.type === 'tool_result');
     expect(toolResult).toBeDefined();
     if (toolResult?.type === 'tool_result') {

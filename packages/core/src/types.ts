@@ -482,6 +482,8 @@ export interface ToolSelectionRequest {
   namespaces: string[];
   tokenBudget: number;
   recentToolNames?: string[];
+  conversationId?: string;
+  loadedToolNames?: string[];
 }
 
 export interface SelectedTools {
@@ -489,6 +491,7 @@ export interface SelectedTools {
   totalTokens: number;
   droppedCount: number;
   selectionTimeMs: number;
+  mode?: 'passthrough' | 'search';
 }
 
 export interface ToolSelectorInterface {
@@ -497,9 +500,15 @@ export interface ToolSelectorInterface {
 
 // --- Commands ---
 
+export interface CommandInfo {
+  qualifiedName: string;
+  description: string;
+}
+
 export interface CommandDispatcherInterface {
   isCommand(input: string): boolean;
   dispatch(input: string, session?: { id: string; userId: string; teamId: string }): Promise<{ content: string; isError?: boolean; isPrompt?: boolean }>;
+  listCommands?(): CommandInfo[];
 }
 
 // --- Observability ---

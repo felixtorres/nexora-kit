@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { useSettings } from '@/store/settings';
+import { useSettings, useSettingsHydrated } from '@/store/settings';
 import { useConversationStore } from '@/store/conversation';
 import type { ResponseBlock } from '@/lib/block-types';
 
@@ -21,11 +21,15 @@ const RECONNECT_MAX_MS = 30_000;
 export function useWebSocket(conversationId: string | null) {
   const serverUrl = useSettings((s) => s.serverUrl);
   const apiKey = useSettings((s) => s.apiKey);
+  const hydrated = useSettingsHydrated();
 
   const {
     startStreaming,
     appendStreamingText,
     setStreamingBlocks,
+    addToolCall,
+    updateToolCallStatus,
+    updateToolCallResult,
     finalizeStreaming,
     clearStreaming,
     addMessage,
@@ -174,6 +178,33 @@ export function useWebSocket(conversationId: string | null) {
           }
           break;
         }
+        case 'tool_call': {
+          const p = data.payload as { id?: string; name?: string; input?: Record<string, unknown> } | undefined;
+          if (p?.id && p?.name) {
+            addToolCall({
+              type: 'tool_call',
+              id: p.id,
+              name: p.name,
+              input: p.input,
+              status: 'executing',
+            });
+          }
+          break;
+        }
+        case 'tool_status': {
+          const p = data.payload as { id?: string; status?: string } | undefined;
+          if (p?.id && p?.status) {
+            updateToolCallStatus(p.id, p.status as 'executing' | 'completed' | 'error');
+          }
+          break;
+        }
+        case 'tool_result': {
+          const p = data.payload as { toolUseId?: string; content?: string; isError?: boolean } | undefined;
+          if (p?.toolUseId) {
+            updateToolCallResult(p.toolUseId, p.content ?? '', p.isError);
+          }
+          break;
+        }
         case 'pong':
           break;
       }
@@ -209,6 +240,9 @@ export function useWebSocket(conversationId: string | null) {
     startStreaming,
     appendStreamingText,
     setStreamingBlocks,
+    addToolCall,
+    updateToolCallStatus,
+    updateToolCallResult,
     finalizeStreaming,
     clearStreaming,
     addMessage,
@@ -223,13 +257,14 @@ export function useWebSocket(conversationId: string | null) {
     connectRef.current = connect;
   });
 
-  // Connect when conversationId is set and serverUrl exists
+  // Wait for settings to hydrate from localStorage before connecting.
+  // Without this, the first connect attempt uses default (empty) apiKey → 401.
   useEffect(() => {
-    if (conversationId && serverUrl) {
+    if (hydrated && conversationId && serverUrl) {
       connect();
     }
     return cleanup;
-  }, [conversationId, serverUrl, connect, cleanup]);
+  }, [hydrated, conversationId, serverUrl, connect, cleanup]);
 
   const sendMessage = useCallback(
     (input: string) => {

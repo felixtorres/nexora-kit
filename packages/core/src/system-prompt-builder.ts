@@ -2,6 +2,7 @@ export interface SystemPromptComponents {
   workspacePrefix?: string;
   basePrompt: string;
   commandPrompt?: string;
+  commandListSuffix?: string;
   artifactSuffix?: string;
   skillIndexSuffix?: string;
   workingMemoryNotes?: string[];
@@ -19,6 +20,10 @@ export class SystemPromptBuilder {
 
     if (components.commandPrompt) {
       parts.push(components.commandPrompt);
+    }
+
+    if (components.commandListSuffix) {
+      parts.push(components.commandListSuffix);
     }
 
     if (components.artifactSuffix) {
