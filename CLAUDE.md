@@ -82,3 +82,17 @@ Use Playwright for headless screenshots when debugging layout issues:
 cd /tmp && npm init -y && npm install playwright && npx playwright install chromium
 ```
 Then write a `.mjs` script to set localStorage auth, navigate, hover, and screenshot. Dump computed styles/widths to understand layout chain.
+
+## Agent Loop & Prompt Gotchas
+
+### Custom bot prompts bypass `DEFAULT_SYSTEM_PROMPT`
+`BotRunner` overrides `systemPrompt` on the request, so changes to `default-prompt.ts` have no effect for bots with custom prompts. To inject guidance that **always applies**, add it to `SystemPromptBuilder.buildTurnReminders()` — its output is appended via the working memory section regardless of the base prompt.
+
+### Keyword tool selector misses semantic intent
+`ToolIndex.search()` uses keyword scoring on tool `name + description`. User queries like "show properties with work orders" won't keyword-match tools named `kyvos_execute_query`. For MCP tools with domain-specific names, configure them as `essentialTools` in `AdaptiveToolSelectorOptions`, or rely on `_search_tools` discovery (only available in search mode, >40 tools).
+
+### LLMs prefer text answers over tool calls
+Even with tools available, LLMs generate raw SQL/code as text unless the prompt explicitly forbids it. The turn-1 reminder in `system-prompt-builder.ts` handles this. When debugging "LLM didn't use tools," check: (1) are the tools in the tool set sent to the LLM? (2) is the prompt instructing tool use? Don't just edit `default-prompt.ts` — check if a custom prompt overrides it.
+
+### Multi-step tool chaining requires prompt guidance
+The agent loop already supports looping (tool call → result → next LLM turn), but LLMs stop after intermediate results (e.g. showing generated SQL) unless the prompt says to complete workflows end-to-end. This is a prompt issue, not an agent loop issue.

@@ -75,15 +75,26 @@ export class ClientWebSocketManager {
       return;
     }
 
-    // Authenticate end user
+    // Authenticate end user — parse query params since WS can't send custom headers
     let endUser: EndUserIdentity;
     try {
       const headers: Record<string, string | string[] | undefined> = {};
       for (const [key, value] of Object.entries(req.headers)) {
         headers[key] = value;
       }
+      const parsedUrl = new URL(urlPath, `http://${req.headers.host ?? 'localhost'}`);
+      const query: Record<string, string> = {};
+      for (const [key, value] of parsedUrl.searchParams) {
+        query[key] = value;
+      }
+
+      // Synthesize Authorization header from ?token= if no header present
+      if (!headers['authorization'] && query.token) {
+        headers['authorization'] = `Bearer ${query.token}`;
+      }
+
       endUser = await authenticateEndUser(
-        { method: 'GET', url: urlPath, headers, params: {}, query: {} },
+        { method: 'GET', url: parsedUrl.pathname, headers, params: {}, query },
         agentRecord.id,
         agentRecord.endUserAuth,
         this.endUserStore,

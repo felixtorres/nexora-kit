@@ -44,17 +44,28 @@ export class WebSocketManager {
   }
 
   async handleUpgrade(req: IncomingMessage, socket: Socket): Promise<void> {
-    // Authenticate
+    // Authenticate — parse query params since WS can't send custom headers
     const headers: Record<string, string | string[] | undefined> = {};
     for (const [key, value] of Object.entries(req.headers)) {
       headers[key] = value;
     }
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const query: Record<string, string> = {};
+    for (const [key, value] of url.searchParams) {
+      query[key] = value;
+    }
+
+    // Synthesize Authorization header from ?token= if no header present
+    if (!headers['authorization'] && query.token) {
+      headers['authorization'] = `Bearer ${query.token}`;
+    }
+
     const identity = await this.auth.authenticate({
       method: 'GET',
-      url: req.url ?? '/',
+      url: url.pathname,
       headers,
       params: {},
-      query: {},
+      query,
     });
 
     if (!identity) {
