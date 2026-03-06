@@ -35,6 +35,16 @@ permissions:
     expect(result.plugin.state).toBe('installed');
   });
 
+  it('sets format to nexora', () => {
+    writeFile('plugin.yaml', `
+name: Format Plugin
+version: "1.0.0"
+namespace: format-plugin
+`);
+    const result = loadPlugin(tmpDir);
+    expect(result.plugin.manifest.format).toBe('nexora');
+  });
+
   it('returns error when plugin.yaml is missing', () => {
     const result = loadPlugin(tmpDir);
     expect(result.plugin.state).toBe('errored');

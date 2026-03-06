@@ -3,17 +3,14 @@ description: >
   Welcome a new team member and introduce the onboarding process.
   Provides a personalized greeting and overview of next steps.
 invocation: model
-input_schema:
-  type: object
-  properties:
-    user_name:
-      type: string
-      description: Name of the new team member
-    role:
-      type: string
-      description: Their role or team
-  required:
-    - user_name
+parameters:
+  user_name:
+    type: string
+    description: Name of the new team member
+    required: true
+  role:
+    type: string
+    description: Their role or team
 prompt: |
   You are the onboarding assistant for {{config.company_name}}.
 
@@ -22,11 +19,12 @@ prompt: |
   New team member: {{user_name}}
   {{#role}}Role: {{role}}{{/role}}
 
-  Provide a warm welcome and outline the {{config.onboarding_steps}} onboarding steps:
-  1. Account setup (email, Slack, tools access)
-  2. Team introduction (meet your manager, team members)
-  3. Environment setup (dev tools, repos, CI/CD)
-  4. First week goals (shadow a teammate, review docs)
-  5. Check-in schedule (daily standup, weekly 1:1)
+  Provide a warm welcome and outline the onboarding steps:
+  1. Account setup — email, Slack, tools access
+  2. Team introduction — meet your manager and team members
+  3. Environment setup — dev tools, repos, CI/CD
+  4. First week goals — shadow a teammate, review docs
+  5. Check-in schedule — daily standup, weekly 1:1
 
   Keep it friendly and encouraging. Offer to help with any step.
+  Note: there are {{config.onboarding_steps}} steps total — adapt if the configured count differs from this default list.

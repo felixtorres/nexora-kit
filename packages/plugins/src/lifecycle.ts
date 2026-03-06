@@ -209,6 +209,43 @@ export class PluginLifecycleManager {
           }
         }
       }
+
+      // Register user-invocable behavioral skills as commands
+      // This allows Claude-format SKILL.md files to be invoked via /namespace:skill-name
+      const skillDefsForCmd = this.pluginSkills.get(namespace);
+      if (skillDefsForCmd) {
+        for (const [qualifiedName, skillDef] of skillDefsForCmd) {
+          if (skillDef.executionMode !== 'behavioral') continue;
+          if (skillDef.userInvocable === false) continue;
+          // Skip if a command with the same name already exists
+          if (this.commandRegistry.has(qualifiedName)) continue;
+
+          const cmdDef: CommandDefinition = {
+            name: skillDef.name,
+            description: skillDef.description + (skillDef.argumentHint ? ` ${skillDef.argumentHint}` : ''),
+            args: [{
+              name: 'input',
+              type: 'string' as const,
+              description: skillDef.argumentHint ?? 'Arguments for the skill',
+            }],
+          };
+
+          this.commandRegistry.register(namespace, cmdDef);
+
+          // Create a handler that dispatches to the behavioral skill tool
+          this.commandRegistry.registerHandler(qualifiedName, async (ctx) => {
+            const rawArgs = ctx.raw.replace(/^\/\S+\s*/, '').trim();
+            // Dispatch to the skill's tool handler via the tool dispatcher
+            const toolCall = { id: `cmd-${Date.now()}`, name: qualifiedName, input: { _arguments: rawArgs } };
+            try {
+              const result = await this.toolDispatcher.dispatch(toolCall);
+              return { content: result.content, isPrompt: true };
+            } catch (err) {
+              return { content: err instanceof Error ? err.message : String(err), isError: true };
+            }
+          });
+        }
+      }
     }
 
     this.setState(namespace, 'enabled');

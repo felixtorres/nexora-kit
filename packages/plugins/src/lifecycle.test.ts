@@ -589,4 +589,199 @@ describe('PluginLifecycleManager', () => {
       expect(commandRegistry.has('hello:greet')).toBe(false);
     });
   });
+
+  describe('behavioral skill → command registration', () => {
+    it('registers user-invocable behavioral skills as commands', () => {
+      const commandRegistry = new CommandRegistry();
+      const skillRegistry = new SkillRegistry();
+      const stubLlm: LlmProvider = {
+        name: 'stub',
+        models: [{ id: 'stub-model', name: 'Stub', provider: 'stub', contextWindow: 8000, maxOutputTokens: 2000 }],
+        chat: vi.fn(),
+        countTokens: vi.fn().mockResolvedValue(0),
+      };
+      const handlerFactory = new SkillHandlerFactory({
+        llmProvider: stubLlm,
+        configResolver: config,
+      });
+
+      const behavioralManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+        skillRegistry,
+        skillHandlerFactory: handlerFactory,
+      });
+
+      const plugin = makePlugin('claude-plugin', {
+        tools: [makeTool('claude-plugin:research')],
+      });
+      behavioralManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'research',
+        description: 'Research a topic thoroughly',
+        invocation: 'both',
+        parameters: {},
+        executionMode: 'behavioral',
+        body: 'Research $ARGUMENTS in depth.',
+        userInvocable: true,
+        argumentHint: '[topic]',
+      };
+      behavioralManager.setSkillDefinitions(
+        'claude-plugin',
+        new Map([['claude-plugin:research', skillDef]]),
+      );
+      behavioralManager.enable('claude-plugin');
+
+      // Should be registered as a command
+      expect(commandRegistry.has('claude-plugin:research')).toBe(true);
+      const cmd = commandRegistry.get('claude-plugin:research')!;
+      expect(cmd.definition.description).toContain('Research a topic');
+      expect(cmd.definition.description).toContain('[topic]');
+      expect(cmd.handler).toBeDefined();
+    });
+
+    it('does not register skills with userInvocable: false as commands', () => {
+      const commandRegistry = new CommandRegistry();
+      const behavioralManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('bg-plugin', {
+        tools: [makeTool('bg-plugin:background')],
+      });
+      behavioralManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'background',
+        description: 'Background knowledge',
+        invocation: 'model',
+        parameters: {},
+        executionMode: 'behavioral',
+        body: 'Internal instructions.',
+        userInvocable: false,
+      };
+      behavioralManager.setSkillDefinitions(
+        'bg-plugin',
+        new Map([['bg-plugin:background', skillDef]]),
+      );
+      behavioralManager.enable('bg-plugin');
+
+      expect(commandRegistry.has('bg-plugin:background')).toBe(false);
+    });
+
+    it('does not register prompt-mode skills as commands', () => {
+      const commandRegistry = new CommandRegistry();
+      const behavioralManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('yaml-plugin', {
+        tools: [makeTool('yaml-plugin:greet')],
+      });
+      behavioralManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'greet',
+        description: 'Greet user',
+        invocation: 'model',
+        parameters: {},
+        executionMode: 'prompt',
+        prompt: 'Hello {{name}}',
+      };
+      behavioralManager.setSkillDefinitions(
+        'yaml-plugin',
+        new Map([['yaml-plugin:greet', skillDef]]),
+      );
+      behavioralManager.enable('yaml-plugin');
+
+      expect(commandRegistry.has('yaml-plugin:greet')).toBe(false);
+    });
+
+    it('does not override existing commands with same name', () => {
+      const commandRegistry = new CommandRegistry();
+      const behavioralManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('dual-plugin', {
+        tools: [makeTool('dual-plugin:search')],
+      });
+      behavioralManager.install(plugin);
+
+      // Register a command with the same name
+      const cmdDef: CommandDefinition = {
+        name: 'search',
+        description: 'Custom search command',
+        args: [],
+        prompt: 'Search for {{query}}',
+      };
+      behavioralManager.setCommandDefinitions(
+        'dual-plugin',
+        new Map([['dual-plugin:search', cmdDef]]),
+      );
+
+      const skillDef: SkillDefinition = {
+        name: 'search',
+        description: 'Search skill',
+        invocation: 'both',
+        parameters: {},
+        executionMode: 'behavioral',
+        body: 'Search instructions.',
+      };
+      behavioralManager.setSkillDefinitions(
+        'dual-plugin',
+        new Map([['dual-plugin:search', skillDef]]),
+      );
+      behavioralManager.enable('dual-plugin');
+
+      // Command should be the explicitly defined one, not the skill
+      const cmd = commandRegistry.get('dual-plugin:search')!;
+      expect(cmd.definition.description).toBe('Custom search command');
+    });
+
+    it('cleans up behavioral skill commands on disable', () => {
+      const commandRegistry = new CommandRegistry();
+      const behavioralManager = new PluginLifecycleManager({
+        permissionGate: gate,
+        configResolver: config,
+        toolDispatcher: dispatcher,
+        commandRegistry,
+      });
+
+      const plugin = makePlugin('cleanup-plugin', {
+        tools: [makeTool('cleanup-plugin:analyze')],
+      });
+      behavioralManager.install(plugin);
+
+      const skillDef: SkillDefinition = {
+        name: 'analyze',
+        description: 'Analyze data',
+        invocation: 'both',
+        parameters: {},
+        executionMode: 'behavioral',
+        body: 'Analyze instructions.',
+      };
+      behavioralManager.setSkillDefinitions(
+        'cleanup-plugin',
+        new Map([['cleanup-plugin:analyze', skillDef]]),
+      );
+      behavioralManager.enable('cleanup-plugin');
+      expect(commandRegistry.has('cleanup-plugin:analyze')).toBe(true);
+
+      behavioralManager.disable('cleanup-plugin');
+      expect(commandRegistry.has('cleanup-plugin:analyze')).toBe(false);
+    });
+  });
 });

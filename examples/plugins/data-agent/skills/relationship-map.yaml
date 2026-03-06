@@ -17,4 +17,4 @@ prompt: |
 
   4. **Add context**: Call `describe_table` on key junction/bridge tables to understand the join columns and cardinality.
 
-  Present relationships as a clear hierarchy or graph description. Note relationship types (FK, inferred, common-column) and confidence levels.
+  Present relationships as a structured list of connections. Note relationship types (FK, inferred, common-column) and confidence levels for each.

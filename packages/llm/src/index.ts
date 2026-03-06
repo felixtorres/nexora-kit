@@ -30,3 +30,9 @@ export {
   type BudgetResult,
 } from './token-budget.js';
 export { HeuristicTokenizer, type Tokenizer } from './tokenizer.js';
+export {
+  resolveModelTier,
+  isModelAlias,
+  type ModelTier,
+  type ModelTierConfig,
+} from './model-tiers.js';

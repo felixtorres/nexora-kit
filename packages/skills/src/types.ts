@@ -1,6 +1,8 @@
-import type { ToolHandler, ResponseBlock, ArtifactOperation } from '@nexora-kit/core';
+import type { ToolHandler, ResponseBlock, ArtifactOperation, SkillResources } from '@nexora-kit/core';
 
 export type SkillInvocation = 'model' | 'user' | 'both';
+
+export type SkillExecutionMode = 'prompt' | 'behavioral' | 'code';
 
 export interface SkillParameterDef {
   type: string;
@@ -10,6 +12,16 @@ export interface SkillParameterDef {
   enum?: string[];
 }
 
+export interface SkillHookConfig {
+  command: string;
+  args?: string[];
+}
+
+export interface SkillHooks {
+  PreToolUse?: SkillHookConfig[];
+  PostToolUse?: SkillHookConfig[];
+}
+
 export interface SkillDefinition {
   name: string;
   description: string;
@@ -17,6 +29,19 @@ export interface SkillDefinition {
   parameters: Record<string, SkillParameterDef>;
   prompt?: string;
   handler?: SkillCodeHandler;
+  resources?: SkillResources;
+
+  // Claude-compatible behavioral fields
+  executionMode?: SkillExecutionMode;
+  body?: string;
+  argumentHint?: string;
+  disableModelInvocation?: boolean;
+  userInvocable?: boolean;
+  allowedTools?: string[];
+  modelOverride?: string;
+  context?: 'inline' | 'fork';
+  agentType?: string;
+  hooks?: SkillHooks;
 }
 
 export type SkillCodeHandler = (context: SkillContext) => Promise<SkillResult>;

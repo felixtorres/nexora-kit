@@ -47,6 +47,7 @@ export function loadPlugin(pluginDir: string): LoadResult {
   let manifest;
   try {
     manifest = parseManifest(yamlContent);
+    manifest.format = 'nexora';
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return {

@@ -440,6 +440,15 @@ export interface PluginToolsConfig {
   pinned: string[];
 }
 
+export type PluginFormat = 'nexora' | 'claude' | 'mcp';
+
+export interface SkillResources {
+  scripts: string[];
+  references: string[];
+  assets: string[];
+  baseDir: string;
+}
+
 export interface PluginManifest {
   name: string;
   version: string;
@@ -451,6 +460,12 @@ export interface PluginManifest {
   tools?: PluginToolsConfig;
   config?: PluginConfigSchema;
   skillIndex?: boolean;
+  format?: PluginFormat;
+  author?: string | { name: string; email?: string; url?: string };
+  homepage?: string;
+  repository?: string;
+  license?: string;
+  keywords?: string[];
 }
 
 export type PluginState = 'installed' | 'enabled' | 'disabled' | 'errored';

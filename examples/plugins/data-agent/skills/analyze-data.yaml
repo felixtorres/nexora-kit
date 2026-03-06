@@ -17,4 +17,4 @@ prompt: |
 
   4. **Look up terms**: If domain-specific columns are found, call `glossary_lookup` to check for business definitions.
 
-  Summarize findings with confidence levels. Flag potential data quality issues (orphaned references, inconsistent naming, unused tables).
+  Summarize findings using the confidence scores returned by `verify_insights`. Flag potential data quality issues (orphaned references, inconsistent naming, unused tables).

@@ -4,6 +4,7 @@ export interface SystemPromptComponents {
   commandPrompt?: string;
   artifactSuffix?: string;
   skillIndexSuffix?: string;
+  activeSkillInstructions?: string;
   workingMemoryNotes?: string[];
 }
 
@@ -19,6 +20,12 @@ export class SystemPromptBuilder {
 
     if (components.commandPrompt) {
       parts.push(components.commandPrompt);
+    }
+
+    // Active behavioral skill instructions — injected after base prompt
+    // so the LLM treats them as behavioral overlays
+    if (components.activeSkillInstructions) {
+      parts.push(components.activeSkillInstructions);
     }
 
     if (components.artifactSuffix) {

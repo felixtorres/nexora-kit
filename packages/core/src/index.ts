@@ -37,3 +37,15 @@ export { SystemPromptBuilder, type SystemPromptComponents } from './system-promp
 export { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js';
 export { SubAgentRunner, type SubAgentConfig, type SubAgentRequest, type SubAgentResult } from './sub-agent.js';
 export type { UserMemoryStoreInterface } from './user-memory-interface.js';
+export { SkillActivationManager, type ActiveSkill } from './skill-activation.js';
+export {
+  HookRegistry,
+  runHook,
+  runHooks,
+  type HookConfig,
+  type RegisteredHook,
+  type HookEventName,
+  type HookEventPayload,
+  type HookResult,
+  type HookVerdict,
+} from './hooks/index.js';

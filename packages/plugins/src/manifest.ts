@@ -37,6 +37,15 @@ const pluginToolsConfigSchema = z.object({
   pinned: z.array(z.string()),
 });
 
+const pluginAuthorSchema = z.union([
+  z.string(),
+  z.object({
+    name: z.string(),
+    email: z.string().optional(),
+    url: z.string().optional(),
+  }),
+]);
+
 export const pluginManifestSchema = z.object({
   name: z.string().min(1),
   version: z.string().regex(/^\d+\.\d+\.\d+/, 'Must be a valid semver version'),
@@ -48,6 +57,12 @@ export const pluginManifestSchema = z.object({
   tools: pluginToolsConfigSchema.optional(),
   config: pluginConfigSchema.optional(),
   skillIndex: z.boolean().optional(),
+  format: z.enum(['nexora', 'claude', 'mcp']).optional(),
+  author: pluginAuthorSchema.optional(),
+  homepage: z.string().optional(),
+  repository: z.string().optional(),
+  license: z.string().optional(),
+  keywords: z.array(z.string()).optional(),
 });
 
 export function parseManifest(yamlContent: string): PluginManifest {

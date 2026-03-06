@@ -6,6 +6,5 @@ parameters:
     type: string
     description: The user's name
 prompt: |
-  Generate a warm, friendly greeting for {{userName}}.
-  Use the configured greeting as a starting point: {{config.greeting}}
+  Greet {{userName}} warmly. Incorporate the configured greeting: {{config.greeting}}
   Keep it under 2 sentences.

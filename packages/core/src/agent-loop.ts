@@ -11,6 +11,7 @@ import { InMemoryWorkingMemory } from './working-memory.js';
 import { getBuiltinToolDefinitions } from './builtin-tools.js';
 import { SystemPromptBuilder } from './system-prompt-builder.js';
 import { SubAgentRunner, type SubAgentConfig } from './sub-agent.js';
+import { SkillActivationManager } from './skill-activation.js';
 import { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js';
 import type { UserMemoryStoreInterface } from './user-memory-interface.js';
 import type {
@@ -120,6 +121,10 @@ export interface AgentLoopOptions {
   userMemoryStore?: UserMemoryStoreInterface;
   /** Sub-agent spawning configuration. When set, registers _spawn_agent tool. */
   subAgent?: SubAgentConfig;
+  /** Skill activation manager for behavioral skill overlays. When provided,
+   *  active skill instructions are injected into the system prompt each turn,
+   *  and tool restrictions from active skills are applied. */
+  skillActivationManager?: SkillActivationManager;
   /** Internal: current nesting depth. Do not set directly. */
   _depth?: number;
 }
@@ -152,6 +157,7 @@ export class AgentLoop {
   private readonly promptBuilder = new SystemPromptBuilder();
   private readonly enableWorkingMemory: boolean;
   private readonly subAgentRunner?: SubAgentRunner;
+  private readonly skillActivation: SkillActivationManager;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -179,6 +185,7 @@ export class AgentLoop {
     this.maxContinueTurns = options.maxContinueTurns ?? 10;
     this.enableWorkingMemory = options.enableWorkingMemory ?? true;
     this.workingMemory = new InMemoryWorkingMemory();
+    this.skillActivation = options.skillActivationManager ?? new SkillActivationManager();
 
     // Set up compaction
     if (options.compaction) {
@@ -520,16 +527,30 @@ export class AgentLoop {
           tools = this.dispatcher.listTools();
         }
 
+        // Apply tool restrictions from active behavioral skills
+        const skillAllowedTools = this.skillActivation.getAllowedTools(request.conversationId);
+        if (skillAllowedTools) {
+          const allowedSet = new Set(skillAllowedTools);
+          // Always allow internal tools (prefixed with _)
+          tools = tools.filter((t) => t.name.startsWith('_') || allowedSet.has(t.name));
+        }
+
         // Build system prompt with dynamic components
         const workingMemoryNotes = this.enableWorkingMemory
           ? this.workingMemory.getNotes(request.conversationId)
           : [];
         const turnReminders = this.promptBuilder.buildTurnReminders(turn, effectiveMaxTurns);
 
+        // Get active behavioral skill instructions
+        const activeSkillInstructions = this.skillActivation.getActiveInstructions(
+          request.conversationId,
+        );
+
         const effectiveSystemPrompt = this.promptBuilder.build({
           workspacePrefix: workspacePromptPrefix || undefined,
           basePrompt: request.systemPrompt ?? this.systemPrompt,
           commandPrompt,
+          activeSkillInstructions,
           artifactSuffix: artifactPromptSuffix || undefined,
           skillIndexSuffix: skillIndexSuffix || undefined,
           workingMemoryNotes: [...workingMemoryNotes, ...turnReminders],
@@ -910,6 +931,10 @@ export class AgentLoop {
 
   get toolDispatcher(): ToolDispatcher {
     return this.dispatcher;
+  }
+
+  get skillActivationManager(): SkillActivationManager {
+    return this.skillActivation;
   }
 
   private getRecentToolNames(conversation: Conversation): string[] {

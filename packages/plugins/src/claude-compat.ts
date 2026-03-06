@@ -7,30 +7,92 @@ import type { McpServerConfig, McpTransportType } from '@nexora-kit/mcp';
 import { parseMdSkill } from '@nexora-kit/skills';
 import { parseMdCommand } from '@nexora-kit/commands';
 import { qualifyName } from './namespace.js';
+import { discoverSkillResources } from './resource-discovery.js';
 import type { LoadResult } from './loader.js';
 
 interface ClaudePluginJson {
   name: string;
   version?: string;
   description?: string;
-  author?: string;
+  author?: string | { name: string; email?: string; url?: string };
+  homepage?: string;
+  repository?: string;
+  license?: string;
+  keywords?: string[];
+  skills?: string;
+  commands?: string[];
+  agents?: string;
+  hooks?: string;
+  mcpServers?: string | ClaudeMcpServerMap;
+  lspServers?: string;
+  settings?: Record<string, unknown>;
 }
 
+type ClaudeMcpServerMap = Record<string, {
+  type?: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+}>;
+
 interface ClaudeMcpJson {
-  mcpServers?: Record<string, {
-    type?: string;
-    url?: string;
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-    headers?: Record<string, string>;
-  }>;
+  mcpServers?: ClaudeMcpServerMap;
 }
 
 function resolveTransportType(type?: string): McpTransportType {
   if (type === 'stdio') return 'stdio';
   if (type === 'http') return 'http';
   return 'sse';
+}
+
+/**
+ * Replace ${CLAUDE_PLUGIN_ROOT} in string values within MCP server configs.
+ */
+function substitutePluginRoot(value: string, pluginDir: string): string {
+  return value.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, pluginDir);
+}
+
+function substituteMcpConfig(
+  servers: ClaudeMcpServerMap,
+  pluginDir: string,
+): ClaudeMcpServerMap {
+  const result: ClaudeMcpServerMap = {};
+  for (const [name, config] of Object.entries(servers)) {
+    result[name] = {
+      ...config,
+      url: config.url ? substitutePluginRoot(config.url, pluginDir) : config.url,
+      command: config.command ? substitutePluginRoot(config.command, pluginDir) : config.command,
+      args: config.args?.map((a) => substitutePluginRoot(a, pluginDir)),
+      env: config.env
+        ? Object.fromEntries(
+            Object.entries(config.env).map(([k, v]) => [k, substitutePluginRoot(v, pluginDir)]),
+          )
+        : config.env,
+    };
+  }
+  return result;
+}
+
+function parseMcpServers(
+  servers: ClaudeMcpServerMap,
+  pluginDir: string,
+): McpServerConfig[] {
+  const substituted = substituteMcpConfig(servers, pluginDir);
+  const configs: McpServerConfig[] = [];
+  for (const [name, config] of Object.entries(substituted)) {
+    configs.push({
+      name,
+      transport: resolveTransportType(config.type),
+      url: config.url,
+      command: config.command,
+      args: config.args,
+      env: config.env,
+      headers: config.headers,
+    });
+  }
+  return configs;
 }
 
 export function isClaudePlugin(dir: string): boolean {
@@ -89,23 +151,12 @@ export function loadMcpPlugin(pluginDir: string): LoadResult {
     permissions: ['mcp:connect', 'network:connect'] as Permission[],
     dependencies: [],
     sandbox: { tier: 'basic' },
+    format: 'mcp',
   };
 
-  const mcpServerConfigs: McpServerConfig[] = [];
-  if (mcpJson.mcpServers) {
-    for (const [serverName, config] of Object.entries(mcpJson.mcpServers)) {
-      const transport = resolveTransportType(config.type);
-      mcpServerConfigs.push({
-        name: serverName,
-        transport,
-        url: config.url,
-        command: config.command,
-        args: config.args,
-        env: config.env,
-        headers: config.headers,
-      });
-    }
-  }
+  const mcpServerConfigs = mcpJson.mcpServers
+    ? parseMcpServers(mcpJson.mcpServers, pluginDir)
+    : [];
 
   if (mcpServerConfigs.length === 0) {
     errors.push('No MCP servers defined in .mcp.json');
@@ -165,41 +216,48 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
   }
 
   const namespace = pluginJson.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  const manifest: PluginManifest = {
-    name: pluginJson.name,
-    version: pluginJson.version ?? '0.0.0',
-    namespace,
-    description: pluginJson.description,
-    permissions: ['mcp:connect', 'network:connect'] as Permission[],
-    dependencies: [],
-    sandbox: { tier: 'basic' },
-  };
 
-  // 2. Read .mcp.json
+  // Infer permissions from plugin contents
+  const permissions: Permission[] = [];
+
+  // 2. Read MCP servers from .mcp.json and/or inline mcpServers in plugin.json
   const mcpServerConfigs: McpServerConfig[] = [];
   const mcpJsonPath = path.join(pluginDir, '.mcp.json');
   if (fs.existsSync(mcpJsonPath)) {
     try {
       const mcpJson: ClaudeMcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
       if (mcpJson.mcpServers) {
-        for (const [name, config] of Object.entries(mcpJson.mcpServers)) {
-          const transport = resolveTransportType(config.type);
-
-          mcpServerConfigs.push({
-            name,
-            transport,
-            url: config.url,
-            command: config.command,
-            args: config.args,
-            env: config.env,
-            headers: config.headers,
-          });
-        }
+        mcpServerConfigs.push(...parseMcpServers(mcpJson.mcpServers, pluginDir));
       }
     } catch {
       errors.push('Failed to parse .mcp.json');
     }
   }
+
+  // Inline mcpServers from plugin.json (object form, not a path string)
+  if (pluginJson.mcpServers && typeof pluginJson.mcpServers === 'object') {
+    mcpServerConfigs.push(...parseMcpServers(pluginJson.mcpServers as ClaudeMcpServerMap, pluginDir));
+  }
+
+  if (mcpServerConfigs.length > 0) {
+    permissions.push('mcp:connect' as Permission, 'network:connect' as Permission);
+  }
+
+  const manifest: PluginManifest = {
+    name: pluginJson.name,
+    version: pluginJson.version ?? '0.0.0',
+    namespace,
+    description: pluginJson.description,
+    permissions,
+    dependencies: [],
+    sandbox: { tier: 'basic' },
+    format: 'claude',
+    author: pluginJson.author,
+    homepage: pluginJson.homepage,
+    repository: pluginJson.repository,
+    license: pluginJson.license,
+    keywords: pluginJson.keywords,
+  };
 
   // 3. Scan commands/*.md
   const commandDefinitions = new Map<string, CommandDefinition>();
@@ -221,35 +279,33 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
   // 4. Scan skills/*/SKILL.md
   const tools: ToolDefinition[] = [];
   const skillDefinitions = new Map<string, SkillDefinition>();
-  const skillsDir = path.join(pluginDir, 'skills');
-  if (fs.existsSync(skillsDir)) {
-    const skillDirs = fs.readdirSync(skillsDir, { withFileTypes: true })
+  const skillsBaseDir = typeof pluginJson.skills === 'string'
+    ? path.join(pluginDir, pluginJson.skills)
+    : path.join(pluginDir, 'skills');
+  if (fs.existsSync(skillsBaseDir)) {
+    const skillDirs = fs.readdirSync(skillsBaseDir, { withFileTypes: true })
       .filter((d) => d.isDirectory());
 
     for (const skillDir of skillDirs) {
-      const skillMdPath = path.join(skillsDir, skillDir.name, 'SKILL.md');
+      const skillDirPath = path.join(skillsBaseDir, skillDir.name);
+      const skillMdPath = path.join(skillDirPath, 'SKILL.md');
       if (!fs.existsSync(skillMdPath)) continue;
 
       try {
         const content = fs.readFileSync(skillMdPath, 'utf-8');
         const skillDef = parseMdSkill(content);
 
-        // 5. Scan references/*.md and append to prompt
-        const refsDir = path.join(skillsDir, skillDir.name, 'references');
-        if (fs.existsSync(refsDir)) {
-          const refFiles = fs.readdirSync(refsDir).filter((f) => f.endsWith('.md'));
-          if (refFiles.length > 0) {
-            const refContent = refFiles
-              .map((f) => fs.readFileSync(path.join(refsDir, f), 'utf-8').trim())
-              .join('\n\n');
-            skillDef.prompt = skillDef.prompt
-              ? `${skillDef.prompt}\n\n${refContent}`
-              : refContent;
-          }
-        }
+        // Discover bundled resources (scripts/, references/, assets/)
+        const resources = discoverSkillResources(skillDirPath);
+        skillDef.resources = resources;
 
         const qualifiedName = qualifyName(namespace, skillDef.name);
         skillDefinitions.set(qualifiedName, skillDef);
+
+        // Add llm:invoke permission if we have skills
+        if (!permissions.includes('llm:invoke' as Permission)) {
+          permissions.push('llm:invoke' as Permission);
+        }
 
         // Convert to ToolDefinition
         const properties: Record<string, import('@nexora-kit/core').ToolParameterProperty> = {};
