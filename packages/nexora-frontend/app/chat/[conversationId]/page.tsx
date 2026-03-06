@@ -67,8 +67,8 @@ export default function ConversationPage() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Dev Panel toggle */}
         <div className="flex justify-end border-b px-2 py-1">
           <Button

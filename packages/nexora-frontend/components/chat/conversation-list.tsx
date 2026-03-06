@@ -93,74 +93,77 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
   }
 
   return (
-    <div className="relative flex h-full shrink-0 flex-col bg-muted/20" style={{ width }}>
-      <div className="flex items-center justify-between border-b p-3">
-        <h2 className="text-sm font-semibold">Conversations</h2>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="size-7"
-          onClick={onNewConversation}
-        >
-          <Plus className="size-4" />
-        </Button>
+    <div className="relative flex h-full shrink-0" style={{ width }}>
+      {/* Panel content */}
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-muted/20">
+        <div className="flex items-center justify-between border-b p-3">
+          <h2 className="text-sm font-semibold">Conversations</h2>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            onClick={onNewConversation}
+          >
+            <Plus className="size-4" />
+          </Button>
+        </div>
+
+        <ScrollArea className="flex-1">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+              No conversations yet.
+              <br />
+              Click + to start one.
+            </div>
+          ) : (
+            <div className="space-y-0.5 p-1.5">
+              {conversations.map((conv: ConversationRecord) => (
+                <div
+                  key={conv.id}
+                  className={`group flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                    activeId === conv.id
+                      ? "bg-accent text-accent-foreground"
+                      : ""
+                  }`}
+                >
+                  <button
+                    className="flex min-w-0 flex-1 items-start gap-2"
+                    onClick={() => router.push(`/chat/${conv.id}`)}
+                  >
+                    <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">
+                        {conv.title || "New conversation"}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {conv.messageCount} messages &middot;{" "}
+                        {formatTime(conv.updatedAt)}
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    className="mt-0.5 shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(conv);
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
       </div>
 
-      <ScrollArea className="flex-1">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : conversations.length === 0 ? (
-          <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-            No conversations yet.
-            <br />
-            Click + to start one.
-          </div>
-        ) : (
-          <div className="space-y-0.5 p-1.5">
-            {conversations.map((conv: ConversationRecord) => (
-              <div
-                key={conv.id}
-                className={`group flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
-                  activeId === conv.id
-                    ? "bg-accent text-accent-foreground"
-                    : ""
-                }`}
-              >
-                <button
-                  className="flex min-w-0 flex-1 items-start gap-2"
-                  onClick={() => router.push(`/chat/${conv.id}`)}
-                >
-                  <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">
-                      {conv.title || "New conversation"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {conv.messageCount} messages &middot;{" "}
-                      {formatTime(conv.updatedAt)}
-                    </p>
-                  </div>
-                </button>
-                <button
-                  className="mt-0.5 shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget(conv);
-                  }}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </ScrollArea>
-
-      {/* Resize handle — acts as the right border */}
+      {/* Resize handle */}
       <div
-        className="absolute inset-y-0 -right-px z-10 w-[3px] cursor-col-resize border-r border-border transition-colors hover:border-primary hover:bg-primary/10 active:border-primary active:bg-primary/20"
+        className="z-10 w-[3px] shrink-0 cursor-col-resize border-r border-border transition-colors hover:border-primary hover:bg-primary/10 active:border-primary active:bg-primary/20"
         onMouseDown={handleMouseDown}
       />
 
