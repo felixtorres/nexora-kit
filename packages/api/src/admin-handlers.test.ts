@@ -32,18 +32,39 @@ function makeMockAdmin() {
     uninstallPlugin: vi.fn(),
     installPlugin: vi.fn(),
     getUsageSummary: vi.fn().mockReturnValue([]),
-    purgeAuditLog: vi.fn().mockReturnValue(5),
     auditLogger: {
+      purge: vi.fn().mockReturnValue(5),
       query: vi.fn().mockReturnValue([
-        { id: 1, actor: 'admin', action: 'plugin.install', target: 'plugin:test', details: {}, result: 'success', createdAt: '2026-03-01' },
+        {
+          id: 1,
+          actor: 'admin',
+          action: 'plugin.install',
+          target: 'plugin:test',
+          details: {},
+          result: 'success',
+          createdAt: '2026-03-01',
+        },
       ]),
     },
     usageAnalytics: {
       summarizeByPlugin: vi.fn().mockReturnValue([
-        { pluginName: 'test', totalInputTokens: 100, totalOutputTokens: 50, totalTokens: 150, requestCount: 3, avgLatencyMs: 200 },
+        {
+          pluginName: 'test',
+          totalInputTokens: 100,
+          totalOutputTokens: 50,
+          totalTokens: 150,
+          requestCount: 3,
+          avgLatencyMs: 200,
+        },
       ]),
       dailyBreakdown: vi.fn().mockReturnValue([
-        { date: '2026-03-01', pluginName: 'test', inputTokens: 100, outputTokens: 50, requestCount: 3 },
+        {
+          date: '2026-03-01',
+          pluginName: 'test',
+          inputTokens: 100,
+          outputTokens: 50,
+          requestCount: 3,
+        },
       ]),
     },
   } as any;
@@ -64,7 +85,9 @@ describe('Admin Plugin Enable Handler', () => {
     const admin = makeMockAdmin();
     const handler = createAdminPluginEnableHandler(admin);
 
-    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow('Admin access required');
+    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow(
+      'Admin access required',
+    );
   });
 
   it('rejects unauthenticated requests', async () => {
@@ -76,10 +99,14 @@ describe('Admin Plugin Enable Handler', () => {
 
   it('returns error for failed enable', async () => {
     const admin = makeMockAdmin();
-    admin.enablePlugin.mockImplementation(() => { throw new Error('Plugin not found'); });
+    admin.enablePlugin.mockImplementation(() => {
+      throw new Error('Plugin not found');
+    });
     const handler = createAdminPluginEnableHandler(admin);
 
-    await expect(handler(makeReq({ params: { name: 'nope' } }))).rejects.toThrow('Plugin not found');
+    await expect(handler(makeReq({ params: { name: 'nope' } }))).rejects.toThrow(
+      'Plugin not found',
+    );
   });
 });
 
@@ -97,7 +124,9 @@ describe('Admin Plugin Disable Handler', () => {
     const admin = makeMockAdmin();
     const handler = createAdminPluginDisableHandler(admin);
 
-    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow('Admin access required');
+    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow(
+      'Admin access required',
+    );
   });
 });
 
@@ -138,7 +167,9 @@ describe('Admin Audit Log Handler', () => {
     const admin = makeMockAdmin();
     const handler = createAdminAuditLogHandler(admin);
 
-    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow('Admin access required');
+    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow(
+      'Admin access required',
+    );
   });
 });
 
@@ -184,12 +215,23 @@ describe('Admin Audit Purge Handler', () => {
     const res = await handler(makeReq());
     expect(res.status).toBe(200);
     expect((res.body as any).deleted).toBe(5);
+    expect(admin.auditLogger.purge).toHaveBeenCalledWith(0);
+  });
+
+  it('passes olderThanDays when provided', async () => {
+    const admin = makeMockAdmin();
+    const handler = createAdminAuditPurgeHandler(admin);
+
+    await handler(makeReq({ body: { olderThanDays: 30 } }));
+    expect(admin.auditLogger.purge).toHaveBeenCalledWith(30);
   });
 
   it('rejects non-admin', async () => {
     const admin = makeMockAdmin();
     const handler = createAdminAuditPurgeHandler(admin);
 
-    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow('Admin access required');
+    await expect(handler(makeReq({ auth: makeAuth('user') }))).rejects.toThrow(
+      'Admin access required',
+    );
   });
 });

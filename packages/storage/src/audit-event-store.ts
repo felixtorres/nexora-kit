@@ -95,6 +95,10 @@ export class SqliteAuditEventStore implements IAuditEventStore {
   }
 
   deleteOlderThan(days: number): number {
+    if (days <= 0) {
+      return this.db.prepare('DELETE FROM audit_events').run().changes;
+    }
+
     const result = this.db
       .prepare(`DELETE FROM audit_events WHERE created_at < datetime('now', ?)`)
       .run(`-${days} days`);
@@ -102,7 +106,9 @@ export class SqliteAuditEventStore implements IAuditEventStore {
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM audit_events').get() as { cnt: number };
+    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM audit_events').get() as {
+      cnt: number;
+    };
     return row.cnt;
   }
 }

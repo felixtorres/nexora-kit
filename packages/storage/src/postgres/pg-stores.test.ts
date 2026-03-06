@@ -35,10 +35,9 @@ describe('PgMessageStore', () => {
     const msgs = await store.get('conv-1');
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe('user');
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining('SELECT role, content'),
-      ['conv-1'],
-    );
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('SELECT role, content'), [
+      'conv-1',
+    ]);
   });
 
   it('appends messages', async () => {
@@ -61,10 +60,7 @@ describe('PgMessageStore', () => {
 
   it('clears messages', async () => {
     await store.clear('conv-1');
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE'),
-      ['conv-1'],
-    );
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('DELETE'), ['conv-1']);
   });
 });
 
@@ -79,10 +75,13 @@ describe('PgConfigStore', () => {
 
   it('persists a config entry', async () => {
     await store.persist({ key: 'theme', value: 'dark', layer: 1 });
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO config_entries'),
-      ['theme', '"dark"', 1, '', ''],
-    );
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO config_entries'), [
+      'theme',
+      '"dark"',
+      1,
+      '',
+      '',
+    ]);
   });
 
   it('gets all config entries', async () => {
@@ -120,15 +119,25 @@ describe('PgPluginStateStore', () => {
 
   it('saves plugin state', async () => {
     await store.save({ namespace: 'my-plugin', state: 'enabled', version: '1.0.0' });
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO plugin_states'),
-      ['my-plugin', 'enabled', '1.0.0', null],
-    );
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO plugin_states'), [
+      'my-plugin',
+      'enabled',
+      '1.0.0',
+      null,
+    ]);
   });
 
   it('gets plugin state', async () => {
     pool.query.mockResolvedValueOnce({
-      rows: [{ namespace: 'p1', state: 'enabled', version: '1.0', error: null, installed_at: '2026-01-01' }],
+      rows: [
+        {
+          namespace: 'p1',
+          state: 'enabled',
+          version: '1.0',
+          error: null,
+          installed_at: '2026-01-01',
+        },
+      ],
       rowCount: 1,
     });
     const result = await store.get('p1');
@@ -157,8 +166,20 @@ describe('PgPluginStateStore', () => {
   it('gets all plugin states', async () => {
     pool.query.mockResolvedValueOnce({
       rows: [
-        { namespace: 'p1', state: 'enabled', version: '1.0', error: null, installed_at: '2026-01-01' },
-        { namespace: 'p2', state: 'disabled', version: '2.0', error: 'err', installed_at: '2026-01-02' },
+        {
+          namespace: 'p1',
+          state: 'enabled',
+          version: '1.0',
+          error: null,
+          installed_at: '2026-01-01',
+        },
+        {
+          namespace: 'p2',
+          state: 'disabled',
+          version: '2.0',
+          error: 'err',
+          installed_at: '2026-01-02',
+        },
       ],
       rowCount: 2,
     });
@@ -178,10 +199,12 @@ describe('PgTokenUsageStore', () => {
 
   it('saves token usage', async () => {
     await store.save({ pluginNamespace: 'p1', used: 100, limit: 1000, periodStart: '2026-01-01' });
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO token_usage'),
-      ['p1', 100, 1000, '2026-01-01'],
-    );
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO token_usage'), [
+      'p1',
+      100,
+      1000,
+      '2026-01-01',
+    ]);
   });
 
   it('gets token usage', async () => {
@@ -236,16 +259,18 @@ describe('PgUsageEventStore', () => {
 
   it('queries without filters', async () => {
     pool.query.mockResolvedValueOnce({
-      rows: [{
-        id: 1,
-        plugin_name: 'p1',
-        user_id: null,
-        model: 'gpt-4',
-        input_tokens: 10,
-        output_tokens: 5,
-        latency_ms: null,
-        created_at: '2026-01-01',
-      }],
+      rows: [
+        {
+          id: 1,
+          plugin_name: 'p1',
+          user_id: null,
+          model: 'gpt-4',
+          input_tokens: 10,
+          output_tokens: 5,
+          latency_ms: null,
+          created_at: '2026-01-01',
+        },
+      ],
       rowCount: 1,
     });
     const events = await store.query();
@@ -288,10 +313,14 @@ describe('PgAuditEventStore', () => {
     pool.query.mockResolvedValueOnce({ rows: [], rowCount: 5 });
     const count = await store.deleteOlderThan(30);
     expect(count).toBe(5);
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining('INTERVAL'),
-      [30],
-    );
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('INTERVAL'), [30]);
+  });
+
+  it('clears all audit events when days is zero', async () => {
+    pool.query.mockResolvedValueOnce({ rows: [], rowCount: 5 });
+    const count = await store.deleteOlderThan(0);
+    expect(count).toBe(5);
+    expect(pool.query).toHaveBeenCalledWith('DELETE FROM audit_events');
   });
 
   it('counts events', async () => {

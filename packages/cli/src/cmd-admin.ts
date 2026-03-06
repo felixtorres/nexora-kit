@@ -3,17 +3,15 @@ import { readFile, access } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 import type { CliCommand } from './commands.js';
 import { success, error, info, warn, fmt, table } from './output.js';
-import {
-  StorageDatabase, initSchema,
-  SqliteUsageEventStore,
-} from '@nexora-kit/storage';
+import { StorageDatabase, initSchema, SqliteUsageEventStore } from '@nexora-kit/storage';
 import { UsageAnalytics } from '@nexora-kit/admin';
 import { createClientFromConfig, handleApiError } from './api-client.js';
 
 export const adminUsageCommand: CliCommand = {
   name: 'admin:usage',
   description: 'View token usage and request stats',
-  usage: 'nexora-kit admin usage [--breakdown daily|plugin] [--plugin <name>] [--since <date>] [--config <path>]',
+  usage:
+    'nexora-kit admin usage [--breakdown daily|plugin] [--plugin <name>] [--since <date>] [--config <path>]',
 
   async run(args) {
     const configPath = resolve((args.flags['config'] as string) ?? 'nexora.yaml');
@@ -119,7 +117,8 @@ function adminConfigPath(args: { flags: Record<string, string | boolean> }): str
 export const adminAuditCommand: CliCommand = {
   name: 'admin:audit',
   description: 'Query the audit log',
-  usage: 'nexora-kit admin audit [--actor <a>] [--action <a>] [--target <t>] [--since <date>] [--limit <n>]',
+  usage:
+    'nexora-kit admin audit [--actor <a>] [--action <a>] [--target <t>] [--since <date>] [--limit <n>]',
 
   async run(args) {
     const query: Record<string, string> = {};
@@ -131,7 +130,10 @@ export const adminAuditCommand: CliCommand = {
 
     try {
       const client = await createClientFromConfig(adminConfigPath(args));
-      const result = await client.get<{ events: AuditEvent[]; count: number }>('/admin/audit-log', query);
+      const result = await client.get<{ events: AuditEvent[]; count: number }>(
+        '/admin/audit-log',
+        query,
+      );
 
       if (result.events.length === 0) {
         info('No audit events found.');
@@ -189,7 +191,9 @@ export const adminFeedbackCommand: CliCommand = {
 
       console.log(fmt.bold('\nFeedback Summary\n'));
       console.log(`  Total:     ${summary.totalCount}`);
-      console.log(`  Positive:  ${fmt.green(String(summary.positiveCount))} (${(summary.positiveRate * 100).toFixed(1)}%)`);
+      console.log(
+        `  Positive:  ${fmt.green(String(summary.positiveCount))} (${(summary.positiveRate * 100).toFixed(1)}%)`,
+      );
       console.log(`  Negative:  ${fmt.red(String(summary.negativeCount))}`);
 
       if (summary.byPlugin.length > 0) {
@@ -244,15 +248,18 @@ export const adminCleanupCommand: CliCommand = {
 
       if (dryRun) {
         // Query to see what would be affected
-        const result = await client.get<{ events: AuditEvent[]; count: number }>('/admin/audit-log', {
-          limit: '1',
-        });
+        const result = await client.get<{ events: AuditEvent[]; count: number }>(
+          '/admin/audit-log',
+          {
+            limit: '1',
+          },
+        );
         info(`Dry run: audit log has ${result.count} total events.`);
         info(`Would purge events older than ${olderThan} days.`);
         return;
       }
 
-      await client.post('/admin/audit-log/purge');
+      await client.post('/admin/audit-log/purge', { olderThanDays: olderThan });
       success(`Audit log purged (events older than ${olderThan} days removed).`);
     } catch (err) {
       handleApiError(err);

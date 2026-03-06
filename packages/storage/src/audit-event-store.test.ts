@@ -88,7 +88,13 @@ describe('SqliteAuditEventStore', () => {
   });
 
   it('records failure result', () => {
-    store.insert({ actor: 'admin', action: 'plugin.install', target: 'p:bad', result: 'failure', details: { error: 'not found' } });
+    store.insert({
+      actor: 'admin',
+      action: 'plugin.install',
+      target: 'p:bad',
+      result: 'failure',
+      details: { error: 'not found' },
+    });
 
     const events = store.query();
     expect(events[0].result).toBe('failure');
@@ -108,6 +114,15 @@ describe('SqliteAuditEventStore', () => {
     const remaining = store.query();
     expect(remaining).toHaveLength(1);
     expect(remaining[0].action).toBe('recent');
+  });
+
+  it('deleteOlderThan clears all events when days is zero', () => {
+    store.insert({ actor: 'admin', action: 'first', target: 't:1', result: 'success' });
+    store.insert({ actor: 'admin', action: 'second', target: 't:2', result: 'success' });
+
+    const deleted = store.deleteOlderThan(0);
+    expect(deleted).toBe(2);
+    expect(store.query()).toHaveLength(0);
   });
 
   it('count returns total events', () => {

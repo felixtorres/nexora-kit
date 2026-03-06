@@ -100,6 +100,10 @@ const usageQuerySchema = z.object({
   breakdown: z.enum(['plugin', 'daily']).optional(),
 });
 
+const purgeAuditLogBodySchema = z.object({
+  olderThanDays: z.coerce.number().int().positive().optional(),
+});
+
 export function createAdminUsageHandler(admin: AdminService) {
   return async (req: ApiRequest): Promise<ApiResponse> => {
     requireAdmin(req);
@@ -132,7 +136,12 @@ export function createAdminAuditPurgeHandler(admin: AdminService) {
   return async (req: ApiRequest): Promise<ApiResponse> => {
     requireAdmin(req);
 
-    const deleted = await admin.purgeAuditLog();
+    const parsed = purgeAuditLogBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new ApiError(400, 'Invalid request body', 'VALIDATION_ERROR');
+    }
+
+    const deleted = await admin.auditLogger.purge(parsed.data.olderThanDays ?? 0);
     return jsonResponse(200, { deleted });
   };
 }

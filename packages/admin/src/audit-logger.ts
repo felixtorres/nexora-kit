@@ -11,7 +11,11 @@ export class AuditLogger {
     return this.store.insert(event);
   }
 
-  logPluginInstall(actor: string, namespace: string, details?: Record<string, unknown>): number | Promise<number> {
+  logPluginInstall(
+    actor: string,
+    namespace: string,
+    details?: Record<string, unknown>,
+  ): number | Promise<number> {
     return this.log({
       actor,
       action: 'plugin.install',
@@ -48,7 +52,11 @@ export class AuditLogger {
     });
   }
 
-  logConfigChange(actor: string, key: string, details?: Record<string, unknown>): number | Promise<number> {
+  logConfigChange(
+    actor: string,
+    key: string,
+    details?: Record<string, unknown>,
+  ): number | Promise<number> {
     return this.log({
       actor,
       action: 'config.update',
@@ -58,7 +66,12 @@ export class AuditLogger {
     });
   }
 
-  logFailure(actor: string, action: string, target: string, error: string): number | Promise<number> {
+  logFailure(
+    actor: string,
+    action: string,
+    target: string,
+    error: string,
+  ): number | Promise<number> {
     return this.log({
       actor,
       action,

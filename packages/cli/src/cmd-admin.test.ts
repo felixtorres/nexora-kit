@@ -22,7 +22,9 @@ vi.mock('./api-client.js', () => ({
     }
   },
   createClientFromConfig: vi.fn().mockResolvedValue(mockClient),
-  handleApiError: vi.fn(() => { process.exitCode = 1; }),
+  handleApiError: vi.fn(() => {
+    process.exitCode = 1;
+  }),
 }));
 
 describe('admin audit command', () => {
@@ -44,8 +46,24 @@ describe('admin audit command', () => {
   it('displays audit events in a table', async () => {
     mockClient.get.mockResolvedValue({
       events: [
-        { id: 1, actor: 'admin-1', action: 'plugin.enable', target: 'faq', result: 'success', createdAt: '2026-03-04T10:00:00Z', details: {} },
-        { id: 2, actor: 'admin-1', action: 'plugin.disable', target: 'old', result: 'failure', createdAt: '2026-03-04T09:00:00Z', details: {} },
+        {
+          id: 1,
+          actor: 'admin-1',
+          action: 'plugin.enable',
+          target: 'faq',
+          result: 'success',
+          createdAt: '2026-03-04T10:00:00Z',
+          details: {},
+        },
+        {
+          id: 2,
+          actor: 'admin-1',
+          action: 'plugin.disable',
+          target: 'old',
+          result: 'failure',
+          createdAt: '2026-03-04T09:00:00Z',
+          details: {},
+        },
       ],
       count: 2,
     });
@@ -66,7 +84,13 @@ describe('admin audit command', () => {
 
     await adminAuditCommand.run({
       positionals: [],
-      flags: { actor: 'admin-1', action: 'plugin.enable', since: '2026-03-01', limit: '10', config: 'test.yaml' },
+      flags: {
+        actor: 'admin-1',
+        action: 'plugin.enable',
+        since: '2026-03-01',
+        limit: '10',
+        config: 'test.yaml',
+      },
     });
 
     expect(mockClient.get).toHaveBeenCalledWith('/admin/audit-log', {
@@ -116,7 +140,10 @@ describe('admin feedback command', () => {
         { pluginNamespace: 'kyvos', positive: 10, negative: 5 },
       ],
       byModel: [{ model: 'claude-sonnet-4-6', positive: 40, negative: 10 }],
-      topTags: [{ tag: 'helpful', count: 25 }, { tag: 'accurate', count: 15 }],
+      topTags: [
+        { tag: 'helpful', count: 25 },
+        { tag: 'accurate', count: 15 },
+      ],
     });
 
     await adminFeedbackCommand.run({
@@ -163,7 +190,12 @@ describe('admin feedback command', () => {
 
     await adminFeedbackCommand.run({
       positionals: [],
-      flags: { since: '2026-03-01', model: 'claude-sonnet-4-6', plugin: 'faq', config: 'test.yaml' },
+      flags: {
+        since: '2026-03-01',
+        model: 'claude-sonnet-4-6',
+        plugin: 'faq',
+        config: 'test.yaml',
+      },
     });
 
     expect(mockClient.get).toHaveBeenCalledWith('/admin/feedback/summary', {
@@ -198,7 +230,9 @@ describe('admin cleanup command', () => {
       flags: { config: 'test.yaml' },
     });
 
-    expect(mockClient.post).toHaveBeenCalledWith('/admin/audit-log/purge');
+    expect(mockClient.post).toHaveBeenCalledWith('/admin/audit-log/purge', {
+      olderThanDays: 90,
+    });
   });
 
   it('supports dry-run mode', async () => {

@@ -10,13 +10,7 @@ export class PgAuditEventStore implements IAuditEventStore {
       `INSERT INTO audit_events (actor, action, target, details, result)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id`,
-      [
-        event.actor,
-        event.action,
-        event.target,
-        JSON.stringify(event.details ?? {}),
-        event.result,
-      ],
+      [event.actor, event.action, event.target, JSON.stringify(event.details ?? {}), event.result],
     );
     return rows[0].id;
   }
@@ -66,6 +60,11 @@ export class PgAuditEventStore implements IAuditEventStore {
   }
 
   async deleteOlderThan(days: number): Promise<number> {
+    if (days <= 0) {
+      const result = await this.pool.query('DELETE FROM audit_events');
+      return result.rowCount;
+    }
+
     const result = await this.pool.query(
       `DELETE FROM audit_events WHERE created_at < NOW() - INTERVAL '1 day' * $1`,
       [days],

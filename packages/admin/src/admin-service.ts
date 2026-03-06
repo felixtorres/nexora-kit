@@ -106,8 +106,8 @@ export class AdminService {
   }
 
   /** Purge old audit events */
-  async purgeAuditLog(): Promise<number> {
-    return await this.audit.purge(this.retentionDays);
+  async purgeAuditLog(retentionDays = this.retentionDays): Promise<number> {
+    return await this.audit.purge(retentionDays);
   }
 
   get auditLogger(): AuditLogger {

@@ -5,7 +5,12 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const idParam = (name: string) => ({ name, in: 'path' as const, required: true, schema: { type: 'string' } });
+const idParam = (name: string) => ({
+  name,
+  in: 'path' as const,
+  required: true,
+  schema: { type: 'string' },
+});
 
 const authResponses = {
   401: { $ref: '#/components/responses/Unauthorized' },
@@ -19,7 +24,9 @@ const adminResponses = {
 const notFoundResp = { 404: { $ref: '#/components/responses/NotFound' } };
 const rateLimitResp = { 429: { $ref: '#/components/responses/RateLimited' } };
 const noContent = { 204: { description: 'Deleted' } };
-const jsonContent = (ref: string) => ({ 'application/json': { schema: { $ref: `#/components/schemas/${ref}` } } });
+const jsonContent = (ref: string) => ({
+  'application/json': { schema: { $ref: `#/components/schemas/${ref}` } },
+});
 const jsonBody = (ref: string, required = true) => ({ required, content: jsonContent(ref) });
 
 export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown> {
@@ -28,7 +35,8 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
     info: {
       title: 'NexoraKit API',
       version: '2.0.0',
-      description: 'Enterprise chatbot platform API — conversation-based, plugin-driven, provider-agnostic LLM.',
+      description:
+        'Enterprise chatbot platform API — conversation-based, plugin-driven, provider-agnostic LLM.',
     },
     paths: {
       // --- System ---
@@ -66,7 +74,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           security: [{ bearerAuth: [] }],
           requestBody: jsonBody('CreateConversationRequest', false),
           responses: {
-            201: { description: 'Conversation created', content: jsonContent('ConversationRecord') },
+            201: {
+              description: 'Conversation created',
+              content: jsonContent('ConversationRecord'),
+            },
             ...authResponses,
             ...rateLimitResp,
           },
@@ -77,11 +88,18 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           tags: ['conversations'],
           security: [{ bearerAuth: [] }],
           parameters: [
-            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+            {
+              name: 'limit',
+              in: 'query',
+              schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+            },
             { name: 'cursor', in: 'query', schema: { type: 'string' } },
           ],
           responses: {
-            200: { description: 'Paginated conversation list', content: jsonContent('ConversationList') },
+            200: {
+              description: 'Paginated conversation list',
+              content: jsonContent('ConversationList'),
+            },
             ...authResponses,
           },
         },
@@ -94,7 +112,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           security: [{ bearerAuth: [] }],
           parameters: [idParam('id')],
           responses: {
-            200: { description: 'Conversation details', content: jsonContent('ConversationRecord') },
+            200: {
+              description: 'Conversation details',
+              content: jsonContent('ConversationRecord'),
+            },
             ...authResponses,
             ...notFoundResp,
           },
@@ -107,7 +128,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           parameters: [idParam('id')],
           requestBody: jsonBody('UpdateConversationRequest'),
           responses: {
-            200: { description: 'Conversation updated', content: jsonContent('ConversationRecord') },
+            200: {
+              description: 'Conversation updated',
+              content: jsonContent('ConversationRecord'),
+            },
             ...authResponses,
             ...notFoundResp,
           },
@@ -146,7 +170,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           parameters: [idParam('id')],
           requestBody: jsonBody('SendMessageRequest'),
           responses: {
-            200: { description: 'Message response with events', content: jsonContent('MessageResponse') },
+            200: {
+              description: 'Message response with events',
+              content: jsonContent('MessageResponse'),
+            },
             ...authResponses,
             ...notFoundResp,
             ...rateLimitResp,
@@ -162,10 +189,16 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           operationId: 'editMessage',
           tags: ['conversations'],
           security: [{ bearerAuth: [] }],
-          parameters: [idParam('id'), { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } }],
+          parameters: [
+            idParam('id'),
+            { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } },
+          ],
           requestBody: jsonBody('EditMessageRequest'),
           responses: {
-            200: { description: 'Edited message response', content: jsonContent('MessageResponse') },
+            200: {
+              description: 'Edited message response',
+              content: jsonContent('MessageResponse'),
+            },
             ...authResponses,
             ...notFoundResp,
           },
@@ -177,9 +210,15 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           operationId: 'regenerateMessage',
           tags: ['conversations'],
           security: [{ bearerAuth: [] }],
-          parameters: [idParam('id'), { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } }],
+          parameters: [
+            idParam('id'),
+            { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } },
+          ],
           responses: {
-            200: { description: 'Regenerated message response', content: jsonContent('MessageResponse') },
+            200: {
+              description: 'Regenerated message response',
+              content: jsonContent('MessageResponse'),
+            },
             ...authResponses,
             ...notFoundResp,
           },
@@ -194,7 +233,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           operationId: 'submitFeedback',
           tags: ['feedback'],
           security: [{ bearerAuth: [] }],
-          parameters: [idParam('id'), { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } }],
+          parameters: [
+            idParam('id'),
+            { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } },
+          ],
           requestBody: jsonBody('SubmitFeedbackRequest'),
           responses: {
             200: { description: 'Feedback recorded', content: jsonContent('FeedbackRecord') },
@@ -333,7 +375,11 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           operationId: 'getArtifactVersion',
           tags: ['artifacts'],
           security: [{ bearerAuth: [] }],
-          parameters: [idParam('id'), idParam('artifactId'), { name: 'version', in: 'path', required: true, schema: { type: 'integer' } }],
+          parameters: [
+            idParam('id'),
+            idParam('artifactId'),
+            { name: 'version', in: 'path', required: true, schema: { type: 'integer' } },
+          ],
           responses: {
             200: { description: 'Artifact version', content: jsonContent('ArtifactVersionRecord') },
             ...authResponses,
@@ -350,9 +396,7 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           operationId: 'listMemory',
           tags: ['memory'],
           security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: 'namespace', in: 'query', schema: { type: 'string' } },
-          ],
+          parameters: [{ name: 'namespace', in: 'query', schema: { type: 'string' } }],
           responses: {
             200: { description: 'Memory facts', content: jsonContent('MemoryFactList') },
             ...authResponses,
@@ -364,7 +408,12 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           tags: ['memory'],
           security: [{ bearerAuth: [] }],
           parameters: [
-            { name: 'confirm', in: 'query', required: true, schema: { type: 'string', enum: ['true'] } },
+            {
+              name: 'confirm',
+              in: 'query',
+              required: true,
+              schema: { type: 'string', enum: ['true'] },
+            },
           ],
           responses: {
             ...noContent,
@@ -408,7 +457,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           security: [{ bearerAuth: [] }],
           parameters: [idParam('id')],
           responses: {
-            200: { description: 'Template details', content: jsonContent('ConversationTemplateRecord') },
+            200: {
+              description: 'Template details',
+              content: jsonContent('ConversationTemplateRecord'),
+            },
             ...authResponses,
             ...notFoundResp,
           },
@@ -468,7 +520,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           security: [{ bearerAuth: [] }],
           requestBody: jsonBody('ChatRequest'),
           responses: {
-            200: { description: 'Chat response with events', content: jsonContent('MessageResponse') },
+            200: {
+              description: 'Chat response with events',
+              content: jsonContent('MessageResponse'),
+            },
             ...authResponses,
             ...rateLimitResp,
           },
@@ -586,7 +641,11 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           tags: ['admin'],
           security: [{ bearerAuth: [] }],
           parameters: [
-            { name: 'breakdown', in: 'query', schema: { type: 'string', enum: ['plugin', 'daily'] } },
+            {
+              name: 'breakdown',
+              in: 'query',
+              schema: { type: 'string', enum: ['plugin', 'daily'] },
+            },
             { name: 'since', in: 'query', schema: { type: 'string', format: 'date-time' } },
             { name: 'pluginName', in: 'query', schema: { type: 'string' } },
           ],
@@ -607,7 +666,11 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: 'pluginNamespace', in: 'query', schema: { type: 'string' } },
-            { name: 'rating', in: 'query', schema: { type: 'string', enum: ['positive', 'negative'] } },
+            {
+              name: 'rating',
+              in: 'query',
+              schema: { type: 'string', enum: ['positive', 'negative'] },
+            },
             { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
             { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
             { name: 'cursor', in: 'query', schema: { type: 'string' } },
@@ -632,7 +695,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
             { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
           ],
           responses: {
-            200: { description: 'Aggregated feedback stats', content: jsonContent('FeedbackSummary') },
+            200: {
+              description: 'Aggregated feedback stats',
+              content: jsonContent('FeedbackSummary'),
+            },
             ...adminResponses,
           },
         },
@@ -736,7 +802,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           security: [{ bearerAuth: [] }],
           parameters: [idParam('id')],
           responses: {
-            200: { description: 'Agent details with bindings', content: jsonContent('AgentWithBindings') },
+            200: {
+              description: 'Agent details with bindings',
+              content: jsonContent('AgentWithBindings'),
+            },
             ...adminResponses,
             ...notFoundResp,
           },
@@ -806,7 +875,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           security: [{ bearerAuth: [] }],
           requestBody: jsonBody('CreateTemplateRequest'),
           responses: {
-            201: { description: 'Template created', content: jsonContent('ConversationTemplateRecord') },
+            201: {
+              description: 'Template created',
+              content: jsonContent('ConversationTemplateRecord'),
+            },
             ...adminResponses,
           },
         },
@@ -820,7 +892,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           parameters: [idParam('id')],
           requestBody: jsonBody('UpdateTemplateRequest'),
           responses: {
-            200: { description: 'Template updated', content: jsonContent('ConversationTemplateRecord') },
+            200: {
+              description: 'Template updated',
+              content: jsonContent('ConversationTemplateRecord'),
+            },
             ...adminResponses,
             ...notFoundResp,
           },
@@ -944,7 +1019,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           tags: ['client'],
           parameters: [idParam('slug')],
           responses: {
-            201: { description: 'Conversation created', content: jsonContent('ConversationRecord') },
+            201: {
+              description: 'Conversation created',
+              content: jsonContent('ConversationRecord'),
+            },
             ...rateLimitResp,
           },
         },
@@ -965,7 +1043,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           tags: ['client'],
           parameters: [idParam('slug'), idParam('id')],
           responses: {
-            200: { description: 'Conversation details', content: jsonContent('ConversationRecord') },
+            200: {
+              description: 'Conversation details',
+              content: jsonContent('ConversationRecord'),
+            },
             ...notFoundResp,
           },
         },
@@ -1020,9 +1101,29 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
         ChatInput: {
           oneOf: [
             { type: 'string', minLength: 1, maxLength: 100000 },
-            { type: 'object', properties: { type: { const: 'text' }, text: { type: 'string' } }, required: ['type', 'text'] },
-            { type: 'object', properties: { type: { const: 'action' }, actionId: { type: 'string' }, payload: { type: 'object' } }, required: ['type', 'actionId', 'payload'] },
-            { type: 'object', properties: { type: { const: 'file' }, fileId: { type: 'string' }, text: { type: 'string' } }, required: ['type', 'fileId'] },
+            {
+              type: 'object',
+              properties: { type: { const: 'text' }, text: { type: 'string' } },
+              required: ['type', 'text'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'action' },
+                actionId: { type: 'string' },
+                payload: { type: 'object' },
+              },
+              required: ['type', 'actionId', 'payload'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'file' },
+                fileId: { type: 'string' },
+                text: { type: 'string' },
+              },
+              required: ['type', 'fileId'],
+            },
           ],
         },
         SendMessageRequest: {
@@ -1269,7 +1370,15 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
         AgentWithBindings: {
           allOf: [
             { $ref: '#/components/schemas/AgentRecord' },
-            { type: 'object', properties: { bindings: { type: 'array', items: { $ref: '#/components/schemas/AgentBotBinding' } } } },
+            {
+              type: 'object',
+              properties: {
+                bindings: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/AgentBotBinding' },
+                },
+              },
+            },
           ],
         },
         AgentList: {
@@ -1477,7 +1586,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
         DocumentList: {
           type: 'object',
           properties: {
-            documents: { type: 'array', items: { $ref: '#/components/schemas/ContextDocumentRecord' } },
+            documents: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ContextDocumentRecord' },
+            },
           },
         },
 
@@ -1529,7 +1641,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
         TemplateList: {
           type: 'object',
           properties: {
-            templates: { type: 'array', items: { $ref: '#/components/schemas/ConversationTemplateRecord' } },
+            templates: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ConversationTemplateRecord' },
+            },
           },
         },
 
@@ -1570,7 +1685,13 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
             positive: { type: 'integer' },
             negative: { type: 'integer' },
             positiveRate: { type: 'number' },
-            topTags: { type: 'array', items: { type: 'object', properties: { tag: { type: 'string' }, count: { type: 'integer' } } } },
+            topTags: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { tag: { type: 'string' }, count: { type: 'integer' } },
+              },
+            },
           },
         },
 
@@ -1622,7 +1743,10 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
         ArtifactVersionList: {
           type: 'object',
           properties: {
-            versions: { type: 'array', items: { $ref: '#/components/schemas/ArtifactVersionRecord' } },
+            versions: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ArtifactVersionRecord' },
+            },
           },
         },
 
@@ -1632,7 +1756,6 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
           properties: {
             olderThanDays: { type: 'integer', minimum: 1 },
           },
-          required: ['olderThanDays'],
         },
 
         // --- Response Blocks ---
@@ -1668,16 +1791,91 @@ export function buildOpenApiSpec(prefix: string = '/v1'): Record<string, unknown
         },
         ResponseBlock: {
           oneOf: [
-            { type: 'object', properties: { type: { const: 'text' }, content: { type: 'string' } }, required: ['type', 'content'] },
-            { type: 'object', properties: { type: { const: 'card' }, title: { type: 'string' }, body: { type: 'string' }, imageUrl: { type: 'string' }, actions: { type: 'array', items: { $ref: '#/components/schemas/Action' } } }, required: ['type', 'title'] },
-            { type: 'object', properties: { type: { const: 'action' }, actions: { type: 'array', items: { $ref: '#/components/schemas/Action' } } }, required: ['type', 'actions'] },
-            { type: 'object', properties: { type: { const: 'suggested_replies' }, replies: { type: 'array', items: { type: 'string' } } }, required: ['type', 'replies'] },
-            { type: 'object', properties: { type: { const: 'table' }, columns: { type: 'array', items: { $ref: '#/components/schemas/TableColumn' } }, rows: { type: 'array', items: { type: 'object' } } }, required: ['type', 'columns', 'rows'] },
-            { type: 'object', properties: { type: { const: 'image' }, url: { type: 'string' }, alt: { type: 'string' } }, required: ['type', 'url'] },
-            { type: 'object', properties: { type: { const: 'code' }, code: { type: 'string' }, language: { type: 'string' } }, required: ['type', 'code'] },
-            { type: 'object', properties: { type: { const: 'form' }, id: { type: 'string' }, title: { type: 'string' }, fields: { type: 'array', items: { $ref: '#/components/schemas/FormField' } }, submitLabel: { type: 'string' } }, required: ['type', 'id', 'fields'] },
-            { type: 'object', properties: { type: { const: 'progress' }, label: { type: 'string' }, value: { type: 'number' }, max: { type: 'number' } }, required: ['type', 'label'] },
-            { type: 'object', properties: { type: { type: 'string', pattern: '^custom:.+' }, data: {} }, required: ['type', 'data'] },
+            {
+              type: 'object',
+              properties: { type: { const: 'text' }, content: { type: 'string' } },
+              required: ['type', 'content'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'card' },
+                title: { type: 'string' },
+                body: { type: 'string' },
+                imageUrl: { type: 'string' },
+                actions: { type: 'array', items: { $ref: '#/components/schemas/Action' } },
+              },
+              required: ['type', 'title'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'action' },
+                actions: { type: 'array', items: { $ref: '#/components/schemas/Action' } },
+              },
+              required: ['type', 'actions'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'suggested_replies' },
+                replies: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['type', 'replies'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'table' },
+                columns: { type: 'array', items: { $ref: '#/components/schemas/TableColumn' } },
+                rows: { type: 'array', items: { type: 'object' } },
+              },
+              required: ['type', 'columns', 'rows'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'image' },
+                url: { type: 'string' },
+                alt: { type: 'string' },
+              },
+              required: ['type', 'url'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'code' },
+                code: { type: 'string' },
+                language: { type: 'string' },
+              },
+              required: ['type', 'code'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'form' },
+                id: { type: 'string' },
+                title: { type: 'string' },
+                fields: { type: 'array', items: { $ref: '#/components/schemas/FormField' } },
+                submitLabel: { type: 'string' },
+              },
+              required: ['type', 'id', 'fields'],
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'progress' },
+                label: { type: 'string' },
+                value: { type: 'number' },
+                max: { type: 'number' },
+              },
+              required: ['type', 'label'],
+            },
+            {
+              type: 'object',
+              properties: { type: { type: 'string', pattern: '^custom:.+' }, data: {} },
+              required: ['type', 'data'],
+            },
           ],
           discriminator: { propertyName: 'type' },
         },

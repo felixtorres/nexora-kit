@@ -1,4 +1,11 @@
-import type { Message, AgentAppearance, EndUserAuthConfig, AgentRateLimits, AgentFeatures, OrchestrationStrategy } from '@nexora-kit/core';
+import type {
+  Message,
+  AgentAppearance,
+  EndUserAuthConfig,
+  AgentRateLimits,
+  AgentFeatures,
+  OrchestrationStrategy,
+} from '@nexora-kit/core';
 import type { ConfigResolver, ConfigEntry } from '@nexora-kit/config';
 import type { PluginStateRecord } from './plugin-state-store.js';
 import type { TokenUsageRecord } from './token-usage-store.js';
@@ -63,9 +70,19 @@ export interface PaginatedResult<T> {
 
 export interface IConversationStore {
   create(input: CreateConversationInput): ConversationRecord | Promise<ConversationRecord>;
-  get(id: string, userId: string): ConversationRecord | undefined | Promise<ConversationRecord | undefined>;
-  list(userId: string, opts?: ListConversationsOptions): PaginatedResult<ConversationRecord> | Promise<PaginatedResult<ConversationRecord>>;
-  update(id: string, userId: string, patch: ConversationPatch): ConversationRecord | undefined | Promise<ConversationRecord | undefined>;
+  get(
+    id: string,
+    userId: string,
+  ): ConversationRecord | undefined | Promise<ConversationRecord | undefined>;
+  list(
+    userId: string,
+    opts?: ListConversationsOptions,
+  ): PaginatedResult<ConversationRecord> | Promise<PaginatedResult<ConversationRecord>>;
+  update(
+    id: string,
+    userId: string,
+    patch: ConversationPatch,
+  ): ConversationRecord | undefined | Promise<ConversationRecord | undefined>;
   softDelete(id: string, userId: string): boolean | Promise<boolean>;
   updateMessageStats(id: string, count: number, lastMessageAt: string): void | Promise<void>;
 }
@@ -111,10 +128,19 @@ export interface ConversationTemplatePatch {
 }
 
 export interface IConversationTemplateStore {
-  create(input: CreateConversationTemplateInput): ConversationTemplateRecord | Promise<ConversationTemplateRecord>;
-  get(id: string, teamId: string): ConversationTemplateRecord | undefined | Promise<ConversationTemplateRecord | undefined>;
+  create(
+    input: CreateConversationTemplateInput,
+  ): ConversationTemplateRecord | Promise<ConversationTemplateRecord>;
+  get(
+    id: string,
+    teamId: string,
+  ): ConversationTemplateRecord | undefined | Promise<ConversationTemplateRecord | undefined>;
   list(teamId: string): ConversationTemplateRecord[] | Promise<ConversationTemplateRecord[]>;
-  update(id: string, teamId: string, patch: ConversationTemplatePatch): ConversationTemplateRecord | undefined | Promise<ConversationTemplateRecord | undefined>;
+  update(
+    id: string,
+    teamId: string,
+    patch: ConversationTemplatePatch,
+  ): ConversationTemplateRecord | undefined | Promise<ConversationTemplateRecord | undefined>;
   delete(id: string, teamId: string): boolean | Promise<boolean>;
 }
 
@@ -136,7 +162,9 @@ export interface IPluginStateStore {
 
 export interface ITokenUsageStore {
   save(record: TokenUsageRecord): void | Promise<void>;
-  get(pluginNamespace: string): TokenUsageRecord | undefined | Promise<TokenUsageRecord | undefined>;
+  get(
+    pluginNamespace: string,
+  ): TokenUsageRecord | undefined | Promise<TokenUsageRecord | undefined>;
   getAll(): TokenUsageRecord[] | Promise<TokenUsageRecord[]>;
   reset(pluginNamespace: string): boolean | Promise<boolean>;
 }
@@ -180,7 +208,11 @@ export interface ListFactsOptions {
 }
 
 export interface IUserMemoryStore {
-  get(userId: string, key: string, agentId?: string): UserFact | undefined | Promise<UserFact | undefined>;
+  get(
+    userId: string,
+    key: string,
+    agentId?: string,
+  ): UserFact | undefined | Promise<UserFact | undefined>;
   list(userId: string, opts?: ListFactsOptions, agentId?: string): UserFact[] | Promise<UserFact[]>;
   set(userId: string, fact: SetFactInput, agentId?: string): void | Promise<void>;
   delete(userId: string, key: string, agentId?: string): boolean | Promise<boolean>;
@@ -269,9 +301,16 @@ export interface WorkspacePatch {
 
 export interface IWorkspaceStore {
   create(input: CreateWorkspaceInput): WorkspaceRecord | Promise<WorkspaceRecord>;
-  get(id: string, teamId: string): WorkspaceRecord | undefined | Promise<WorkspaceRecord | undefined>;
+  get(
+    id: string,
+    teamId: string,
+  ): WorkspaceRecord | undefined | Promise<WorkspaceRecord | undefined>;
   list(teamId: string): WorkspaceRecord[] | Promise<WorkspaceRecord[]>;
-  update(id: string, teamId: string, patch: WorkspacePatch): WorkspaceRecord | undefined | Promise<WorkspaceRecord | undefined>;
+  update(
+    id: string,
+    teamId: string,
+    patch: WorkspacePatch,
+  ): WorkspaceRecord | undefined | Promise<WorkspaceRecord | undefined>;
   delete(id: string, teamId: string): boolean | Promise<boolean>;
 }
 
@@ -308,7 +347,10 @@ export interface IContextDocumentStore {
   create(input: CreateContextDocumentInput): ContextDocumentRecord | Promise<ContextDocumentRecord>;
   get(id: string): ContextDocumentRecord | undefined | Promise<ContextDocumentRecord | undefined>;
   listByWorkspace(workspaceId: string): ContextDocumentRecord[] | Promise<ContextDocumentRecord[]>;
-  update(id: string, patch: ContextDocumentPatch): ContextDocumentRecord | undefined | Promise<ContextDocumentRecord | undefined>;
+  update(
+    id: string,
+    patch: ContextDocumentPatch,
+  ): ContextDocumentRecord | undefined | Promise<ContextDocumentRecord | undefined>;
   delete(id: string): boolean | Promise<boolean>;
   deleteByWorkspace(workspaceId: string): void | Promise<void>;
 }
@@ -348,10 +390,16 @@ export interface CreateArtifactInput {
 
 export interface IArtifactStore {
   create(input: CreateArtifactInput): ArtifactRecord | Promise<ArtifactRecord>;
-  update(id: string, content: string): ArtifactRecord | undefined | Promise<ArtifactRecord | undefined>;
+  update(
+    id: string,
+    content: string,
+  ): ArtifactRecord | undefined | Promise<ArtifactRecord | undefined>;
   get(id: string): ArtifactRecord | undefined | Promise<ArtifactRecord | undefined>;
   listByConversation(conversationId: string): ArtifactRecord[] | Promise<ArtifactRecord[]>;
-  getVersion(id: string, version: number): ArtifactVersionRecord | undefined | Promise<ArtifactVersionRecord | undefined>;
+  getVersion(
+    id: string,
+    version: number,
+  ): ArtifactVersionRecord | undefined | Promise<ArtifactVersionRecord | undefined>;
   listVersions(id: string): ArtifactVersionRecord[] | Promise<ArtifactVersionRecord[]>;
   delete(id: string): boolean | Promise<boolean>;
   deleteByConversation(conversationId: string): void | Promise<void>;
@@ -393,8 +441,14 @@ export interface IFileStore {
 
 export interface IFeedbackStore {
   submit(input: SubmitFeedbackInput): FeedbackRecord | Promise<FeedbackRecord>;
-  get(conversationId: string, messageSeq: number, userId: string): FeedbackRecord | undefined | Promise<FeedbackRecord | undefined>;
-  query(opts?: FeedbackQueryOptions): PaginatedResult<FeedbackRecord> | Promise<PaginatedResult<FeedbackRecord>>;
+  get(
+    conversationId: string,
+    messageSeq: number,
+    userId: string,
+  ): FeedbackRecord | undefined | Promise<FeedbackRecord | undefined>;
+  query(
+    opts?: FeedbackQueryOptions,
+  ): PaginatedResult<FeedbackRecord> | Promise<PaginatedResult<FeedbackRecord>>;
   summary(opts?: FeedbackSummaryOptions): FeedbackSummary | Promise<FeedbackSummary>;
   deleteByConversation(conversationId: string): void | Promise<void>;
   deleteFromSeq(conversationId: string, fromSeq: number): void | Promise<void>;
@@ -447,7 +501,11 @@ export interface IBotStore {
   create(input: CreateBotInput): BotRecord | Promise<BotRecord>;
   get(id: string, teamId: string): BotRecord | undefined | Promise<BotRecord | undefined>;
   list(teamId: string): BotRecord[] | Promise<BotRecord[]>;
-  update(id: string, teamId: string, patch: BotPatch): BotRecord | undefined | Promise<BotRecord | undefined>;
+  update(
+    id: string,
+    teamId: string,
+    patch: BotPatch,
+  ): BotRecord | undefined | Promise<BotRecord | undefined>;
   delete(id: string, teamId: string): boolean | Promise<boolean>;
 }
 
@@ -509,10 +567,17 @@ export interface AgentRecord {
 export interface IAgentStore {
   create(input: CreateAgentInput): AgentRecord | Promise<AgentRecord>;
   get(id: string, teamId: string): AgentRecord | undefined | Promise<AgentRecord | undefined>;
-  getBySlug(slug: string, teamId: string): AgentRecord | undefined | Promise<AgentRecord | undefined>;
+  getBySlug(
+    slug: string,
+    teamId: string,
+  ): AgentRecord | undefined | Promise<AgentRecord | undefined>;
   getBySlugGlobal?(slug: string): AgentRecord | undefined | Promise<AgentRecord | undefined>;
   list(teamId: string): AgentRecord[] | Promise<AgentRecord[]>;
-  update(id: string, teamId: string, patch: AgentPatch): AgentRecord | undefined | Promise<AgentRecord | undefined>;
+  update(
+    id: string,
+    teamId: string,
+    patch: AgentPatch,
+  ): AgentRecord | undefined | Promise<AgentRecord | undefined>;
   delete(id: string, teamId: string): boolean | Promise<boolean>;
 }
 
@@ -563,8 +628,15 @@ export interface EndUserRecord {
 export interface IEndUserStore {
   create(input: CreateEndUserInput): EndUserRecord | Promise<EndUserRecord>;
   get(id: string): EndUserRecord | undefined | Promise<EndUserRecord | undefined>;
-  getByExternalId(agentId: string, externalId: string): EndUserRecord | undefined | Promise<EndUserRecord | undefined>;
-  getOrCreate(agentId: string, externalId: string, displayName?: string): EndUserRecord | Promise<EndUserRecord>;
+  getByExternalId(
+    agentId: string,
+    externalId: string,
+  ): EndUserRecord | undefined | Promise<EndUserRecord | undefined>;
+  getOrCreate(
+    agentId: string,
+    externalId: string,
+    displayName?: string,
+  ): EndUserRecord | Promise<EndUserRecord>;
   list(agentId: string): EndUserRecord[] | Promise<EndUserRecord[]>;
   updateLastSeen(id: string): void | Promise<void>;
 }
