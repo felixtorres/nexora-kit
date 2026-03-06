@@ -1,3 +1,4 @@
+import type { LlmProvider, LlmRequest, LlmEvent } from '@nexora-kit/llm';
 import type { ChatRequest, ChatEvent, BotResponse, ToolDefinition, ToolCall } from './types.js';
 import type { AgentLoop } from './agent-loop.js';
 import { BotRunner, type BotConfig } from './bot-runner.js';
@@ -18,6 +19,9 @@ export interface OrchestratorConfig {
   fallbackBotId?: string;
   bindings: OrchestratorBotBinding[];
   agentLoop: AgentLoop;
+  /** LLM provider for synthesis. When provided, multi-bot responses are
+   *  merged via a second LLM call. Without it, responses are concatenated. */
+  llm?: LlmProvider;
 }
 
 const DEFAULT_ORCHESTRATOR_PROMPT = `You are an orchestrator that delegates user questions to specialized bots.
@@ -27,6 +31,8 @@ For each user message:
 2. Call the appropriate tool(s). For composite questions, call multiple tools in parallel.
 3. After receiving tool results, synthesize a single coherent response for the user.
 Never answer directly — always delegate to at least one bot.`;
+
+const SYNTHESIS_PROMPT = `You are synthesizing responses from multiple specialist bots into one coherent answer for the user. Merge the information naturally — do not label which bot said what. Be concise and direct.`;
 
 export class Orchestrator {
   private readonly config: OrchestratorConfig;
@@ -142,7 +148,7 @@ export class Orchestrator {
     // Build tool definitions — one per bot
     const botTools = this.buildBotToolDefinitions();
 
-    // Build orchestrator request
+    // Build orchestrator request with system prompt and tools on the request itself
     const orchestratorPrompt = this.config.orchestratorPrompt ?? DEFAULT_ORCHESTRATOR_PROMPT;
     const botDescriptions = this.config.bindings
       .map((b) => `- ask_${sanitizeName(b.botName)}: ${b.description || b.botName}`)
@@ -150,14 +156,13 @@ export class Orchestrator {
 
     const systemPrompt = `${orchestratorPrompt}\n\nAvailable bots:\n${botDescriptions}`;
 
-    // First LLM call: orchestrator decides which bots to invoke
     const orchestratorRequest: ChatRequest = {
       ...request,
+      systemPrompt,
+      model: this.config.orchestratorModel,
       metadata: {
         ...request.metadata,
         _orchestrator: true,
-        _systemPrompt: systemPrompt,
-        _tools: botTools,
       },
     };
 
@@ -209,17 +214,66 @@ export class Orchestrator {
       return;
     }
 
-    // Multiple bots: synthesize via the orchestrator LLM
-    // Feed bot responses as tool results back to the agent loop
-    const synthesisText = botIds
-      .map((id) => {
-        const resp = botResponses[id];
-        return `[${resp.botName}]: ${resp.content}`;
-      })
-      .join('\n\n');
+    // Multiple bots: synthesize into one coherent response
+    if (this.config.llm) {
+      yield* this.synthesize(request, botResponses, signal);
+    } else {
+      // No LLM configured — concatenate responses
+      const text = botIds
+        .map((id) => botResponses[id].content)
+        .join('\n\n');
+      yield { type: 'text', content: text };
+      yield { type: 'done' };
+    }
+  }
 
-    // Yield the synthesized content (simplified — in a full impl, we'd do a second LLM call)
-    yield { type: 'text', content: synthesisText };
+  private async *synthesize(
+    request: ChatRequest,
+    botResponses: Record<string, BotResponse>,
+    signal?: AbortSignal,
+  ): AsyncIterable<ChatEvent> {
+    const inputText =
+      request.input.type === 'text'
+        ? request.input.text
+        : request.input.type === 'action'
+          ? `[action:${request.input.actionId}]`
+          : '';
+
+    const responseParts = Object.values(botResponses)
+      .map((r) => `[${r.botName}]:\n${r.content}`)
+      .join('\n\n---\n\n');
+
+    const synthesisMessages: LlmRequest['messages'] = [
+      {
+        role: 'system',
+        content: SYNTHESIS_PROMPT,
+      },
+      {
+        role: 'user',
+        content: `Original question: ${inputText}\n\nBot responses:\n\n${responseParts}\n\nSynthesize these into a single coherent answer.`,
+      },
+    ];
+
+    const llm = this.config.llm!;
+    const model =
+      this.config.orchestratorModel ?? llm.models[0]?.id ?? 'default';
+
+    const stream = llm.chat({
+      model,
+      messages: synthesisMessages,
+      stream: true,
+    });
+
+    for await (const event of stream) {
+      if (signal?.aborted) break;
+
+      if (event.type === 'text') {
+        yield { type: 'text', content: event.content };
+      } else if (event.type === 'usage') {
+        yield { type: 'usage', inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+      }
+    }
+
     yield { type: 'done' };
   }
 

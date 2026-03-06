@@ -66,7 +66,8 @@ describe('BotRunner', () => {
       expect(capturedRequest).toBeDefined();
       expect(capturedRequest!.metadata?._botId).toBe('bot-1');
       expect(capturedRequest!.metadata?._botName).toBe('Support Bot');
-      expect(capturedRequest!.metadata?._botModel).toBe('claude-sonnet-4-6');
+      expect(capturedRequest!.systemPrompt).toBe('You are a support bot.');
+      expect(capturedRequest!.model).toBe('claude-sonnet-4-6');
     });
 
     it('overrides pluginNamespaces with bot config', async () => {

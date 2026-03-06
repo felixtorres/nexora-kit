@@ -46,7 +46,9 @@ describe('SystemPromptBuilder', () => {
   it('buildTurnReminders returns reminder near limit', () => {
     const builder = new SystemPromptBuilder();
 
-    expect(builder.buildTurnReminders(1, 10)).toEqual([]);
+    expect(builder.buildTurnReminders(1, 10)).toHaveLength(1); // turn-1 tool nudge
+    expect(builder.buildTurnReminders(1, 10)[0]).toContain('tools');
+    expect(builder.buildTurnReminders(2, 10)).toEqual([]); // no reminder
     expect(builder.buildTurnReminders(6, 10)).toEqual([]); // 4 remaining, no reminder
     expect(builder.buildTurnReminders(7, 10)).toHaveLength(1); // 3 remaining
     expect(builder.buildTurnReminders(8, 10)).toHaveLength(1); // 2 remaining

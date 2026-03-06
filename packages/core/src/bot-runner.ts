@@ -21,15 +21,13 @@ export class BotRunner {
     // Override request with bot-specific config
     const botRequest: ChatRequest = {
       ...request,
+      systemPrompt: this.config.systemPrompt,
+      model: this.config.model,
       pluginNamespaces: this.config.pluginNamespaces ?? request.pluginNamespaces,
       metadata: {
         ...request.metadata,
         _botId: this.config.botId,
         _botName: this.config.botName,
-        _botSystemPrompt: this.config.systemPrompt,
-        _botModel: this.config.model,
-        _botMaxTurns: this.config.maxTurns,
-        _botTemperature: this.config.temperature,
       },
     };
 

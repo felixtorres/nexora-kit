@@ -45,6 +45,12 @@ export class SystemPromptBuilder {
     const remaining = maxTurns - turn;
     const reminders: string[] = [];
 
+    if (turn === 1) {
+      reminders.push(
+        'Consider which tools are available and whether they can help answer the user\'s request. Use tools rather than guessing.',
+      );
+    }
+
     if (remaining <= 3 && remaining > 0) {
       reminders.push(
         `[Turn ${turn}/${maxTurns}] You have ${remaining} turn(s) remaining. Prioritize completing the task or use _request_continue if you need more turns.`,

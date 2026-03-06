@@ -306,7 +306,7 @@ describe('Artifact context injection', () => {
     await collectEvents(loop, baseRequest);
 
     const systemMsg = capturedMessages[0] as { content: string };
-    expect(systemMsg.content).toBe('Base prompt');
+    expect(systemMsg.content).toContain('Base prompt');
     expect(systemMsg.content).not.toContain('## Artifacts');
   });
 

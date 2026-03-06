@@ -737,8 +737,10 @@ describe('AgentLoop', () => {
       systemPrompt: 'Custom per-conversation prompt',
     });
 
-    // System prompt in assembled context should be the override
-    const systemMsg = (capturedMessages as any[]).find((m) => m.content === 'Custom per-conversation prompt');
+    // System prompt in assembled context should contain the override
+    const systemMsg = (capturedMessages as any[]).find((m) =>
+      typeof m.content === 'string' && m.content.includes('Custom per-conversation prompt'),
+    );
     expect(systemMsg).toBeDefined();
   });
 

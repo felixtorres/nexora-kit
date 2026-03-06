@@ -11,6 +11,7 @@ import { InMemoryWorkingMemory } from './working-memory.js';
 import { getBuiltinToolDefinitions } from './builtin-tools.js';
 import { SystemPromptBuilder } from './system-prompt-builder.js';
 import { SubAgentRunner, type SubAgentConfig } from './sub-agent.js';
+import { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js';
 import type { UserMemoryStoreInterface } from './user-memory-interface.js';
 import type {
   ArtifactContent,
@@ -164,7 +165,7 @@ export class AgentLoop {
     this.context = options.contextManager ?? new ContextManager();
     this.dispatcher = options.toolDispatcher ?? new ToolDispatcher();
     this.memory = options.messageStore ?? new InMemoryMessageStore();
-    this.systemPrompt = options.systemPrompt ?? 'You are a helpful assistant.';
+    this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.maxTurns = options.maxTurns ?? 25;
     this.model = options.model ?? this.llm.models[0]?.id ?? 'default';
     this.toolSelector = options.toolSelector;

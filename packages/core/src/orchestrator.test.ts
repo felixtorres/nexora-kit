@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Orchestrator, type OrchestratorConfig, type OrchestratorBotBinding } from './orchestrator.js';
 import type { ChatRequest, ChatEvent } from './types.js';
+import type { LlmProvider, LlmRequest, LlmEvent } from '@nexora-kit/llm';
 
 function createMockAgentLoop(events: ChatEvent[]) {
   return {
@@ -248,7 +249,7 @@ describe('Orchestrator', () => {
       expect(collected.some((e) => e.type === 'text')).toBe(true);
     });
 
-    it('synthesizes multiple bot responses', async () => {
+    it('concatenates multiple bot responses without llm', async () => {
       let callCount = 0;
       const mockLoop = {
         async *run(request: ChatRequest) {
@@ -303,10 +304,93 @@ describe('Orchestrator', () => {
 
       const textEvents = collected.filter((e) => e.type === 'text');
       expect(textEvents.length).toBeGreaterThan(0);
-      // Should contain both bot responses
       const fullText = textEvents.map((e) => (e as any).content).join('');
-      expect(fullText).toContain('Support');
-      expect(fullText).toContain('Billing');
+      expect(fullText).toContain('Support answer');
+      expect(fullText).toContain('Billing answer');
+    });
+
+    it('synthesizes multiple bot responses via LLM when llm provided', async () => {
+      let callCount = 0;
+      const mockLoop = {
+        async *run(request: ChatRequest) {
+          callCount++;
+          if (callCount === 1 && request.metadata?._orchestrator) {
+            yield {
+              type: 'tool_call',
+              id: 'tc-1',
+              name: 'ask_support_bot',
+              input: { question: 'Support question' },
+            } as ChatEvent;
+            yield {
+              type: 'tool_call',
+              id: 'tc-2',
+              name: 'ask_billing_bot',
+              input: { question: 'Billing question' },
+            } as ChatEvent;
+            yield { type: 'done' } as ChatEvent;
+          } else if (request.metadata?._botId === 'bot-1') {
+            yield { type: 'text', content: 'Support answer' } as ChatEvent;
+            yield { type: 'done' } as ChatEvent;
+          } else {
+            yield { type: 'text', content: 'Billing answer' } as ChatEvent;
+            yield { type: 'done' } as ChatEvent;
+          }
+        },
+      } as any;
+
+      let capturedMessages: any[] = [];
+      const mockLlm: LlmProvider = {
+        name: 'mock',
+        models: [{ id: 'synth-model', name: 'Synth', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+        async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+          capturedMessages = request.messages;
+          yield { type: 'text', content: 'Here is a merged answer combining both topics.' };
+          yield { type: 'usage', inputTokens: 200, outputTokens: 30 };
+          yield { type: 'done' };
+        },
+        async countTokens() { return 100; },
+      };
+
+      const config: OrchestratorConfig = {
+        strategy: 'orchestrate',
+        agentLoop: mockLoop,
+        llm: mockLlm,
+        bindings: [
+          makeBinding({ botId: 'bot-1', botName: 'Support Bot' }),
+          makeBinding({
+            botId: 'bot-2',
+            botName: 'Billing Bot',
+            config: {
+              botId: 'bot-2',
+              botName: 'Billing Bot',
+              systemPrompt: 'billing',
+              model: 'model',
+            },
+          }),
+        ],
+      };
+
+      const orchestrator = new Orchestrator(config);
+      const collected: ChatEvent[] = [];
+      for await (const event of orchestrator.run(baseRequest)) {
+        collected.push(event);
+      }
+
+      // Synthesis LLM should receive system + user message with bot responses
+      expect(capturedMessages).toHaveLength(2);
+      expect(capturedMessages[0].role).toBe('system');
+      expect(capturedMessages[0].content).toContain('synthesizing');
+      expect(capturedMessages[1].role).toBe('user');
+      expect(capturedMessages[1].content).toContain('Support answer');
+      expect(capturedMessages[1].content).toContain('Billing answer');
+
+      // Output should be the synthesized text
+      const textEvents = collected.filter((e) => e.type === 'text');
+      const fullText = textEvents.map((e) => (e as any).content).join('');
+      expect(fullText).toBe('Here is a merged answer combining both topics.');
+
+      // Should yield usage from synthesis call
+      expect(collected.some((e) => e.type === 'usage')).toBe(true);
     });
 
     it('uses fallback when orchestrator makes no tool calls', async () => {

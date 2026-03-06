@@ -1,4 +1,5 @@
 import type { Context, Conversation, Message, MessageContent, ToolDefinition } from './types.js';
+import { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js';
 
 export interface ContextManagerOptions {
   defaultSystemPrompt?: string;
@@ -10,7 +11,7 @@ export class ContextManager {
   private readonly maxContextTokens: number;
 
   constructor(options: ContextManagerOptions = {}) {
-    this.defaultSystemPrompt = options.defaultSystemPrompt ?? 'You are a helpful assistant.';
+    this.defaultSystemPrompt = options.defaultSystemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.maxContextTokens = options.maxContextTokens ?? 100_000;
   }
 
