@@ -47,7 +47,7 @@ export class SystemPromptBuilder {
 
     if (turn === 1) {
       reminders.push(
-        'Consider which tools are available and whether they can help answer the user\'s request. Use tools rather than guessing.',
+        'Before answering, review your available tools. If the user asks for data, query results, or any action a tool can perform, you MUST use tools rather than outputting raw SQL, code, or instructions for the user to run manually. If you need a capability not in your current tool set, call _search_tools to discover it.',
       );
     }
 
