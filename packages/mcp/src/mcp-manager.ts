@@ -278,11 +278,7 @@ function mcpToolToDefinition(qualifiedName: string, mcpTool: McpToolDefinition):
 
   if (mcpTool.inputSchema?.properties) {
     for (const [key, value] of Object.entries(mcpTool.inputSchema.properties)) {
-      const prop = value as Record<string, unknown>;
-      properties[key] = {
-        type: (prop.type as string) ?? 'string',
-        description: prop.description as string | undefined,
-      };
+      properties[key] = value as ToolParameterProperty;
     }
   }
 

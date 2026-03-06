@@ -176,6 +176,8 @@ export interface ToolParameterProperty {
   items?: ToolParameterProperty;
   properties?: Record<string, ToolParameterProperty>;
   required?: string[];
+  /** Additional JSON Schema keywords (minimum, pattern, format, oneOf, etc.) */
+  [key: string]: unknown;
 }
 
 export interface ToolDefinition {

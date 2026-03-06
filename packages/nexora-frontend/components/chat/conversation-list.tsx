@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Plus, MessageSquare, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,10 @@ import {
 } from "@/components/ui/dialog";
 import { useConversationList, useDeleteConversation } from "@/hooks/use-conversation";
 import type { ConversationRecord } from "@/lib/block-types";
+
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 256;
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -41,22 +45,55 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
   const { data, isLoading } = useConversationList();
   const deleteConversation = useDeleteConversation();
   const [deleteTarget, setDeleteTarget] = useState<ConversationRecord | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const isResizing = useRef(false);
 
   const conversations = data?.items ?? [];
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    const startX = e.clientX;
+    const startWidth = width;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (e.clientX - startX)));
+      setWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = false;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [width]);
 
   function handleDelete() {
     if (!deleteTarget) return;
     const id = deleteTarget.id;
+    setDeleteError(null);
     deleteConversation.mutate(id, {
       onSuccess: () => {
         if (activeId === id) router.push("/chat");
         setDeleteTarget(null);
       },
+      onError: (err) => {
+        setDeleteError(err instanceof Error ? err.message : "Failed to delete conversation");
+      },
     });
   }
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-muted/20">
+    <div className="relative flex h-full shrink-0 flex-col bg-muted/20" style={{ width }}>
       <div className="flex items-center justify-between border-b p-3">
         <h2 className="text-sm font-semibold">Conversations</h2>
         <Button
@@ -121,8 +158,14 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
         )}
       </ScrollArea>
 
+      {/* Resize handle — acts as the right border */}
+      <div
+        className="absolute inset-y-0 -right-px z-10 w-[3px] cursor-col-resize border-r border-border transition-colors hover:border-primary hover:bg-primary/10 active:border-primary active:bg-primary/20"
+        onMouseDown={handleMouseDown}
+      />
+
       {/* Delete confirmation */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(null); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Conversation</DialogTitle>
@@ -132,8 +175,11 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
               This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {deleteError && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteError(null); }}>
               Cancel
             </Button>
             <Button

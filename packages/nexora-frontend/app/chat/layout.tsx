@@ -12,7 +12,7 @@ export default function ChatLayout({ children }: { children: ReactNode }) {
   return (
     <div className="-m-4 flex h-[calc(100vh-3.5rem)]">
       <ConversationList onNewConversation={() => setDialogOpen(true)} />
-      <div className="flex flex-1 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
       <NewConversationDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
