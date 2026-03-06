@@ -128,10 +128,17 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
   const isStreaming = useConversationStore((s) => s.isStreaming);
   const streamingText = useConversationStore((s) => s.streamingText);
   const streamingBlocks = useConversationStore((s) => s.streamingBlocks);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Scroll within the message viewport only — avoid scrollIntoView which
+    // propagates to ancestor containers and pushes the conversation list away.
+    const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
+      '[data-slot="scroll-area-viewport"]'
+    );
+    if (viewport) {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+    }
   }, [messages, isSending, streamingText, streamingBlocks]);
 
   if (messages.length === 0 && !isSending) {
@@ -143,7 +150,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
   }
 
   return (
-    <ScrollArea className="flex-1">
+    <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
       <div className="divide-y">
         {messages.map((msg, i) => (
           <MessageBubble key={i} message={msg} onAction={onAction} onReply={onReply} />
@@ -165,8 +172,6 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
         {/* Show dots only when streaming hasn't produced content yet */}
         {isSending && !isStreaming && <StreamingIndicator />}
         {isStreaming && !streamingText && streamingBlocks.length === 0 && <StreamingIndicator />}
-
-        <div ref={bottomRef} />
       </div>
     </ScrollArea>
   );

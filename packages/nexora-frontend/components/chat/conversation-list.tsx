@@ -108,7 +108,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
           </Button>
         </div>
 
-        <ScrollArea className="flex-1">
+        <ScrollArea className="min-h-0 flex-1">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -140,7 +140,6 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
                         {conv.title || "New conversation"}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {conv.messageCount} messages &middot;{" "}
                         {formatTime(conv.updatedAt)}
                       </p>
                     </div>

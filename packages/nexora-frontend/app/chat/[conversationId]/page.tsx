@@ -29,7 +29,14 @@ export default function ConversationPage() {
     api.messages
       .list(conversationId)
       .then((res) => {
-        setMessages(conversationId, res.messages.map(normalizeMessage));
+        const visible = res.messages
+          .map(normalizeMessage)
+          .filter(
+            (m) =>
+              (m.role === 'user' || m.role === 'assistant') &&
+              (m.content || (m.blocks && m.blocks.length > 0))
+          );
+        setMessages(conversationId, visible);
       })
       .catch(() => {
         // Server may not have message store configured — start fresh
@@ -67,8 +74,8 @@ export default function ConversationPage() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Dev Panel toggle */}
         <div className="flex justify-end border-b px-2 py-1">
           <Button
