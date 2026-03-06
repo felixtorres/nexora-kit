@@ -1,10 +1,12 @@
 # NexoraKit
 
-Enterprise chatbot platform — plugin-based, provider-agnostic, self-hosted.
+Enterprise AI agent platform — plugin-based, provider-agnostic, self-hosted.
 
 ## Overview
 
-NexoraKit is a self-hosted chatbot platform that lets teams build and deploy AI-powered bots using plugins. Each plugin is a bundle of skills, commands, and MCP connectors, defined in TypeScript and YAML.
+NexoraKit is a self-hosted AI agent platform that lets teams build and deploy intelligent bots using plugins. Each plugin is a bundle of skills, commands, and MCP connectors, defined in TypeScript and YAML.
+
+The agent loop at the core goes beyond simple request-response: tools execute in parallel, context is compacted via LLM summarization instead of being dropped, agents can spawn sub-agents for complex tasks, and working memory persists across turns. See [docs/architecture.md](docs/architecture.md) for the full picture.
 
 **Design docs:** See the ClawdNotes vault at `2-Projects/nexora-kit/` for PRD, architecture, and roadmap.
 
@@ -70,7 +72,7 @@ nexora-kit completion --shell zsh   # eval "$(nexora-kit completion --shell zsh)
 
 | Package | Description |
 |---------|-------------|
-| `@nexora-kit/core` | Agent loop, context manager, memory, tool dispatcher |
+| `@nexora-kit/core` | Agent loop (parallel tools, compaction, sub-agents, working memory), context budget, tool dispatcher |
 | `@nexora-kit/llm` | Provider abstraction, routing, fallback, token budgets |
 | `@nexora-kit/plugins` | Plugin loader, lifecycle, namespace isolation |
 | `@nexora-kit/skills` | Skill framework: TS, YAML, MD handlers |

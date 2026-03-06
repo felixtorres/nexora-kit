@@ -1,6 +1,6 @@
 # NexoraKit Documentation
 
-Enterprise chatbot platform — plugin-based, provider-agnostic, self-hosted.
+Enterprise AI agent platform — plugin-based, provider-agnostic, self-hosted.
 
 ## Guides
 
@@ -10,7 +10,7 @@ Enterprise chatbot platform — plugin-based, provider-agnostic, self-hosted.
 | [Agents and Bots](agents-and-bots.md) | Bot/agent model, orchestration strategies, end-user auth |
 | [Plugin Authoring](plugin-authoring.md) | Build plugins with skills, commands, and MCP servers |
 | [API Reference](api-reference.md) | REST + WebSocket endpoints, authentication, errors |
-| [Architecture](architecture.md) | Package graph, request lifecycle, storage backends |
+| [Architecture](architecture.md) | Agent loop, context budget, package graph, request lifecycle, storage |
 | [Security](security.md) | Auth model, CORS, rate limits, sandbox, audit logging |
 
 ## Quick Links

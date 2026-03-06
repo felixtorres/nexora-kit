@@ -141,6 +141,36 @@ All credential fields fall through to environment variables (`WSO2_AUTH_URL`, `W
 
 If `llm` is omitted, the server starts with a stub provider that returns a configuration reminder instead of real responses.
 
+### Agent Loop
+
+The agent loop controls how the LLM reasons, uses tools, and manages context. All settings are optional — the defaults work well for most use cases.
+
+```yaml
+agent:
+  # Context window management
+  # maxContextTokens: 100000  # Auto-derived from model if omitted
+  maxToolResultTokens: 2000   # Truncate tool results in message history
+  maxTurns: 25                # Max turns per run (extendable by the agent)
+
+  # Context compaction — LLM-based summarization of old messages
+  compaction:
+    # model: claude-haiku-4-5-20251001  # Cheap model for summarization
+    triggerRatio: 0.75          # Compact when history reaches 75% of budget
+    keepRecentGroups: 4         # Keep last 4 message groups verbatim
+    maxSummaryTokens: 1000      # Max tokens for the summary
+
+  # Working memory — agent can save notes across turns
+  enableWorkingMemory: true     # Enables _note_to_self and _recall tools
+
+  # Sub-agents — agent can delegate subtasks to child agents
+  subAgent:
+    maxDepth: 2                 # Max nesting depth for sub-agents
+    maxConcurrent: 3            # Max parallel sub-agents
+    subAgentMaxTurns: 10        # Turn limit for child agents
+```
+
+Without `compaction`, the system falls back to hard truncation (dropping oldest messages). Enabling compaction is recommended for any bot that handles multi-step tasks or long conversations.
+
 ## Validate and Start
 
 ```bash

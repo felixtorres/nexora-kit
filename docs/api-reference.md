@@ -754,11 +754,40 @@ Authorization: Bearer <api-key>
 **Server → Client:**
 
 ```json
+// Turn lifecycle
+{ "type": "turn_start", "turn": 1, "maxTurns": 25 }
+{ "type": "turn_continue", "currentTurn": 23, "additionalTurns": 10 }
+
+// LLM output
 { "type": "text", "content": "Hello! How can I help?" }
-{ "type": "tool_call", "name": "search", "input": { "query": "..." } }
-{ "type": "tool_result", "name": "search", "output": { "results": [...] } }
+{ "type": "thinking", "content": "The user needs..." }
+
+// Tool execution
+{ "type": "tool_call", "id": "tc_1", "name": "search", "input": { "query": "..." } }
+{ "type": "tool_status", "id": "tc_1", "name": "search", "status": "executing" }
+{ "type": "tool_status", "id": "tc_1", "name": "search", "status": "completed" }
+{ "type": "tool_result", "toolUseId": "tc_1", "content": "..." }
+
+// Structured content
+{ "type": "blocks", "blocks": [{ "type": "card", "title": "..." }] }
+
+// Artifacts
+{ "type": "artifact_create", "artifactId": "art_1", "title": "Report" }
+{ "type": "artifact_stream", "artifactId": "art_1", "delta": "chunk..." }
+{ "type": "artifact_done", "artifactId": "art_1" }
+
+// Sub-agents
+{ "type": "sub_agent_start", "agentId": "sa_1", "task": "Research API options" }
+{ "type": "sub_agent_end", "agentId": "sa_1", "tokensUsed": 1200 }
+
+// Context management
+{ "type": "compaction", "compactedMessages": 16, "summaryTokens": 340 }
+{ "type": "usage", "inputTokens": 1500, "outputTokens": 200 }
+
+// Completion
 { "type": "done" }
-{ "type": "error", "message": "Something went wrong" }
+{ "type": "cancelled" }
+{ "type": "error", "message": "Something went wrong", "code": "MAX_TURNS" }
 { "type": "pong" }
 ```
 
