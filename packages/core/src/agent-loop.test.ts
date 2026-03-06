@@ -3,7 +3,7 @@ import { AgentLoop } from './agent-loop.js';
 import { ToolDispatcher } from './dispatcher.js';
 import { InMemoryMessageStore } from './memory.js';
 import type { LlmProvider, LlmEvent, LlmRequest } from '@nexora-kit/llm';
-import type { ChatEvent, ResponseBlock } from './types.js';
+import type { ChatEvent } from './types.js';
 
 /** Mock LLM provider that returns canned responses */
 function createMockLlm(responses: LlmEvent[][]): LlmProvider {
@@ -861,5 +861,294 @@ describe('AgentLoop', () => {
 
     expect(capturedSystemPrompt).toContain('Available Skills (kyvos)');
     expect(capturedSystemPrompt).toContain('Available Skills (hello)');
+  });
+
+  it('executes multiple tool calls in parallel', async () => {
+    const executionLog: string[] = [];
+
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'slow-a', input: {} },
+        { type: 'tool_call', id: 'tc-2', name: 'slow-b', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Both done' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'slow-a', description: 'A', parameters: { type: 'object', properties: {} } },
+      async () => {
+        executionLog.push('a-start');
+        await new Promise((r) => setTimeout(r, 50));
+        executionLog.push('a-end');
+        return 'a-result';
+      },
+    );
+    dispatcher.register(
+      { name: 'slow-b', description: 'B', parameters: { type: 'object', properties: {} } },
+      async () => {
+        executionLog.push('b-start');
+        await new Promise((r) => setTimeout(r, 50));
+        executionLog.push('b-end');
+        return 'b-result';
+      },
+    );
+
+    const start = performance.now();
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher, maxTurns: 5 });
+    const events = await collectEvents(loop, baseRequest);
+    const elapsed = performance.now() - start;
+
+    // Both started before either finished (parallel execution)
+    expect(executionLog[0]).toBe('a-start');
+    expect(executionLog[1]).toBe('b-start');
+
+    // Wall-clock should be < 2× sequential (each tool takes ~50ms, parallel ≈ 50ms)
+    expect(elapsed).toBeLessThan(200);
+
+    // Results yielded in original order
+    const toolResults = events.filter((e) => e.type === 'tool_result');
+    expect(toolResults).toHaveLength(2);
+    if (toolResults[0].type === 'tool_result') expect(toolResults[0].content).toBe('a-result');
+    if (toolResults[1].type === 'tool_result') expect(toolResults[1].content).toBe('b-result');
+  });
+
+  it('emits tool_status events for parallel execution', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'fast', input: {} },
+        { type: 'tool_call', id: 'tc-2', name: 'fast2', input: {} },
+        { type: 'done' },
+      ],
+      [{ type: 'text', content: 'done' }, { type: 'done' }],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'fast', description: 'F', parameters: { type: 'object', properties: {} } },
+      async () => 'ok',
+    );
+    dispatcher.register(
+      { name: 'fast2', description: 'F2', parameters: { type: 'object', properties: {} } },
+      async () => 'ok2',
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher, maxTurns: 5 });
+    const events = await collectEvents(loop, baseRequest);
+
+    const statusEvents = events.filter((e) => e.type === 'tool_status');
+    // 2 executing + 2 completed = 4 status events
+    expect(statusEvents).toHaveLength(4);
+
+    const executing = statusEvents.filter((e) => e.type === 'tool_status' && e.status === 'executing');
+    const completed = statusEvents.filter((e) => e.type === 'tool_status' && e.status === 'completed');
+    expect(executing).toHaveLength(2);
+    expect(completed).toHaveLength(2);
+  });
+
+  it('emits turn_start event at the beginning of each turn', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'echo', input: {} },
+        { type: 'done' },
+      ],
+      [
+        { type: 'text', content: 'Done' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'echo', description: 'Echo', parameters: { type: 'object', properties: {} } },
+      async () => 'ok',
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher, maxTurns: 10 });
+    const events = await collectEvents(loop, baseRequest);
+
+    const turnStarts = events.filter((e) => e.type === 'turn_start');
+    expect(turnStarts).toHaveLength(2);
+    if (turnStarts[0].type === 'turn_start') {
+      expect(turnStarts[0].turn).toBe(1);
+      expect(turnStarts[0].maxTurns).toBe(10);
+    }
+    if (turnStarts[1].type === 'turn_start') {
+      expect(turnStarts[1].turn).toBe(2);
+    }
+  });
+
+  it('_request_continue extends turn limit once', async () => {
+    // LLM calls a tool on every turn
+    const responses: LlmEvent[][] = [];
+    for (let i = 0; i < 15; i++) {
+      if (i === 2) {
+        // Near maxTurns=4, call _request_continue
+        responses.push([
+          { type: 'tool_call', id: `tc-${i}`, name: '_request_continue', input: {} },
+          { type: 'done' },
+        ]);
+      } else {
+        responses.push([
+          { type: 'tool_call', id: `tc-${i}`, name: 'echo', input: {} },
+          { type: 'done' },
+        ]);
+      }
+    }
+    // Final text response
+    responses.push([{ type: 'text', content: 'final' }, { type: 'done' }]);
+
+    const llm = createMockLlm(responses);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'echo', description: 'Echo', parameters: { type: 'object', properties: {} } },
+      async () => 'ok',
+    );
+
+    const loop = new AgentLoop({ llm, toolDispatcher: dispatcher, maxTurns: 4, maxContinueTurns: 5 });
+    const events = await collectEvents(loop, baseRequest);
+
+    // Should have turn_continue event
+    const continueEvent = events.find((e) => e.type === 'turn_continue');
+    expect(continueEvent).toBeDefined();
+    if (continueEvent?.type === 'turn_continue') {
+      expect(continueEvent.additionalTurns).toBe(5);
+    }
+
+    // Extended limit is 4 + 5 = 9, so should eventually hit MAX_TURNS at 9
+    const errorEvent = events.find((e) => e.type === 'error');
+    expect(errorEvent).toBeDefined();
+    if (errorEvent?.type === 'error') {
+      expect(errorEvent.code).toBe('MAX_TURNS');
+      expect(errorEvent.message).toContain('9');
+    }
+  });
+
+  it('tool_status shows error for failed tools', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'missing', input: {} },
+        { type: 'done' },
+      ],
+      [{ type: 'text', content: 'fail handled' }, { type: 'done' }],
+    ]);
+
+    const loop = new AgentLoop({ llm, maxTurns: 5 });
+    const events = await collectEvents(loop, baseRequest);
+
+    const errorStatus = events.find(
+      (e) => e.type === 'tool_status' && e.status === 'error',
+    );
+    expect(errorStatus).toBeDefined();
+  });
+
+  it('defaults maxTurns to 25', async () => {
+    const llm = createMockLlm([
+      [{ type: 'text', content: 'ok' }, { type: 'done' }],
+    ]);
+
+    const loop = new AgentLoop({ llm });
+    const events = await collectEvents(loop, baseRequest);
+
+    const turnStart = events.find((e) => e.type === 'turn_start');
+    expect(turnStart).toBeDefined();
+    if (turnStart?.type === 'turn_start') {
+      expect(turnStart.maxTurns).toBe(25);
+    }
+  });
+
+  it('compacts instead of truncating when compaction is configured', async () => {
+    // Create a separate compaction provider so it doesn't consume main responses
+    const compactionProvider: LlmProvider = {
+      name: 'compact-mock',
+      models: [{ id: 'cheap', name: 'Cheap', provider: 'mock', contextWindow: 8000, maxOutputTokens: 1024 }],
+      async *chat(): AsyncIterable<LlmEvent> {
+        yield { type: 'text', content: 'Summary of prior conversation.' };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 50; },
+    };
+
+    const llm = createMockLlm([
+      // Turn 1: tool call to generate content
+      [
+        { type: 'tool_call', id: 'tc-1', name: 'fill', input: {} },
+        { type: 'usage', inputTokens: 100, outputTokens: 50 },
+        { type: 'done' },
+      ],
+      // Turn 2: final response (after compaction)
+      [
+        { type: 'text', content: 'Done after compaction' },
+        { type: 'usage', inputTokens: 50, outputTokens: 20 },
+        { type: 'done' },
+      ],
+    ]);
+
+    const dispatcher = new ToolDispatcher();
+    dispatcher.register(
+      { name: 'fill', description: 'Fill', parameters: { type: 'object', properties: {} } },
+      async () => 'x'.repeat(4000), // Long result to trigger compaction
+    );
+
+    const loop = new AgentLoop({
+      llm,
+      toolDispatcher: dispatcher,
+      maxTurns: 5,
+      maxContextTokens: 500, // Very small context to force compaction
+      compaction: {
+        provider: compactionProvider,
+        triggerRatio: 0.5,
+        keepRecentGroups: 1,
+      },
+    });
+    const events = await collectEvents(loop, baseRequest);
+
+    // Should have compaction event
+    const compactionEvent = events.find((e) => e.type === 'compaction');
+    expect(compactionEvent).toBeDefined();
+    if (compactionEvent?.type === 'compaction') {
+      expect(compactionEvent.compactedMessages).toBeGreaterThan(0);
+    }
+
+    expect(events).toContainEqual({ type: 'text', content: 'Done after compaction' });
+  });
+
+  it('forwards thinking events from LLM', async () => {
+    const llm = createMockLlm([
+      [
+        { type: 'thinking', content: 'Let me think about this...' },
+        { type: 'text', content: 'Here is my answer.' },
+        { type: 'done' },
+      ],
+    ]);
+
+    const loop = new AgentLoop({ llm, maxTurns: 5 });
+    const events = await collectEvents(loop, baseRequest);
+
+    const thinkingEvent = events.find((e) => e.type === 'thinking');
+    expect(thinkingEvent).toBeDefined();
+    if (thinkingEvent?.type === 'thinking') {
+      expect(thinkingEvent.content).toBe('Let me think about this...');
+    }
+
+    expect(events).toContainEqual({ type: 'text', content: 'Here is my answer.' });
+  });
+
+  it('falls back to truncation when compaction is not configured', async () => {
+    const llm = createMockLlm([
+      [{ type: 'text', content: 'ok' }, { type: 'done' }],
+    ]);
+
+    const loop = new AgentLoop({ llm, maxTurns: 5 });
+    const events = await collectEvents(loop, baseRequest);
+
+    // No compaction event
+    expect(events.some((e) => e.type === 'compaction')).toBe(false);
+    expect(events).toContainEqual({ type: 'text', content: 'ok' });
   });
 });

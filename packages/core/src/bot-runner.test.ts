@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { BotRunner, type BotConfig } from './bot-runner.js';
 import type { ChatRequest, ChatEvent } from './types.js';
 
 function createMockAgentLoop(events: ChatEvent[]) {
   return {
-    async *run(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatEvent> {
+    async *run(_request: ChatRequest, _signal?: AbortSignal): AsyncIterable<ChatEvent> {
       for (const event of events) {
         yield event;
       }

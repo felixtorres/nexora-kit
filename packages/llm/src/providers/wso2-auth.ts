@@ -95,7 +95,7 @@ export class Wso2AuthService {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`WSO2 token request failed: ${msg}`);
+      throw new Error(`WSO2 token request failed: ${msg}`, { cause: err });
     } finally {
       clearTimeout(timeoutId);
     }

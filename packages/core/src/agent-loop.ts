@@ -6,6 +6,12 @@ import { NoopObservability } from './observability.js';
 import { ActionRouter } from './action-router.js';
 import { filterPersistableBlocks } from './blocks.js';
 import { truncateToolResult, estimateTokens } from './token-utils.js';
+import { ContextCompactor, type CompactionConfig } from './compaction.js';
+import { InMemoryWorkingMemory } from './working-memory.js';
+import { getBuiltinToolDefinitions } from './builtin-tools.js';
+import { SystemPromptBuilder } from './system-prompt-builder.js';
+import { SubAgentRunner, type SubAgentConfig } from './sub-agent.js';
+import type { UserMemoryStoreInterface } from './user-memory-interface.js';
 import type {
   ArtifactContent,
   ChatEvent,
@@ -16,6 +22,7 @@ import type {
   Message,
   MessageContent,
   ToolCall,
+  ToolResult,
   ToolSelectorInterface,
   ObservabilityHooks,
 } from './types.js';
@@ -105,6 +112,19 @@ export interface AgentLoopOptions {
   /** Maximum tokens for the skill index section in the system prompt.
    *  Overflow namespaces get a one-line summary. Defaults to 500. */
   skillIndexTokenBudget?: number;
+  /** Maximum additional turns granted when _request_continue is called.
+   *  Defaults to 10. */
+  maxContinueTurns?: number;
+  /** Context compaction configuration. When set, compaction replaces hard truncation. */
+  compaction?: CompactionConfig;
+  /** Enable working memory built-in tools (_note_to_self, _recall). Default: true */
+  enableWorkingMemory?: boolean;
+  /** User memory store for _save_to_memory tool. When provided, enables persistent memory promotion. */
+  userMemoryStore?: UserMemoryStoreInterface;
+  /** Sub-agent spawning configuration. When set, registers _spawn_agent tool. */
+  subAgent?: SubAgentConfig;
+  /** Internal: current nesting depth. Do not set directly. */
+  _depth?: number;
 }
 
 export class AgentLoop {
@@ -130,6 +150,12 @@ export class AgentLoop {
   private readonly maxContextTokens: number;
   private readonly maxToolResultTokens: number;
   private readonly skillIndexTokenBudget: number;
+  private readonly maxContinueTurns: number;
+  private readonly compactor?: ContextCompactor;
+  private readonly workingMemory: InMemoryWorkingMemory;
+  private readonly promptBuilder = new SystemPromptBuilder();
+  private readonly enableWorkingMemory: boolean;
+  private readonly subAgentRunner?: SubAgentRunner;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -139,7 +165,7 @@ export class AgentLoop {
     this.dispatcher = options.toolDispatcher ?? new ToolDispatcher();
     this.memory = options.messageStore ?? new InMemoryMessageStore();
     this.systemPrompt = options.systemPrompt ?? 'You are a helpful assistant.';
-    this.maxTurns = options.maxTurns ?? 10;
+    this.maxTurns = options.maxTurns ?? 25;
     this.model = options.model ?? this.llm.models[0]?.id ?? 'default';
     this.toolSelector = options.toolSelector;
     this.toolTokenBudget = options.toolTokenBudget ?? 4000;
@@ -155,6 +181,72 @@ export class AgentLoop {
     this.skillIndexProvider = options.skillIndexProvider;
     this.maxToolResultTokens = options.maxToolResultTokens ?? 2000;
     this.skillIndexTokenBudget = options.skillIndexTokenBudget ?? 500;
+    this.maxContinueTurns = options.maxContinueTurns ?? 10;
+    this.enableWorkingMemory = options.enableWorkingMemory ?? true;
+    this.workingMemory = new InMemoryWorkingMemory();
+
+    // Set up compaction
+    if (options.compaction) {
+      this.compactor = new ContextCompactor(this.llm, options.compaction);
+    }
+
+    // Register built-in tools
+    if (this.enableWorkingMemory) {
+      const builtinTools = getBuiltinToolDefinitions(this.workingMemory, {
+        userMemoryStore: options.userMemoryStore,
+      });
+      for (const tool of builtinTools) {
+        this.dispatcher.register(tool.definition, tool.handler);
+      }
+    }
+
+    // Register sub-agent tool
+    const depth = options._depth ?? 0;
+    if (options.subAgent) {
+      const maxDepth = options.subAgent.maxDepth ?? 2;
+      if (depth < maxDepth) {
+        this.subAgentRunner = new SubAgentRunner(options, depth, options.subAgent);
+        this.dispatcher.register(
+          {
+            name: '_spawn_agent',
+            description:
+              'Spawn a sub-agent to handle a complex subtask independently. The sub-agent gets its own conversation and returns a text result. Use this to decompose complex tasks into parallel subtasks.',
+            parameters: {
+              type: 'object',
+              properties: {
+                task: {
+                  type: 'string',
+                  description: 'The task for the sub-agent to accomplish',
+                },
+                context: {
+                  type: 'string',
+                  description: 'Optional context to pass to the sub-agent',
+                },
+                tools: {
+                  type: 'string',
+                  description: 'Comma-separated list of tool names to make available (default: all non-internal tools)',
+                },
+              },
+              required: ['task'],
+            },
+          },
+          async (input, execContext) => {
+            if (!this.subAgentRunner?.canSpawn()) {
+              return 'Cannot spawn sub-agent: depth or concurrency limit reached.';
+            }
+            const toolList = input.tools
+              ? String(input.tools).split(',').map((t) => t.trim())
+              : undefined;
+            const result = await this.subAgentRunner.run({
+              task: String(input.task),
+              context: input.context ? String(input.context) : undefined,
+              tools: toolList,
+            });
+            return `[Sub-agent ${result.agentId}]\n${result.output}`;
+          },
+        );
+      }
+    }
 
     // Derive maxContextTokens from ModelInfo if not explicitly set
     if (options.maxContextTokens !== undefined) {
@@ -385,12 +477,30 @@ export class AgentLoop {
 
       // Agent loop: LLM call → tool execution → repeat
       let turn = 0;
+      let effectiveMaxTurns = this.maxTurns;
+      let continueUsed = false;
       let cumulativeInputTokens = 0;
       let cumulativeOutputTokens = 0;
 
-      while (turn < this.maxTurns) {
+      while (turn < effectiveMaxTurns) {
         if (controller.signal.aborted) break;
         turn++;
+
+        yield { type: 'turn_start', turn, maxTurns: effectiveMaxTurns };
+
+        // Register _request_continue tool when approaching turn limit
+        const continueToolName = '_request_continue';
+        const nearLimit = turn >= effectiveMaxTurns - 2;
+        if (nearLimit && !continueUsed && !this.dispatcher.hasHandler(continueToolName)) {
+          this.dispatcher.register(
+            {
+              name: continueToolName,
+              description: 'Request additional turns to complete the current task. Use this when you are near the turn limit and need more steps.',
+              parameters: { type: 'object', properties: {}, required: [] },
+            },
+            async () => `Granted ${this.maxContinueTurns} additional turns.`,
+          );
+        }
 
         // Tool selection: use toolSelector if available, otherwise list all
         let tools;
@@ -414,20 +524,57 @@ export class AgentLoop {
           tools = this.dispatcher.listTools();
         }
 
-        const baseSystemPrompt = request.systemPrompt ?? this.systemPrompt;
-        let effectiveSystemPrompt = workspacePromptPrefix
-          ? workspacePromptPrefix + '\n\n' + baseSystemPrompt
-          : baseSystemPrompt;
-        if (commandPrompt) {
-          effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + commandPrompt;
+        // Build system prompt with dynamic components
+        const workingMemoryNotes = this.enableWorkingMemory
+          ? this.workingMemory.getNotes(request.conversationId)
+          : [];
+        const turnReminders = this.promptBuilder.buildTurnReminders(turn, effectiveMaxTurns);
+
+        const effectiveSystemPrompt = this.promptBuilder.build({
+          workspacePrefix: workspacePromptPrefix || undefined,
+          basePrompt: request.systemPrompt ?? this.systemPrompt,
+          commandPrompt,
+          artifactSuffix: artifactPromptSuffix || undefined,
+          skillIndexSuffix: skillIndexSuffix || undefined,
+          workingMemoryNotes: [...workingMemoryNotes, ...turnReminders],
+        });
+
+        // Compact conversation history if configured, otherwise hard-truncate
+        if (this.compactor) {
+          const currentChars = conversation.messages.reduce(
+            (sum, m) =>
+              sum +
+              (typeof m.content === 'string'
+                ? m.content.length
+                : JSON.stringify(m.content).length),
+            0,
+          );
+          const currentTokens = Math.ceil(currentChars / 4);
+          if (this.compactor.shouldCompact(currentTokens, this.maxContextTokens)) {
+            const result = await this.compactor.compact(conversation.messages);
+            if (result.compactedMessages > 0) {
+              // Remove compacted messages and prepend summary
+              const systemMessages = conversation.messages.filter((m) => m.role === 'system');
+              const nonSystem = conversation.messages.filter((m) => m.role !== 'system');
+              const groups = (await import('./context.js')).buildAtomicGroups(nonSystem);
+              const keepCount = Math.min(4, groups.length);
+              const kept = groups.slice(groups.length - keepCount).flatMap((g) => g);
+              const summaryMessage: Message = {
+                role: 'system',
+                content: `[Conversation Summary]\n${result.summary}`,
+              };
+              conversation.messages = [...systemMessages, summaryMessage, ...kept];
+
+              yield {
+                type: 'compaction',
+                compactedMessages: result.compactedMessages,
+                summaryTokens: result.summaryTokens,
+              };
+            }
+          }
         }
-        if (artifactPromptSuffix) {
-          effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + artifactPromptSuffix;
-        }
-        if (skillIndexSuffix) {
-          effectiveSystemPrompt = effectiveSystemPrompt + '\n\n' + skillIndexSuffix;
-        }
-        // Trim conversation history to respect context window limit before assembling
+
+        // Fallback: hard-truncate if still over budget
         this.context.truncate(conversation, this.maxContextTokens);
         const ctx = this.context.assemble(conversation, tools, effectiveSystemPrompt);
 
@@ -496,6 +643,10 @@ export class AgentLoop {
               totalOutputTokens += event.outputTokens;
               break;
 
+            case 'thinking':
+              yield { type: 'thinking', content: event.content };
+              break;
+
             case 'done':
               break;
           }
@@ -558,13 +709,54 @@ export class AgentLoop {
           return;
         }
 
-        // Execute tool calls and append results
-        for (const toolCall of pendingToolCalls) {
+        // Emit sub_agent_start for _spawn_agent calls before execution
+        for (const tc of pendingToolCalls) {
+          if (tc.name === '_spawn_agent') {
+            yield {
+              type: 'sub_agent_start',
+              agentId: tc.id,
+              task: String((tc.input as Record<string, unknown>).task ?? ''),
+            };
+          }
+        }
+
+        // Execute tool calls in parallel
+        for (const tc of pendingToolCalls) {
+          yield { type: 'tool_status', id: tc.id, name: tc.name, status: 'executing' };
+        }
+
+        const toolStartTime = performance.now();
+        const results = await Promise.all(
+          pendingToolCalls.map((toolCall) =>
+            this.dispatcher
+              .dispatch(toolCall, undefined, executionContext)
+              .then((result) => ({ toolCall, result, error: undefined as unknown }))
+              .catch((error) => ({
+                toolCall,
+                result: {
+                  toolUseId: toolCall.id,
+                  content: `Tool execution error: ${error instanceof Error ? error.message : String(error)}`,
+                  isError: true as const,
+                } as ToolResult,
+                error,
+              })),
+          ),
+        );
+        const toolDurationMs = performance.now() - toolStartTime;
+
+        // Process results in original order, yield events and store messages
+        let hadContinueRequest = false;
+        const toolMessages: Message[] = [];
+
+        for (const { toolCall, result } of results) {
           if (controller.signal.aborted) break;
 
-          const toolStartTime = performance.now();
-          const result = await this.dispatcher.dispatch(toolCall, undefined, executionContext);
-          const toolDurationMs = performance.now() - toolStartTime;
+          yield {
+            type: 'tool_status',
+            id: toolCall.id,
+            name: toolCall.name,
+            status: result.isError ? 'error' : 'completed',
+          };
 
           this.observability.onToolCall({
             name: toolCall.name,
@@ -663,16 +855,41 @@ export class AgentLoop {
             toolMessageContent.push(ac);
           }
 
-          const toolMessage: Message = {
-            role: 'tool',
-            content: toolMessageContent,
-          };
+          toolMessages.push({ role: 'tool', content: toolMessageContent });
+
+          // Handle _request_continue
+          if (toolCall.name === continueToolName && !continueUsed) {
+            hadContinueRequest = true;
+          }
+
+          // Emit sub_agent_end for completed sub-agent calls
+          if (toolCall.name === '_spawn_agent') {
+            yield { type: 'sub_agent_end', agentId: toolCall.id, tokensUsed: 0 };
+          }
+        }
+
+        // Store all tool messages after parallel execution completes
+        for (const toolMessage of toolMessages) {
           this.context.append(conversation, toolMessage);
-          await this.memory.append(request.conversationId, [toolMessage]);
+        }
+        await this.memory.append(request.conversationId, toolMessages);
+
+        // Apply continue extension
+        if (hadContinueRequest && !continueUsed) {
+          continueUsed = true;
+          effectiveMaxTurns += this.maxContinueTurns;
+          yield { type: 'turn_continue', currentTurn: turn, additionalTurns: this.maxContinueTurns };
+          // Unregister the continue tool — one-shot only
+          this.dispatcher.unregister(continueToolName);
         }
 
         yield { type: 'usage', inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
         // Continue loop — LLM will see tool results and respond
+      }
+
+      // Clean up _request_continue tool if still registered
+      if (this.dispatcher.hasHandler('_request_continue')) {
+        this.dispatcher.unregister('_request_continue');
       }
 
       // Loop ended — either abort or max turns
@@ -685,7 +902,7 @@ export class AgentLoop {
       if (controller.signal.aborted) {
         yield { type: 'cancelled' };
       } else {
-        yield { type: 'error', message: `Max turns (${this.maxTurns}) reached`, code: 'MAX_TURNS' };
+        yield { type: 'error', message: `Max turns (${effectiveMaxTurns}) reached`, code: 'MAX_TURNS' };
         yield { type: 'done' };
       }
     } finally {

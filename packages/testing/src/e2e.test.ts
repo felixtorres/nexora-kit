@@ -223,7 +223,8 @@ describe('E2E: Plugin lifecycle', () => {
 describe('E2E: Max turns enforcement', () => {
   it('stops after max turns', async () => {
     // Create an LLM that always calls a tool (infinite loop)
-    const infiniteResponses: LlmEvent[][] = Array.from({ length: 20 }, () => [
+    // Default maxTurns is 25 + possible 10 continue extension = 35, so use 40 responses
+    const infiniteResponses: LlmEvent[][] = Array.from({ length: 40 }, () => [
       { type: 'tool_call' as const, id: 'tc', name: 'echo', input: {} },
       { type: 'usage' as const, inputTokens: 5, outputTokens: 5 },
       { type: 'done' as const },

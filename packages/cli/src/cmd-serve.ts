@@ -4,7 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import type { CliCommand } from './commands.js';
 import { error, fmt } from './output.js';
 
-import { AgentLoop, ContextManager, ToolDispatcher, JsonLogger } from '@nexora-kit/core';
+import { AgentLoop, ContextManager, ToolDispatcher, JsonLogger, type CompactionConfig } from '@nexora-kit/core';
 import type { LogLevel } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
@@ -39,6 +39,12 @@ interface InstanceConfig {
     /** Maximum tokens to keep in conversation history per turn.
      *  Lower this for models with small context windows (e.g. 8000 for gpt-5.2). */
     maxContextTokens?: number;
+    compaction?: {
+      model?: string;
+      triggerRatio?: number;
+      keepRecentGroups?: number;
+      maxSummaryTokens?: number;
+    };
   };
   rateLimit?: { windowMs?: number; maxRequests?: number };
 }
@@ -198,6 +204,17 @@ export const serveCommand: CliCommand = {
     commandDispatcher.syncFromRegistry();
 
     // --- Agent Loop ---
+    let compactionConfig: CompactionConfig | undefined;
+    if (config.agent?.compaction) {
+      const cc = config.agent.compaction;
+      compactionConfig = {
+        model: cc.model,
+        triggerRatio: cc.triggerRatio,
+        keepRecentGroups: cc.keepRecentGroups,
+        maxSummaryTokens: cc.maxSummaryTokens,
+      };
+    }
+
     const agentLoop = new AgentLoop({
       llm: llmProvider,
       contextManager: new ContextManager(),
@@ -207,6 +224,7 @@ export const serveCommand: CliCommand = {
       skillIndexProvider: skillIndexAdapter,
       toolSelector,
       maxContextTokens: config.agent?.maxContextTokens,
+      compaction: compactionConfig,
     });
 
     // --- Auth ---

@@ -18,7 +18,7 @@ export {
   validateBlocks,
   filterPersistableBlocks,
 } from './blocks.js';
-export { ContextManager, type ContextManagerOptions } from './context.js';
+export { ContextManager, type ContextManagerOptions, buildAtomicGroups } from './context.js';
 export { ToolDispatcher, type ToolHandler, type ToolHandlerResponse, type PermissionChecker, type ToolExecutionContext } from './dispatcher.js';
 export { InMemoryMessageStore, type MessageStore } from './memory.js';
 export { AgentLoop, type AgentLoopOptions, type ArtifactStoreInterface, type WorkspaceContextProvider, type SkillIndexProvider, chunkArtifactContent, buildArtifactPrompt } from './agent-loop.js';
@@ -30,3 +30,9 @@ export { truncateToolResult, estimateTokens } from './token-utils.js';
 export { ContextBudget, type ContextBudgetOptions, type BudgetAllocation } from './context-budget.js';
 export { LangfuseObservability, type LangfuseConfig } from './langfuse.js';
 export { JsonLogger, NoopLogger, type Logger, type LogLevel, type LogEntry } from './logger.js';
+export { ContextCompactor, type CompactionConfig, type CompactionResult } from './compaction.js';
+export { InMemoryWorkingMemory } from './working-memory.js';
+export { getBuiltinToolDefinitions } from './builtin-tools.js';
+export { SystemPromptBuilder, type SystemPromptComponents } from './system-prompt-builder.js';
+export { SubAgentRunner, type SubAgentConfig, type SubAgentRequest, type SubAgentResult } from './sub-agent.js';
+export type { UserMemoryStoreInterface } from './user-memory-interface.js';

@@ -84,6 +84,8 @@ nexora-kit completion --shell zsh   # eval "$(nexora-kit completion --shell zsh)
 | `@nexora-kit/sandbox` | Isolated execution, permission boundaries, code mode |
 | `@nexora-kit/cli` | CLI tooling (32 commands) |
 | `@nexora-kit/testing` | Test utilities, mock providers |
+| `@nexora-kit/nexora-frontend` | Next.js 16 reference UI (chat, admin, playground) |
+| `@nexora-kit/benchmarks` | Performance benchmarks |
 
 ## Tech Stack
 

@@ -139,7 +139,7 @@ Get plugin details.
 
 See [Agents and Bots](agents-and-bots.md) for concept details.
 
-#### `POST /v1/bots`
+#### `POST /v1/admin/bots`
 Create a bot.
 
 **Request:**
@@ -161,13 +161,13 @@ Required fields: `name`, `systemPrompt`, `model`.
 
 **Response:** `201` — the created `BotRecord`.
 
-#### `GET /v1/bots`
+#### `GET /v1/admin/bots`
 List all bots for the authenticated user's team.
 
-#### `GET /v1/bots/:id`
+#### `GET /v1/admin/bots/:id`
 Get a bot by ID.
 
-#### `PATCH /v1/bots/:id`
+#### `PATCH /v1/admin/bots/:id`
 Update a bot. Send only the fields to change.
 
 **Request:**
@@ -178,12 +178,12 @@ Update a bot. Send only the fields to change.
 }
 ```
 
-#### `DELETE /v1/bots/:id`
+#### `DELETE /v1/admin/bots/:id`
 Delete a bot.
 
 ### Agents (requires `role: admin`)
 
-#### `POST /v1/agents`
+#### `POST /v1/admin/agents`
 Create an agent.
 
 **Request:**
@@ -211,19 +211,19 @@ Required fields: `slug`, `name`.
 
 **Response:** `201` — the created `AgentRecord`.
 
-#### `GET /v1/agents`
+#### `GET /v1/admin/agents`
 List all agents for the authenticated user's team.
 
-#### `GET /v1/agents/:id`
+#### `GET /v1/admin/agents/:id`
 Get an agent by ID, including its bindings.
 
-#### `PATCH /v1/agents/:id`
+#### `PATCH /v1/admin/agents/:id`
 Update an agent. Send only the fields to change.
 
-#### `DELETE /v1/agents/:id`
+#### `DELETE /v1/admin/agents/:id`
 Delete an agent and clean up its bindings.
 
-#### `PUT /v1/agents/:id/bindings`
+#### `PUT /v1/admin/agents/:id/bindings`
 Replace all bot bindings for an agent. This is atomic — all existing bindings are removed and replaced with the new list.
 
 **Request:**
@@ -248,7 +248,7 @@ Replace all bot bindings for an agent. This is atomic — all existing bindings 
 
 All `botId` references are validated — the request fails if any bot doesn't exist.
 
-#### `GET /v1/agents/:id/end-users`
+#### `GET /v1/admin/agents/:id/end-users`
 List end users for an agent.
 
 ### Admin — Plugins (requires `role: admin`)
@@ -339,8 +339,396 @@ Update conversation metadata.
 #### `DELETE /v1/conversations/:id`
 Delete a conversation and its messages.
 
+#### `GET /v1/conversations/:id/messages`
+List messages in a conversation. Filters out system/tool messages and empty assistant messages.
+
+**Response:** `200`
+```json
+{
+  "messages": [
+    { "role": "user", "content": "Hello" },
+    { "role": "assistant", "content": "Hi! How can I help?", "blocks": [] }
+  ]
+}
+```
+
 #### `POST /v1/conversations/:id/messages`
 Send a message in a conversation (operator context, no bot orchestration).
+
+**Request:**
+```json
+{
+  "input": "How do I reset my password?",
+  "pluginNamespaces": ["faq"],
+  "metadata": {}
+}
+```
+
+The `input` field accepts a string or a typed union:
+- Text: `{ "type": "text", "text": "..." }`
+- Action: `{ "type": "action", "actionId": "...", "payload": {} }`
+- File: `{ "type": "file", "fileId": "...", "text": "optional caption" }`
+
+**Response:** `200`
+```json
+{
+  "conversationId": "conv-abc123",
+  "message": "To reset your password...",
+  "blocks": []
+}
+```
+
+### Message Edit & Regenerate
+
+Requires `conversationStore` and `messageStore` to be configured.
+
+#### `PUT /v1/conversations/:id/messages/:seq`
+Edit a user message at the given sequence number. Truncates conversation history after that point and replays the edited message through the agent loop.
+
+**Request:**
+```json
+{
+  "input": "Actually, I meant to ask about billing"
+}
+```
+
+**Response:** `200`
+```json
+{
+  "conversationId": "conv-abc123",
+  "message": "Sure, I can help with billing...",
+  "blocks": []
+}
+```
+
+#### `POST /v1/conversations/:id/messages/:seq/regenerate`
+Regenerate the assistant response at the given sequence number. Truncates from that point and replays the preceding user message.
+
+**Response:** `200`
+```json
+{
+  "conversationId": "conv-abc123",
+  "message": "Let me try a different approach...",
+  "blocks": []
+}
+```
+
+### Files
+
+Requires `fileStore` and `fileBackend` to be configured.
+
+#### `POST /v1/files`
+Upload a file (base64-encoded).
+
+**Request:**
+```json
+{
+  "conversationId": "conv-abc123",
+  "filename": "report.pdf",
+  "mimeType": "application/pdf",
+  "content": "<base64-encoded data>"
+}
+```
+
+Allowed MIME types: `text/plain`, `text/markdown`, `text/csv`, `text/html`, `application/json`, `application/pdf`, `image/png`, `image/jpeg`, `image/gif`, `image/webp`. Max size: 10 MB. Max filename: 255 chars.
+
+**Response:** `201`
+```json
+{
+  "id": "file-abc123",
+  "conversationId": "conv-abc123",
+  "userId": "user1",
+  "filename": "report.pdf",
+  "mimeType": "application/pdf",
+  "sizeBytes": 102400,
+  "createdAt": "2026-03-03T10:00:00Z"
+}
+```
+
+#### `GET /v1/files/:id`
+Get file metadata.
+
+**Response:** `200` — FileRecord (same shape as above).
+
+#### `GET /v1/files/:id/content`
+Download file content (base64-encoded).
+
+**Response:** `200`
+```json
+{
+  "id": "file-abc123",
+  "filename": "report.pdf",
+  "mimeType": "application/pdf",
+  "content": "<base64-encoded data>"
+}
+```
+
+#### `DELETE /v1/files/:id`
+Delete a file.
+
+**Response:** `204`
+
+#### `GET /v1/conversations/:id/files`
+List all files in a conversation.
+
+**Response:** `200`
+```json
+{
+  "files": [{ "id": "file-abc123", "filename": "report.pdf", "mimeType": "application/pdf", "sizeBytes": 102400, "createdAt": "..." }]
+}
+```
+
+### Workspaces & Documents (requires `role: admin` for mutations)
+
+Requires `workspaceStore` and `contextDocumentStore` to be configured.
+
+#### `POST /v1/admin/workspaces`
+Create a workspace. Requires admin role.
+
+**Request:**
+```json
+{
+  "name": "Product Knowledge",
+  "description": "Internal product documentation",
+  "systemPrompt": "Use these documents to answer questions accurately.",
+  "metadata": {}
+}
+```
+
+**Response:** `201` — WorkspaceRecord.
+
+#### `GET /v1/workspaces`
+List all workspaces.
+
+**Response:** `200`
+```json
+{
+  "workspaces": [
+    { "id": "ws-abc123", "teamId": "default", "name": "Product Knowledge", "description": "...", "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+#### `GET /v1/workspaces/:id`
+Get a workspace by ID.
+
+#### `PATCH /v1/admin/workspaces/:id`
+Update a workspace. Requires admin role. Send only the fields to change. Set optional fields to `null` to clear them.
+
+#### `DELETE /v1/admin/workspaces/:id`
+Delete a workspace. Requires admin role.
+
+**Response:** `204`
+
+#### `POST /v1/admin/workspaces/:id/documents`
+Add a document to a workspace. Requires admin role.
+
+**Request:**
+```json
+{
+  "title": "Refund Policy",
+  "content": "Our refund policy covers...",
+  "priority": 80,
+  "metadata": {}
+}
+```
+
+Priority ranges 0–100 (higher = injected first when context budget is limited).
+
+**Response:** `201` — ContextDocumentRecord.
+
+#### `GET /v1/workspaces/:id/documents`
+List documents in a workspace.
+
+**Response:** `200`
+```json
+{
+  "documents": [
+    { "id": "doc-abc", "workspaceId": "ws-abc123", "title": "Refund Policy", "content": "...", "priority": 80, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+#### `PATCH /v1/admin/workspaces/:wsId/documents/:docId`
+Update a document. Requires admin role.
+
+#### `DELETE /v1/admin/workspaces/:wsId/documents/:docId`
+Delete a document. Requires admin role.
+
+**Response:** `204`
+
+### Templates (requires `role: admin` for mutations)
+
+Requires `templateStore` to be configured.
+
+#### `POST /v1/admin/templates`
+Create a conversation template. Requires admin role.
+
+**Request:**
+```json
+{
+  "name": "Customer Support",
+  "description": "Template for support conversations",
+  "systemPrompt": "You are a helpful support agent.",
+  "pluginNamespaces": ["faq", "knowledge-base"],
+  "model": "claude-sonnet-4-6",
+  "temperature": 0.7,
+  "maxTurns": 10,
+  "metadata": {}
+}
+```
+
+Required field: `name`. Temperature: 0–2. Max turns: 1–100.
+
+**Response:** `201` — ConversationTemplateRecord.
+
+#### `GET /v1/templates`
+List all templates.
+
+**Response:** `200`
+```json
+{
+  "templates": [
+    { "id": "tmpl-abc", "teamId": "default", "name": "Customer Support", "description": "...", "systemPrompt": "...", "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+#### `GET /v1/templates/:id`
+Get a template by ID.
+
+#### `PATCH /v1/admin/templates/:id`
+Update a template. Requires admin role. Set optional fields to `null` to clear them.
+
+#### `DELETE /v1/admin/templates/:id`
+Delete a template. Requires admin role.
+
+**Response:** `204`
+
+### Feedback
+
+Requires `feedbackStore` to be configured.
+
+#### `POST /v1/conversations/:id/messages/:seq/feedback`
+Submit feedback on a specific message.
+
+**Request:**
+```json
+{
+  "rating": "positive",
+  "comment": "This was very helpful!",
+  "tags": ["accurate", "fast"]
+}
+```
+
+Required field: `rating` (`positive` or `negative`). Tags max: 10 items.
+
+**Response:** `200` — FeedbackRecord.
+
+#### `GET /v1/admin/feedback`
+Query feedback entries. Requires admin role.
+
+**Query params:** `pluginNamespace`, `rating` (`positive` | `negative`), `from` (ISO 8601), `to` (ISO 8601), `cursor`, `limit` (1–100).
+
+**Response:** `200`
+```json
+{
+  "items": [
+    { "id": "fb-abc", "conversationId": "conv-abc", "messageSeq": 2, "userId": "user1", "rating": "positive", "comment": "...", "tags": [], "createdAt": "..." }
+  ],
+  "nextCursor": "fb-xyz"
+}
+```
+
+#### `GET /v1/admin/feedback/summary`
+Get aggregated feedback statistics. Requires admin role.
+
+**Query params:** `pluginNamespace`, `model`, `from` (ISO 8601), `to` (ISO 8601).
+
+**Response:** `200`
+```json
+{
+  "total": 150,
+  "positive": 120,
+  "negative": 30,
+  "positiveRate": 0.8,
+  "topTags": [{ "tag": "accurate", "count": 45 }]
+}
+```
+
+### User Memory
+
+Requires `userMemoryStore` to be configured.
+
+#### `GET /v1/me/memory`
+List the authenticated user's memory facts.
+
+**Query params:** `namespace` (optional, filter by namespace).
+
+**Response:** `200`
+```json
+{
+  "facts": [
+    { "key": "preferred_language", "value": "TypeScript", "namespace": "default", "createdAt": "..." }
+  ]
+}
+```
+
+#### `DELETE /v1/me/memory/:key`
+Delete a specific memory fact by key.
+
+**Response:** `204`
+
+#### `DELETE /v1/me/memory`
+Delete all memory facts for the authenticated user.
+
+**Query params:** `confirm=true` (required safety guard).
+
+**Response:** `204`
+
+### Artifacts
+
+Requires `artifactStore` to be configured.
+
+#### `GET /v1/conversations/:id/artifacts`
+List all artifacts in a conversation.
+
+**Response:** `200`
+```json
+{
+  "artifacts": [
+    { "id": "art-abc", "conversationId": "conv-abc", "title": "Report Draft", "currentVersion": 2, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+#### `GET /v1/conversations/:id/artifacts/:artifactId`
+Get an artifact (latest version content).
+
+**Response:** `200` — ArtifactRecord with content.
+
+#### `GET /v1/conversations/:id/artifacts/:artifactId/versions`
+List all versions of an artifact.
+
+**Response:** `200`
+```json
+{
+  "versions": [
+    { "artifactId": "art-abc", "version": 1, "content": "...", "createdAt": "..." },
+    { "artifactId": "art-abc", "version": 2, "content": "...", "createdAt": "..." }
+  ]
+}
+```
+
+#### `GET /v1/conversations/:id/artifacts/:artifactId/versions/:version`
+Get a specific version of an artifact.
+
+**Response:** `200` — ArtifactVersionRecord.
+
+#### `DELETE /v1/conversations/:id/artifacts/:artifactId`
+Delete an artifact and all its versions.
+
+**Response:** `204`
 
 ## WebSocket
 

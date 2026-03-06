@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { Orchestrator, type OrchestratorConfig, type OrchestratorBotBinding } from './orchestrator.js';
-import type { ChatRequest, ChatEvent, BotResponse } from './types.js';
-import type { BotConfig } from './bot-runner.js';
+import type { ChatRequest, ChatEvent } from './types.js';
 
 function createMockAgentLoop(events: ChatEvent[]) {
   return {
-    async *run(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatEvent> {
+    async *run(_request: ChatRequest, _signal?: AbortSignal): AsyncIterable<ChatEvent> {
       for (const event of events) {
         yield event;
       }
@@ -115,11 +114,8 @@ describe('Orchestrator', () => {
     });
 
     it('falls back to fallbackBotId when no keywords match', async () => {
-      let capturedRequest: ChatRequest | undefined;
-
       const mockLoop = {
-        async *run(request: ChatRequest) {
-          capturedRequest = request;
+        async *run(_request: ChatRequest) {
           yield { type: 'text', content: 'Fallback response' } as ChatEvent;
           yield { type: 'done' } as ChatEvent;
         },
@@ -314,8 +310,6 @@ describe('Orchestrator', () => {
     });
 
     it('uses fallback when orchestrator makes no tool calls', async () => {
-      let capturedBotId: string | undefined;
-
       const mockLoop = {
         async *run(request: ChatRequest) {
           if (request.metadata?._orchestrator) {
@@ -323,7 +317,6 @@ describe('Orchestrator', () => {
             yield { type: 'text', content: 'I am not sure' } as ChatEvent;
             yield { type: 'done' } as ChatEvent;
           } else {
-            capturedBotId = request.metadata?._botId as string;
             yield { type: 'text', content: 'Fallback response' } as ChatEvent;
             yield { type: 'done' } as ChatEvent;
           }
@@ -359,7 +352,7 @@ describe('Orchestrator', () => {
 
     it('yields orchestrator output when no tool calls and no fallback', async () => {
       const mockLoop = {
-        async *run(request: ChatRequest) {
+        async *run(_request: ChatRequest) {
           yield { type: 'text', content: 'Direct response' } as ChatEvent;
           yield { type: 'done' } as ChatEvent;
         },

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { AgentLoop } from './agent-loop.js';
 import { ToolDispatcher, type PermissionChecker } from './dispatcher.js';
 import type { LlmProvider, LlmEvent, LlmRequest } from '@nexora-kit/llm';

@@ -60,7 +60,8 @@
 | Runtime | `plugins` | core, sandbox, config, skills, commands, mcp |
 | Presentation | `api`, `admin` | core, plugins, storage |
 | Orchestration | `cli` | All packages |
-| Testing | `testing` | core, llm, plugins |
+| Frontend | `nexora-frontend` | None (standalone Next.js app) |
+| Testing | `testing`, `benchmarks` | core, llm, plugins |
 
 ## Request Lifecycle (HTTP — Operator)
 

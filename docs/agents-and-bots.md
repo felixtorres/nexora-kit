@@ -117,20 +117,20 @@ NexoraKit exposes two distinct API surfaces:
 For team members managing the platform. Requires admin auth (API key or JWT with `role: admin`).
 
 ```
-POST   /v1/bots                    Create a bot
-GET    /v1/bots                    List bots
-GET    /v1/bots/:id                Get bot details
-PATCH  /v1/bots/:id                Update a bot
-DELETE /v1/bots/:id                Delete a bot
+POST   /v1/admin/bots                    Create a bot
+GET    /v1/admin/bots                    List bots
+GET    /v1/admin/bots/:id                Get bot details
+PATCH  /v1/admin/bots/:id                Update a bot
+DELETE /v1/admin/bots/:id                Delete a bot
 
-POST   /v1/agents                  Create an agent
-GET    /v1/agents                  List agents
-GET    /v1/agents/:id              Get agent + bindings
-PATCH  /v1/agents/:id              Update an agent
-DELETE /v1/agents/:id              Delete an agent
+POST   /v1/admin/agents                  Create an agent
+GET    /v1/admin/agents                  List agents
+GET    /v1/admin/agents/:id              Get agent + bindings
+PATCH  /v1/admin/agents/:id              Update an agent
+DELETE /v1/admin/agents/:id              Delete an agent
 
-PUT    /v1/agents/:id/bindings     Replace all bindings
-GET    /v1/agents/:id/end-users    List end users
+PUT    /v1/admin/agents/:id/bindings     Replace all bindings
+GET    /v1/admin/agents/:id/end-users    List end users
 ```
 
 ### Client API (End Users)
@@ -218,7 +218,7 @@ The orchestrator uses `runToCompletion()` to fan out to bots in parallel.
 
 ```bash
 # Billing bot
-curl -X POST http://localhost:3000/v1/bots \
+curl -X POST http://localhost:3000/v1/admin/bots \
   -H "Authorization: Bearer admin-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -229,7 +229,7 @@ curl -X POST http://localhost:3000/v1/bots \
   }'
 
 # Tech Support bot
-curl -X POST http://localhost:3000/v1/bots \
+curl -X POST http://localhost:3000/v1/admin/bots \
   -H "Authorization: Bearer admin-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -243,7 +243,7 @@ curl -X POST http://localhost:3000/v1/bots \
 ### 2. Create Agent
 
 ```bash
-curl -X POST http://localhost:3000/v1/agents \
+curl -X POST http://localhost:3000/v1/admin/agents \
   -H "Authorization: Bearer admin-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -264,7 +264,7 @@ curl -X POST http://localhost:3000/v1/agents \
 ### 3. Bind Bots to Agent
 
 ```bash
-curl -X PUT http://localhost:3000/v1/agents/<agent-id>/bindings \
+curl -X PUT http://localhost:3000/v1/admin/agents/<agent-id>/bindings \
   -H "Authorization: Bearer admin-key" \
   -H "Content-Type: application/json" \
   -d '{

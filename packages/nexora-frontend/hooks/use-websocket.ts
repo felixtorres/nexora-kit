@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useSettings } from '@/store/settings';
 import { useConversationStore } from '@/store/conversation';
 import type { ResponseBlock } from '@/lib/block-types';
@@ -42,7 +42,12 @@ export function useWebSocket(conversationId: string | null) {
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationIdRef = useRef(conversationId);
-  conversationIdRef.current = conversationId;
+  const connectRef = useRef<() => void>(() => {});
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  });
 
   const cleanup = useCallback(() => {
     if (pingTimerRef.current) {
@@ -76,6 +81,7 @@ export function useWebSocket(conversationId: string | null) {
 
     ws.onopen = () => {
       statusRef.current = 'connected';
+      setIsConnected(true);
       reconnectAttemptRef.current = 0;
 
       // Start ping keepalive
@@ -175,10 +181,12 @@ export function useWebSocket(conversationId: string | null) {
 
     ws.onerror = () => {
       statusRef.current = 'error';
+      setIsConnected(false);
     };
 
     ws.onclose = () => {
       statusRef.current = 'disconnected';
+      setIsConnected(false);
       if (pingTimerRef.current) {
         clearInterval(pingTimerRef.current);
         pingTimerRef.current = null;
@@ -191,7 +199,7 @@ export function useWebSocket(conversationId: string | null) {
       );
       reconnectAttemptRef.current++;
       reconnectTimerRef.current = setTimeout(() => {
-        if (conversationIdRef.current) connect();
+        if (conversationIdRef.current) connectRef.current();
       }, delay);
     };
   }, [
@@ -210,6 +218,10 @@ export function useWebSocket(conversationId: string | null) {
     addDevEvent,
     setLastUsage,
   ]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  });
 
   // Connect when conversationId is set and serverUrl exists
   useEffect(() => {
@@ -266,7 +278,6 @@ export function useWebSocket(conversationId: string | null) {
     wsRef.current.send(JSON.stringify(msg));
   }, [addDevEvent]);
 
-  const isConnected = statusRef.current === 'connected';
 
   return { sendMessage, sendAction, cancel, isConnected };
 }

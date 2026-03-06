@@ -79,7 +79,7 @@ export class ContextManager {
  *   [assistant text]          → group 2: [assistant]
  *   [user]                    → group 3: [user]
  */
-function buildAtomicGroups(messages: Message[]): Message[][] {
+export function buildAtomicGroups(messages: Message[]): Message[][] {
   const groups: Message[][] = [];
   let i = 0;
 

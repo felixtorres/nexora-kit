@@ -487,7 +487,7 @@ export class Wso2Provider implements LlmProvider {
       return response;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`WSO2 LLM request failed: ${msg}`);
+      throw new Error(`WSO2 LLM request failed: ${msg}`, { cause: err });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -553,7 +553,7 @@ export class Wso2Provider implements LlmProvider {
     // Emit tool calls if present (a response can have both text and tool calls)
     if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
       for (const toolCall of choice.message.tool_calls) {
-        let input: unknown = {};
+        let input: unknown;
         try {
           input = JSON.parse(toolCall.function.arguments);
         } catch {
@@ -693,7 +693,7 @@ export class Wso2Provider implements LlmProvider {
 
     // Emit accumulated tool calls after stream ends
     for (const [, acc] of [...toolCallAccumulator.entries()].sort(([a], [b]) => a - b)) {
-      let input: unknown = {};
+      let input: unknown;
       try {
         input = JSON.parse(acc.arguments);
       } catch {

@@ -31,6 +31,7 @@ export type LlmEvent =
   | { type: 'text'; content: string }
   | { type: 'tool_call'; id: string; name: string; input: unknown }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
+  | { type: 'thinking'; content: string }
   | { type: 'done' };
 
 export interface ModelInfo {

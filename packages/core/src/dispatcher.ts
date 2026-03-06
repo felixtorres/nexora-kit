@@ -106,4 +106,16 @@ export class ToolDispatcher {
   hasHandler(name: string): boolean {
     return this.tools.has(name);
   }
+
+  cloneToolsInto(target: ToolDispatcher, filter?: (name: string) => boolean): void {
+    for (const [name, registered] of this.tools.entries()) {
+      if (filter && !filter(name)) continue;
+      const definition = this.definitions.get(name);
+      if (!definition) continue;
+      target.register(definition, registered.handler, {
+        namespace: registered.namespace,
+        requiredPermissions: registered.requiredPermissions,
+      });
+    }
+  }
 }

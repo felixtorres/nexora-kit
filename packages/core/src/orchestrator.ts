@@ -143,12 +143,6 @@ export class Orchestrator {
     const botTools = this.buildBotToolDefinitions();
 
     // Build orchestrator request
-    const inputText = typeof request.input === 'string'
-      ? request.input
-      : request.input.type === 'text'
-        ? request.input.text
-        : JSON.stringify(request.input);
-
     const orchestratorPrompt = this.config.orchestratorPrompt ?? DEFAULT_ORCHESTRATOR_PROMPT;
     const botDescriptions = this.config.bindings
       .map((b) => `- ask_${sanitizeName(b.botName)}: ${b.description || b.botName}`)

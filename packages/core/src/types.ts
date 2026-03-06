@@ -278,7 +278,14 @@ export type ChatEvent =
   | { type: 'artifact_stream'; artifactId: string; delta: string }
   | { type: 'artifact_update'; artifactId: string; title?: string; content?: string }
   | { type: 'artifact_done'; artifactId: string }
-  | { type: 'cancelled' };
+  | { type: 'cancelled' }
+  | { type: 'tool_status'; id: string; name: string; status: 'executing' | 'completed' | 'error' }
+  | { type: 'turn_continue'; currentTurn: number; additionalTurns: number }
+  | { type: 'turn_start'; turn: number; maxTurns: number }
+  | { type: 'compaction'; compactedMessages: number; summaryTokens: number }
+  | { type: 'sub_agent_start'; agentId: string; task: string }
+  | { type: 'sub_agent_end'; agentId: string; tokensUsed: number }
+  | { type: 'thinking'; content: string };
 
 // --- Bots ---
 
