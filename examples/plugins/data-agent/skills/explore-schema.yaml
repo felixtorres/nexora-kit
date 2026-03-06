@@ -15,6 +15,6 @@ prompt: |
 
   3. **Map relationships**: Call `explore_graph` with operation `related_tables` to show how tables connect via foreign keys and inferred relationships.
 
-  4. **Search if needed**: If the table name is unclear, use `semantic_search` to find matching tables by description or column names.
+  4. **Search if needed**: If `generate_context` returned insufficient results, try broadening the focus terms. Only use `semantic_search` as a last resort — it requires pre-generated embeddings and may return empty results.
 
   Present findings in a clear, structured format. Include column types, nullability, and relationship cardinality when available.
