@@ -11,6 +11,7 @@ Enterprise AI agent platform — plugin-based, provider-agnostic, self-hosted.
 | [Plugin Authoring](plugin-authoring.md) | Build plugins with skills, commands, and MCP servers |
 | [API Reference](api-reference.md) | REST + WebSocket endpoints, authentication, errors |
 | [Architecture](architecture.md) | Agent loop, context budget, package graph, request lifecycle, storage |
+| [Claude Code Comparison](claude-code-comparison.md) | Design lineage, subsystem-by-subsystem comparison, what we add and where we diverge |
 | [Security](security.md) | Auth model, CORS, rate limits, sandbox, audit logging |
 
 ## Quick Links

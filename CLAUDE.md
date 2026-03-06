@@ -56,13 +56,9 @@ npx vitest          # run tests directly
 
 ## Feature Planning
 
-For non-trivial features, create planning docs before writing code:
+For non-trivial features, create planning docs in the ClawdNotes vault (`2-Projects/nexora-kit/`) before writing code — PRDs and dev plans live there, not in this repo. This repo contains only external-facing documentation.
 
-1. **PRD** in `docs/PRD_[FEATURE_NAME].md` — problem, solution, acceptance criteria, risks
-2. **Dev Plan** in `docs/DEV_PLAN_[FEATURE_NAME].md` — architecture, phases, testing strategy
-3. **Progress Log** in `DEVELOPMENT_LOG.md` — status, daily entries, blockers
-
-Skip these for small bug fixes or single-file changes — use your judgment.
+Skip planning docs for small bug fixes or single-file changes — use your judgment.
 
 ## Frontend Lessons
 
