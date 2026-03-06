@@ -1,6 +1,5 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { useState, useEffect } from "react";
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 interface SettingsState {
   serverUrl: string;
@@ -8,28 +7,31 @@ interface SettingsState {
   _hydrated: boolean;
   setServerUrl: (url: string) => void;
   setApiKey: (key: string) => void;
+  _setHydrated: () => void;
 }
 
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
-      serverUrl: "http://localhost:3000",
-      apiKey: "",
+      serverUrl: 'http://localhost:3000',
+      apiKey: '',
       _hydrated: false,
       setServerUrl: (url) => set({ serverUrl: url }),
       setApiKey: (key) => set({ apiKey: key }),
+      _setHydrated: () => set({ _hydrated: true }),
     }),
     {
-      name: "nexora-settings",
-      onRehydrateStorage: () => (state) => {
-        if (state) state._hydrated = true;
-      },
+      name: 'nexora-settings',
+      // Skip automatic hydration — we trigger it manually from a client
+      // component (StoreHydration) so React components always see a clean
+      // _hydrated=false on the first SSR pass and true after the client mounts.
+      skipHydration: true,
       partialize: (state) => ({
         serverUrl: state.serverUrl,
         apiKey: state.apiKey,
       }),
-    }
-  )
+    },
+  ),
 );
 
 /**

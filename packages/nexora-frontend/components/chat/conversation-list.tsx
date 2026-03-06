@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
-import { useState, useRef, useCallback } from "react";
-import { useRouter, useParams } from "next/navigation";
-import { Plus, MessageSquare, Loader2, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useState, useRef, useCallback } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { Plus, MessageSquare, Loader2, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -12,9 +12,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { useConversationList, useDeleteConversation } from "@/hooks/use-conversation";
-import type { ConversationRecord } from "@/lib/block-types";
+} from '@/components/ui/dialog';
+import { useConversationList, useDeleteConversation } from '@/hooks/use-conversation';
+import type { ConversationRecord } from '@/lib/block-types';
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
@@ -25,7 +25,7 @@ function formatTime(iso: string): string {
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "just now";
+  if (diffMins < 1) return 'just now';
   if (diffMins < 60) return `${diffMins}m ago`;
   const diffHours = Math.floor(diffMins / 60);
   if (diffHours < 24) return `${diffHours}h ago`;
@@ -51,31 +51,37 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
 
   const conversations = data?.items ?? [];
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizing.current = true;
-    const startX = e.clientX;
-    const startWidth = width;
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isResizing.current = true;
+      const startX = e.clientX;
+      const startWidth = width;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing.current) return;
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (e.clientX - startX)));
-      setWidth(newWidth);
-    };
+      const handleMouseMove = (e: MouseEvent) => {
+        if (!isResizing.current) return;
+        const newWidth = Math.min(
+          MAX_WIDTH,
+          Math.max(MIN_WIDTH, startWidth + (e.clientX - startX)),
+        );
+        setWidth(newWidth);
+      };
 
-    const handleMouseUp = () => {
-      isResizing.current = false;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
+      const handleMouseUp = () => {
+        isResizing.current = false;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
 
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-  }, [width]);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    },
+    [width],
+  );
 
   function handleDelete() {
     if (!deleteTarget) return;
@@ -83,11 +89,11 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
     setDeleteError(null);
     deleteConversation.mutate(id, {
       onSuccess: () => {
-        if (activeId === id) router.push("/chat");
+        if (activeId === id) router.push('/chat');
         setDeleteTarget(null);
       },
       onError: (err) => {
-        setDeleteError(err instanceof Error ? err.message : "Failed to delete conversation");
+        setDeleteError(err instanceof Error ? err.message : 'Failed to delete conversation');
       },
     });
   }
@@ -98,12 +104,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-muted/20">
         <div className="flex items-center justify-between border-b p-3">
           <h2 className="text-sm font-semibold">Conversations</h2>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="size-7"
-            onClick={onNewConversation}
-          >
+          <Button size="icon" variant="ghost" className="size-7" onClick={onNewConversation}>
             <Plus className="size-4" />
           </Button>
         </div>
@@ -125,9 +126,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
                 <div
                   key={conv.id}
                   className={`group/conv flex w-full items-center rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
-                    activeId === conv.id
-                      ? "bg-accent text-accent-foreground"
-                      : ""
+                    activeId === conv.id ? 'bg-accent text-accent-foreground' : ''
                   }`}
                 >
                   <button
@@ -136,9 +135,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
                   >
                     <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">
-                        {conv.title || "New conversation"}
-                      </p>
+                      <p className="truncate font-medium">{conv.title || 'New conversation'}</p>
                       <p className="truncate text-xs text-muted-foreground">
                         {formatTime(conv.updatedAt)}
                       </p>
@@ -168,21 +165,33 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
       />
 
       {/* Delete confirmation */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(null); } }}>
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Conversation</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete{" "}
-              <strong>{deleteTarget?.title || "this conversation"}</strong>?
-              This action cannot be undone.
+              Are you sure you want to delete{' '}
+              <strong>{deleteTarget?.title || 'this conversation'}</strong>? This action cannot be
+              undone.
             </DialogDescription>
           </DialogHeader>
-          {deleteError && (
-            <p className="text-sm text-destructive">{deleteError}</p>
-          )}
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteError(null); }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteTarget(null);
+                setDeleteError(null);
+              }}
+            >
               Cancel
             </Button>
             <Button
@@ -190,7 +199,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
               onClick={handleDelete}
               disabled={deleteConversation.isPending}
             >
-              {deleteConversation.isPending ? "Deleting..." : "Delete"}
+              {deleteConversation.isPending ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>

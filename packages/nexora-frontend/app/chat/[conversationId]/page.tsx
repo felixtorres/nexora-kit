@@ -11,6 +11,7 @@ import { DevPanel } from '@/components/chat/dev-panel';
 import { useConversationStore } from '@/store/conversation';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useSendMessage, normalizeMessage } from '@/hooks/use-conversation';
+import { useSettingsHydrated } from '@/store/settings';
 import { api } from '@/lib/api';
 
 export default function ConversationPage() {
@@ -18,12 +19,21 @@ export default function ConversationPage() {
   const conversationId = params.conversationId as string;
   const queryClient = useQueryClient();
   const { setActiveConversation, setMessages, isSending, isStreaming } = useConversationStore();
+  const hydrated = useSettingsHydrated();
   const sendMessageRest = useSendMessage();
-  const { sendMessage: sendMessageWs, sendAction, cancel, isConnected } = useWebSocket(conversationId);
+  const {
+    sendMessage: sendMessageWs,
+    sendAction,
+    cancel,
+    isConnected,
+  } = useWebSocket(conversationId);
   const [showDevPanel, setShowDevPanel] = useState(false);
 
   useEffect(() => {
     setActiveConversation(conversationId);
+
+    // Don't fetch until settings are hydrated — apiKey would be empty otherwise
+    if (!hydrated) return;
 
     // Load message history from the server
     api.messages
@@ -34,7 +44,7 @@ export default function ConversationPage() {
           .filter(
             (m) =>
               (m.role === 'user' || m.role === 'assistant') &&
-              (m.content || (m.blocks && m.blocks.length > 0))
+              (m.content || (m.blocks && m.blocks.length > 0)),
           );
         setMessages(conversationId, visible);
       })
@@ -43,7 +53,7 @@ export default function ConversationPage() {
       });
 
     return () => setActiveConversation(null);
-  }, [conversationId, setActiveConversation, setMessages]);
+  }, [conversationId, hydrated, setActiveConversation, setMessages]);
 
   const handleSend = useCallback(
     (input: string) => {
@@ -56,21 +66,21 @@ export default function ConversationPage() {
       // Refresh conversation list to update lastMessageAt
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
-    [isConnected, sendMessageWs, sendMessageRest, conversationId, queryClient]
+    [isConnected, sendMessageWs, sendMessageRest, conversationId, queryClient],
   );
 
   const handleAction = useCallback(
     (actionId: string, payload: Record<string, unknown>) => {
       sendAction(actionId, payload);
     },
-    [sendAction]
+    [sendAction],
   );
 
   const handleReply = useCallback(
     (text: string) => {
       handleSend(text);
     },
-    [handleSend]
+    [handleSend],
   );
 
   return (
