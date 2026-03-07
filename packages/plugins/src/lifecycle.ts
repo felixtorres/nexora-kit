@@ -361,13 +361,28 @@ export class PluginLifecycleManager {
 
     const wasEnabled = this.plugins.get(namespace)?.state === 'enabled';
 
-    // Uninstall existing
+    // Load new version FIRST — if this fails, the old plugin stays running
+    let result: import('./loader.js').LoadResult;
+    try {
+      result = loadPlugin(dir);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger?.error('plugin.reload_failed', { namespace, err: msg });
+      throw new Error(`Reload failed for '${namespace}': ${msg}. Previous version kept.`);
+    }
+
+    if (result.errors.length > 0) {
+      this.logger?.error('plugin.reload_errors', { namespace, errors: result.errors });
+      throw new Error(
+        `Reload failed for '${namespace}': ${result.errors.join('; ')}. Previous version kept.`,
+      );
+    }
+
+    // New version loaded successfully — now swap
     if (this.plugins.has(namespace)) {
       this.uninstall(namespace);
     }
 
-    // Re-load from disk
-    const result = loadPlugin(dir);
     this.install(result.plugin);
 
     if (result.skillDefinitions.size > 0) {

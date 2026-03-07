@@ -934,6 +934,14 @@ export class AgentLoop {
     this.abortControllers.get(conversationId)?.abort();
   }
 
+  /** Clean up all in-memory state for a deleted conversation. */
+  clearConversation(conversationId: string): void {
+    this.abortControllers.get(conversationId)?.abort();
+    this.abortControllers.delete(conversationId);
+    this.actionRouter.clear(conversationId);
+    this.workingMemory.clear(conversationId);
+  }
+
   get toolDispatcher(): ToolDispatcher {
     return this.dispatcher;
   }

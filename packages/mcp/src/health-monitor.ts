@@ -16,6 +16,7 @@ export type HealthEventListener = (event: McpServerEvent) => void;
 export class HealthMonitor {
   private handles: McpServerHandle[] = [];
   private restartCounts = new Map<string, number>();
+  private lastRestartAttempt = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private listeners: HealthEventListener[] = [];
   private readonly config: HealthMonitorConfig;
@@ -31,6 +32,7 @@ export class HealthMonitor {
   removeHandle(serverName: string): void {
     this.handles = this.handles.filter((h) => h.config.name !== serverName);
     this.restartCounts.delete(serverName);
+    this.lastRestartAttempt.delete(serverName);
   }
 
   onEvent(listener: HealthEventListener): void {
@@ -89,11 +91,38 @@ export class HealthMonitor {
     const key = handle.config.name;
     const attempts = this.restartCounts.get(key) ?? 0;
 
-    if (attempts >= this.config.maxRestartAttempts) {
+    // Decay: reset failure count if last attempt was > 5 minutes ago
+    const lastAttempt = this.lastRestartAttempt.get(key);
+    const now = Date.now();
+    const timeSinceLastAttempt = lastAttempt !== undefined ? now - lastAttempt : Infinity;
+    const decayedAttempts = timeSinceLastAttempt > 300_000 ? 0 : attempts;
+
+    if (decayedAttempts >= this.config.maxRestartAttempts) {
+      this.emit({
+        type: 'server:error',
+        serverName: handle.config.name,
+        namespace: handle.namespace,
+        timestamp: new Date(),
+        error: `Max restart attempts (${this.config.maxRestartAttempts}) reached. Manual intervention required.`,
+      });
       return;
     }
 
-    this.restartCounts.set(key, attempts + 1);
+    // Exponential backoff: wait 2^attempts * intervalMs before retrying
+    if (lastAttempt !== undefined && decayedAttempts > 0) {
+      const backoffMs = Math.min(
+        this.config.intervalMs * Math.pow(2, decayedAttempts - 1),
+        300_000,
+      );
+      if (timeSinceLastAttempt < backoffMs) {
+        return; // Too soon — wait for backoff
+      }
+    }
+
+    const newAttempts = decayedAttempts + 1;
+    this.restartCounts.set(key, newAttempts);
+    this.lastRestartAttempt.set(key, Date.now());
+
     this.emit({
       type: 'server:restarting',
       serverName: handle.config.name,
@@ -105,6 +134,7 @@ export class HealthMonitor {
       await handle.stop();
       await handle.start();
       this.restartCounts.set(key, 0);
+      this.lastRestartAttempt.delete(key);
       this.emit({
         type: 'server:healthy',
         serverName: handle.config.name,

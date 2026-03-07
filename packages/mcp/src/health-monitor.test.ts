@@ -114,7 +114,8 @@ describe('HealthMonitor', () => {
     });
 
     await monitor.checkNow();
-    expect(events).toHaveLength(1);
+    // Status change emits server:unhealthy, then tryRestart emits server:restarting + server:healthy
+    expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events[0].type).toBe('server:unhealthy');
   });
 
@@ -243,6 +244,8 @@ describe('HealthMonitor', () => {
 
     // First restart attempt: fails
     await monitor.checkNow();
+    // Advance time past backoff window before second attempt
+    vi.advanceTimersByTime(60_000);
     // Second restart attempt: succeeds
     await monitor.checkNow();
 

@@ -36,13 +36,23 @@ export class CircuitBreaker {
         this.state = 'closed';
         this.consecutiveFailures = 0;
         this.halfOpenSuccesses = 0;
+        this.lastFailureTime = 0;
       }
     } else {
       this.consecutiveFailures = 0;
+      this.lastFailureTime = 0;
     }
   }
 
   recordFailure(): void {
+    // Decay: if last failure was more than 2x resetTimeout ago, treat as fresh failure
+    if (this.lastFailureTime > 0) {
+      const elapsed = Date.now() - this.lastFailureTime;
+      if (elapsed > this.config.resetTimeoutMs * 2) {
+        this.consecutiveFailures = 0;
+      }
+    }
+
     this.consecutiveFailures++;
     this.lastFailureTime = Date.now();
 

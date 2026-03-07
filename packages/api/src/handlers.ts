@@ -108,8 +108,17 @@ export function createConversationDeleteHandler(deps: HandlerDeps) {
     if (!req.auth) throw new ApiError(401, 'Authentication required');
     if (!deps.conversationStore) throw new ApiError(501, 'Conversation store not configured');
 
-    const deleted = await deps.conversationStore.softDelete(req.params.id, req.auth.userId);
+    const convId = req.params.id;
+    const deleted = await deps.conversationStore.softDelete(convId, req.auth.userId);
     if (!deleted) throw new ApiError(404, 'Conversation not found');
+
+    // Cascade cleanup: clear messages and agent loop state
+    try {
+      await deps.messageStore?.clear(convId);
+      deps.agentLoop.clearConversation(convId);
+    } catch {
+      // Best-effort cleanup — don't fail the delete
+    }
 
     return jsonResponse(204, null);
   };

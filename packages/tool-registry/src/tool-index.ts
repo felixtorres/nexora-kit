@@ -67,13 +67,12 @@ export class ToolIndex {
     const queryTokens = tokenize(query.text);
     const results: RankedTool[] = [];
 
-    for (const [, entry] of this.tools) {
-      // Filter by namespace if specified — always include global namespace
-      if (query.namespaces && query.namespaces.length > 0) {
-        if (!query.namespaces.includes(entry.namespace) && entry.namespace !== GLOBAL_NAMESPACE) {
-          continue;
-        }
-      }
+    // Pre-filter: collect candidate tool names by namespace to avoid scanning all tools
+    const candidates = this.getCandidateNames(query.namespaces);
+
+    for (const name of candidates) {
+      const entry = this.tools.get(name);
+      if (!entry) continue;
 
       const score = keywordScore(queryTokens, entry.tokens);
       if (score > 0) {
@@ -102,12 +101,11 @@ export class ToolIndex {
     limit?: number,
   ): RankedTool[] {
     const results: RankedTool[] = [];
+    const candidates = this.getCandidateNames(namespaces);
 
-    for (const [, entry] of this.tools) {
-      if (!entry.embedding) continue;
-      if (namespaces && namespaces.length > 0) {
-        if (!namespaces.includes(entry.namespace) && entry.namespace !== GLOBAL_NAMESPACE) continue;
-      }
+    for (const name of candidates) {
+      const entry = this.tools.get(name);
+      if (!entry || !entry.embedding) continue;
 
       const score = cosineSimilarity(queryVec, entry.embedding);
       if (score > 0) {
@@ -122,6 +120,26 @@ export class ToolIndex {
 
     results.sort((a, b) => b.score - a.score);
     return limit ? results.slice(0, limit) : results;
+  }
+
+  /** Get candidate tool names filtered by namespaces (using the namespace index). */
+  private getCandidateNames(namespaces?: string[]): Set<string> {
+    if (!namespaces || namespaces.length === 0) {
+      return new Set(this.tools.keys());
+    }
+    const names = new Set<string>();
+    for (const ns of namespaces) {
+      const nsTools = this.namespaceIndex.get(ns);
+      if (nsTools) {
+        for (const name of nsTools) names.add(name);
+      }
+    }
+    // Always include global namespace
+    const globalTools = this.namespaceIndex.get(GLOBAL_NAMESPACE);
+    if (globalTools) {
+      for (const name of globalTools) names.add(name);
+    }
+    return names;
   }
 
   getByNamespace(namespace: string): ToolDefinition[] {
