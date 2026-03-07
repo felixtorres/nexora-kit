@@ -138,18 +138,11 @@ export function createEvalClient(options: ClientOptions): EvalClient {
 
         ws.on('message', (data: Buffer) => {
           try {
-            const raw = data.toString();
-            const frame = JSON.parse(raw) as {
+            const frame = JSON.parse(data.toString()) as {
               type: string;
               conversationId?: string;
               payload?: ChatEvent;
-              [key: string]: unknown;
             };
-
-            // Debug: log first few frames
-            if (events.length < 3) {
-              console.log(`    [ws] frame: ${raw.slice(0, 200)}`);
-            }
 
             // Skip non-event frames (conversation, pong)
             if (frame.type === 'conversation' || frame.type === 'pong') return;
