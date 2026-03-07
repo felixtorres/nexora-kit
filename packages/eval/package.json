@@ -1,0 +1,37 @@
+{
+  "name": "@nexora-kit/eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "nexora-eval": "dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@nexora-kit/admin": "*",
+    "@nexora-kit/api": "*",
+    "@nexora-kit/commands": "*",
+    "@nexora-kit/config": "*",
+    "@nexora-kit/core": "*",
+    "@nexora-kit/llm": "*",
+    "@nexora-kit/mcp": "*",
+    "@nexora-kit/plugins": "*",
+    "@nexora-kit/sandbox": "*",
+    "@nexora-kit/skills": "*",
+    "@nexora-kit/storage": "*",
+    "@nexora-kit/tool-registry": "*",
+    "ws": "^8.19.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.0.18"
+  }
+}
