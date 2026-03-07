@@ -232,7 +232,7 @@ export class AgentLoop {
               required: ['task'],
             },
           },
-          async (input, execContext) => {
+          async (input) => {
             if (!this.subAgentRunner?.canSpawn()) {
               return 'Cannot spawn sub-agent: depth or concurrency limit reached.';
             }
@@ -878,8 +878,13 @@ export class AgentLoop {
           }
 
           // Emit sub_agent_end for completed sub-agent calls
-          if (toolCall.name === '_spawn_agent') {
-            yield { type: 'sub_agent_end', agentId: toolCall.id, tokensUsed: 0 };
+          if (toolCall.name === '_spawn_agent' && this.subAgentRunner) {
+            // Extract agentId from result content: "[Sub-agent <agentId>]\n..."
+            const agentIdMatch = result.content.match(/\[Sub-agent (sub-[^\]]+)\]/);
+            const subAgentId = agentIdMatch?.[1] ?? toolCall.id;
+            const subTokens = this.subAgentRunner.getTokensUsed(subAgentId);
+            cumulativeInputTokens += subTokens;
+            yield { type: 'sub_agent_end', agentId: subAgentId, tokensUsed: subTokens };
           }
         }
 

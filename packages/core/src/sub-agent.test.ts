@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AgentLoop } from './agent-loop.js';
+import { AgentLoop, type AgentLoopOptions } from './agent-loop.js';
 import { ToolDispatcher } from './dispatcher.js';
 import type { LlmProvider, LlmEvent, LlmRequest } from '@nexora-kit/llm';
 import type { ChatEvent } from './types.js';
@@ -185,6 +185,73 @@ describe('Sub-Agent Spawning', () => {
     // Two sub_agent_start events
     const starts = events.filter((e) => e.type === 'sub_agent_start');
     expect(starts).toHaveLength(2);
+  });
+
+  it('sub_agent_end reports actual tokens used', async () => {
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'mock-1', name: 'Mock', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+        const userMsg = request.messages.find((m) => m.role === 'user');
+        const userText = userMsg && typeof userMsg.content === 'string' ? userMsg.content : '';
+
+        if (userText.includes('Do work')) {
+          yield { type: 'text', content: 'Done.' };
+          yield { type: 'usage', inputTokens: 100, outputTokens: 50 };
+        } else if (!userText.includes('Sub-agent')) {
+          yield { type: 'tool_call', id: 'tc-1', name: '_spawn_agent', input: { task: 'Do work' } };
+        } else {
+          yield { type: 'text', content: 'Final.' };
+        }
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const loop = new AgentLoop({
+      llm,
+      subAgent: { maxDepth: 2, subAgentMaxTurns: 5 },
+      maxTurns: 5,
+      enableWorkingMemory: false,
+    });
+
+    const events = await collectEvents(loop, baseRequest);
+    const subEnd = events.find((e) => e.type === 'sub_agent_end');
+    expect(subEnd).toBeDefined();
+    if (subEnd?.type === 'sub_agent_end') {
+      expect(subEnd.tokensUsed).toBe(150); // 100 input + 50 output
+    }
+  });
+
+  it('SubAgentRunner enforces token cap', async () => {
+    const { SubAgentRunner } = await import('./sub-agent.js');
+
+    let childCallCount = 0;
+    const mockLlm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'mock-1', name: 'Mock', provider: 'mock', contextWindow: 100000, maxOutputTokens: 4096 }],
+      async *chat(): AsyncIterable<LlmEvent> {
+        childCallCount++;
+        yield { type: 'text', content: 'Working...' };
+        yield { type: 'usage', inputTokens: 300, outputTokens: 200 };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const runner = new SubAgentRunner(
+      { llm: mockLlm } as AgentLoopOptions,
+      0,
+      { maxDepth: 2, subAgentMaxTurns: 10, subAgentTokenLimit: 400 },
+    );
+
+    const result = await runner.run({ task: 'Do expensive work' });
+
+    // Should have stopped after 1 call (500 tokens > 400 cap)
+    expect(childCallCount).toBe(1);
+    expect(result.tokensUsed).toBe(500);
+    // Output should contain whatever text was produced before cap
+    expect(result.output).toContain('Working...');
   });
 
   it('depth limit enforced - child at maxDepth-1 does not get _spawn_agent', async () => {

@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@nexora-kit/llm';
+import type { LlmProvider, TokenBudget } from '@nexora-kit/llm';
 import { AgentLoop, type AgentLoopOptions } from './agent-loop.js';
 import { ToolDispatcher } from './dispatcher.js';
 import type { ChatEvent } from './types.js';
@@ -10,6 +10,8 @@ export interface SubAgentConfig {
   maxConcurrent?: number;
   /** Maximum turns per sub-agent. Default: 10 */
   subAgentMaxTurns?: number;
+  /** Max tokens a single sub-agent can consume. Default: 50000 */
+  subAgentTokenLimit?: number;
 }
 
 export interface SubAgentRequest {
@@ -29,8 +31,10 @@ export class SubAgentRunner {
   private readonly depth: number;
   private readonly maxDepth: number;
   private readonly subAgentMaxTurns: number;
+  private readonly subAgentTokenLimit: number;
   private activeCount = 0;
   private readonly maxConcurrent: number;
+  private readonly completedTokens = new Map<string, number>();
 
   constructor(
     parentOptions: AgentLoopOptions,
@@ -42,6 +46,7 @@ export class SubAgentRunner {
     this.maxDepth = config.maxDepth ?? 2;
     this.subAgentMaxTurns = config.subAgentMaxTurns ?? 10;
     this.maxConcurrent = config.maxConcurrent ?? 3;
+    this.subAgentTokenLimit = config.subAgentTokenLimit ?? 50_000;
   }
 
   canSpawn(): boolean {
@@ -84,9 +89,12 @@ export class SubAgentRunner {
         maxTurns: this.subAgentMaxTurns,
         model: this.parentOptions.model,
         enableWorkingMemory: true,
+        // Inherit token budget from parent so sub-agents share the same budget
+        tokenBudget: this.parentOptions.tokenBudget,
+        pluginNamespace: this.parentOptions.pluginNamespace,
         // Pass sub-agent config so children can spawn at depth+1
         subAgent: this.depth + 1 < this.maxDepth
-          ? { maxDepth: this.maxDepth, maxConcurrent: this.maxConcurrent, subAgentMaxTurns: this.subAgentMaxTurns }
+          ? { maxDepth: this.maxDepth, maxConcurrent: this.maxConcurrent, subAgentMaxTurns: this.subAgentMaxTurns, subAgentTokenLimit: this.subAgentTokenLimit }
           : undefined,
         _depth: this.depth + 1,
       });
@@ -94,6 +102,7 @@ export class SubAgentRunner {
       const conversationId = `${agentId}-conv`;
       let textOutput = '';
       let totalTokens = 0;
+      const tokenCap = this.subAgentTokenLimit;
 
       const contextPrefix = request.context
         ? `Context: ${request.context}\n\nTask: ${request.task}`
@@ -117,17 +126,31 @@ export class SubAgentRunner {
             break;
           case 'usage':
             totalTokens += event.inputTokens + event.outputTokens;
+            if (totalTokens > tokenCap) {
+              return {
+                output: textOutput || `Sub-agent stopped: token limit (${tokenCap}) exceeded.`,
+                tokensUsed: totalTokens,
+                agentId,
+              };
+            }
             break;
         }
       }
 
-      return {
+      const subResult = {
         output: textOutput || 'Sub-agent completed with no text output.',
         tokensUsed: totalTokens,
         agentId,
       };
+      this.completedTokens.set(agentId, totalTokens);
+      return subResult;
     } finally {
       this.activeCount--;
     }
+  }
+
+  /** Retrieve tokens consumed by a completed sub-agent (by agentId extracted from result). */
+  getTokensUsed(agentId: string): number {
+    return this.completedTokens.get(agentId) ?? 0;
   }
 }

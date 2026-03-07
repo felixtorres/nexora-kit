@@ -2,6 +2,7 @@ export { qualifyName, parseQualifiedName, isQualified, validateNamespace } from 
 export { parseManifest, validateManifest, pluginManifestSchema } from './manifest.js';
 export { resolveDependencies, type DependencyResolution } from './dependency.js';
 export { wrapWithErrorBoundary, type ErrorBoundaryOptions } from './error-boundary.js';
+export { wrapWithTimeout, getTimeoutForTier } from './timeout.js';
 export { loadPlugin, discoverPlugins, type LoadResult } from './loader.js';
 export { loadClaudePlugin, isClaudePlugin, loadMcpPlugin, isMcpPlugin } from './claude-compat.js';
 export { discoverSkillResources, hasResources } from './resource-discovery.js';

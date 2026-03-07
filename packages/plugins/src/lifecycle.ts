@@ -14,6 +14,7 @@ import type { McpManager, McpServerConfig } from '@nexora-kit/mcp';
 import { resolveTemplates } from '@nexora-kit/mcp';
 import { resolveDependencies } from './dependency.js';
 import { wrapWithErrorBoundary } from './error-boundary.js';
+import { wrapWithTimeout, getTimeoutForTier } from './timeout.js';
 import { loadPlugin } from './loader.js';
 
 export interface ToolIndex {
@@ -123,7 +124,14 @@ export class PluginLifecycleManager {
       }
     }
 
-    // Register tools with error boundaries
+    // Resolve sandbox timeout for this plugin
+    const sandboxConfig = plugin.manifest.sandbox;
+    const toolTimeoutMs = getTimeoutForTier(
+      sandboxConfig.tier,
+      sandboxConfig.limits?.timeoutMs,
+    );
+
+    // Register tools with timeout + error boundaries
     for (const tool of plugin.tools) {
       let baseHandler = this.toolHandlers.get(tool.name);
 
@@ -137,7 +145,9 @@ export class PluginLifecycleManager {
       }
 
       if (baseHandler) {
-        const wrappedHandler = wrapWithErrorBoundary(tool.name, baseHandler, {
+        // Apply timeout enforcement based on sandbox tier/limits
+        const timedHandler = wrapWithTimeout(tool.name, baseHandler, toolTimeoutMs);
+        const wrappedHandler = wrapWithErrorBoundary(tool.name, timedHandler, {
           maxConsecutiveFailures: 5,
           onDisable: (toolName, errMsg) => {
             this.logger?.error('plugin.tool_disabled', { namespace, tool: toolName, err: errMsg });
