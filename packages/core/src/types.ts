@@ -530,7 +530,7 @@ export interface CommandDispatcherInterface {
 // --- Observability ---
 
 export interface ObservabilityHooks {
-  onTraceStart(traceId: string, input: { conversationId: string; message: string }): void;
+  onTraceStart(traceId: string, input: { conversationId: string; message: string; parentTraceId?: string }): void;
   onGeneration(data: {
     model: string;
     input: Message[];

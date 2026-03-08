@@ -53,7 +53,7 @@ export class SubAgentRunner {
     return this.depth < this.maxDepth && this.activeCount < this.maxConcurrent;
   }
 
-  async run(request: SubAgentRequest, signal?: AbortSignal): Promise<SubAgentResult> {
+  async run(request: SubAgentRequest, signal?: AbortSignal, parentTraceId?: string): Promise<SubAgentResult> {
     if (!this.canSpawn()) {
       return {
         output: 'Cannot spawn sub-agent: depth or concurrency limit reached.',
@@ -92,11 +92,14 @@ export class SubAgentRunner {
         // Inherit token budget from parent so sub-agents share the same budget
         tokenBudget: this.parentOptions.tokenBudget,
         pluginNamespace: this.parentOptions.pluginNamespace,
+        // Share observability so child LLM calls appear in the parent's trace
+        observability: this.parentOptions.observability,
         // Pass sub-agent config so children can spawn at depth+1
         subAgent: this.depth + 1 < this.maxDepth
           ? { maxDepth: this.maxDepth, maxConcurrent: this.maxConcurrent, subAgentMaxTurns: this.subAgentMaxTurns, subAgentTokenLimit: this.subAgentTokenLimit }
           : undefined,
         _depth: this.depth + 1,
+        _parentTraceId: parentTraceId,
       });
 
       const conversationId = `${agentId}-conv`;

@@ -127,6 +127,8 @@ export interface AgentLoopOptions {
   skillActivationManager?: SkillActivationManager;
   /** Internal: current nesting depth. Do not set directly. */
   _depth?: number;
+  /** Internal: parent trace ID for sub-agent observability correlation. */
+  _parentTraceId?: string;
 }
 
 export class AgentLoop {
@@ -158,6 +160,8 @@ export class AgentLoop {
   private readonly enableWorkingMemory: boolean;
   private readonly subAgentRunner?: SubAgentRunner;
   private readonly skillActivation: SkillActivationManager;
+  private readonly parentTraceId?: string;
+  private currentTraceId?: string;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
 
@@ -202,6 +206,8 @@ export class AgentLoop {
       }
     }
 
+    this.parentTraceId = options._parentTraceId;
+
     // Register sub-agent tool
     const depth = options._depth ?? 0;
     if (options.subAgent) {
@@ -239,11 +245,15 @@ export class AgentLoop {
             const toolList = input.tools
               ? String(input.tools).split(',').map((t) => t.trim())
               : undefined;
-            const result = await this.subAgentRunner.run({
-              task: String(input.task),
-              context: input.context ? String(input.context) : undefined,
-              tools: toolList,
-            });
+            const result = await this.subAgentRunner.run(
+              {
+                task: String(input.task),
+                context: input.context ? String(input.context) : undefined,
+                tools: toolList,
+              },
+              undefined,
+              this.currentTraceId,
+            );
             return `[Sub-agent ${result.agentId}]\n${result.output}`;
           },
         );
@@ -296,6 +306,7 @@ export class AgentLoop {
     }
 
     const traceId = `trace-${request.conversationId}-${Date.now()}`;
+    this.currentTraceId = traceId;
     const traceStartTime = performance.now();
 
     // Extract text from ChatInput union
@@ -304,6 +315,7 @@ export class AgentLoop {
     this.observability.onTraceStart(traceId, {
       conversationId: request.conversationId,
       message: messageText,
+      parentTraceId: this.parentTraceId,
     });
 
     try {
