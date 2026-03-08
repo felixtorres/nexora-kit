@@ -1,11 +1,13 @@
 import { readdir } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { createJiti } from 'jiti'; // Runtime TS/JS transpilation — loads .ts files without build step
 import type { ToolDefinition, Logger } from '@nexora-kit/core';
 import type { ToolHandler } from '@nexora-kit/core';
 import { wrapWithErrorBoundary } from './error-boundary.js';
 import { wrapWithTimeout, getTimeoutForTier } from './timeout.js';
 import { toolExtensionSchema, TOOLS_NAMESPACE, type ToolExtension } from './tool-extension-types.js';
+
+const jiti = createJiti(import.meta.url);
 
 export interface ToolExtensionLoaderOptions {
   toolDispatcher: {
@@ -76,21 +78,31 @@ export class ToolExtensionLoader {
   }
 
   async loadFile(filePath: string): Promise<LoadedToolExtension> {
-    // Dynamic import with cache busting for reloads
-    const url = pathToFileURL(filePath).href + `?t=${Date.now()}`;
-    const mod = await import(url) as { default?: unknown };
+    // Dynamic import via jiti — handles .ts and .js natively
+    let raw: unknown;
+    try {
+      raw = await jiti.import(filePath, { default: true });
+    } catch (err) {
+      throw new Error(`Failed to import: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
-    if (!mod.default) {
+    // jiti with { default: true } returns the default export directly,
+    // but if the module has no default, it returns the module object
+    const candidate = (raw && typeof raw === 'object' && 'default' in raw)
+      ? (raw as { default: unknown }).default
+      : raw;
+
+    if (!candidate || typeof candidate !== 'object') {
       throw new Error('No default export found');
     }
 
-    const parsed = toolExtensionSchema.safeParse(mod.default);
+    const parsed = toolExtensionSchema.safeParse(candidate);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
       throw new Error(`Invalid tool extension: ${issues}`);
     }
 
-    const ext = mod.default as ToolExtension;
+    const ext = candidate as ToolExtension;
     const namespace = ext.namespace ?? this.defaultNamespace;
     const toolName = ext.name;
 

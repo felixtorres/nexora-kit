@@ -68,7 +68,7 @@ describe('ToolExtensionLoader', () => {
     it('rejects file with no default export', async () => {
       await expect(
         loader.loadFile(resolve(FIXTURES_DIR, 'no-export.js')),
-      ).rejects.toThrow('No default export');
+      ).rejects.toThrow('Invalid tool extension');
     });
 
     it('rejects file with invalid schema', async () => {
@@ -169,6 +169,20 @@ describe('ToolExtensionLoader', () => {
 
       // After 5 failures, the tool is disabled — throws a different error
       await expect(registered!.handler({})).rejects.toThrow('disabled');
+    });
+  });
+
+  describe('TypeScript support', () => {
+    it('loads .ts files via jiti runtime transpilation', async () => {
+      const result = await loader.loadFile(resolve(FIXTURES_DIR, 'typed-tool.ts'));
+      expect(result.name).toBe('get_weather');
+      expect(dispatcher.register).toHaveBeenCalled();
+
+      // Verify the handler actually works
+      const registered = dispatcher.tools.get('get_weather');
+      const output = await registered!.handler({ city: 'London' });
+      expect(output).toContain('London');
+      expect(output).toContain('22C');
     });
   });
 
