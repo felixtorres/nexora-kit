@@ -8,32 +8,64 @@ export interface SystemPromptComponents {
   workingMemoryNotes?: string[];
 }
 
+export interface PromptMetrics {
+  totalTokens: number;
+  breakdown: {
+    workspace: number;
+    base: number;
+    command: number;
+    skills: number;
+    artifacts: number;
+    skillIndex: number;
+    workingMemory: number;
+  };
+}
+
 export class SystemPromptBuilder {
   build(components: SystemPromptComponents): string {
+    return this.buildWithMetrics(components).prompt;
+  }
+
+  buildWithMetrics(components: SystemPromptComponents): { prompt: string; metrics: PromptMetrics } {
     const parts: string[] = [];
+    const breakdown = {
+      workspace: 0,
+      base: 0,
+      command: 0,
+      skills: 0,
+      artifacts: 0,
+      skillIndex: 0,
+      workingMemory: 0,
+    };
 
     if (components.workspacePrefix) {
       parts.push(components.workspacePrefix);
+      breakdown.workspace = estimateTokenCount(components.workspacePrefix);
     }
 
     parts.push(components.basePrompt);
+    breakdown.base = estimateTokenCount(components.basePrompt);
 
     if (components.commandPrompt) {
       parts.push(components.commandPrompt);
+      breakdown.command = estimateTokenCount(components.commandPrompt);
     }
 
     // Active behavioral skill instructions — injected after base prompt
     // so the LLM treats them as behavioral overlays
     if (components.activeSkillInstructions) {
       parts.push(components.activeSkillInstructions);
+      breakdown.skills = estimateTokenCount(components.activeSkillInstructions);
     }
 
     if (components.artifactSuffix) {
       parts.push(components.artifactSuffix);
+      breakdown.artifacts = estimateTokenCount(components.artifactSuffix);
     }
 
     if (components.skillIndexSuffix) {
       parts.push(components.skillIndexSuffix);
+      breakdown.skillIndex = estimateTokenCount(components.skillIndexSuffix);
     }
 
     // Inject working memory notes as a section
@@ -43,9 +75,13 @@ export class SystemPromptBuilder {
         ...components.workingMemoryNotes.map((n, i) => `${i + 1}. ${n}`),
       ].join('\n');
       parts.push(notesSection);
+      breakdown.workingMemory = estimateTokenCount(notesSection);
     }
 
-    return parts.join('\n\n');
+    const prompt = parts.join('\n\n');
+    const totalTokens = Object.values(breakdown).reduce((a, b) => a + b, 0);
+
+    return { prompt, metrics: { totalTokens, breakdown } };
   }
 
   buildTurnReminders(turn: number, maxTurns: number): string[] {
@@ -66,4 +102,8 @@ export class SystemPromptBuilder {
 
     return reminders;
   }
+}
+
+function estimateTokenCount(text: string): number {
+  return Math.ceil(text.length / 4);
 }

@@ -33,7 +33,7 @@ export { JsonLogger, NoopLogger, type Logger, type LogLevel, type LogEntry } fro
 export { ContextCompactor, type CompactionConfig, type CompactionResult } from './compaction.js';
 export { InMemoryWorkingMemory } from './working-memory.js';
 export { getBuiltinToolDefinitions } from './builtin-tools.js';
-export { SystemPromptBuilder, type SystemPromptComponents } from './system-prompt-builder.js';
+export { SystemPromptBuilder, type SystemPromptComponents, type PromptMetrics } from './system-prompt-builder.js';
 export { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js';
 export { SubAgentRunner, type SubAgentConfig, type SubAgentRequest, type SubAgentResult } from './sub-agent.js';
 export type { UserMemoryStoreInterface } from './user-memory-interface.js';

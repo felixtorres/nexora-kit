@@ -66,6 +66,34 @@ export class AuditLogger {
     });
   }
 
+  logSubAgentStart(
+    conversationId: string,
+    agentId: string,
+    task: string,
+  ): number | Promise<number> {
+    return this.log({
+      actor: 'system',
+      action: 'sub_agent.start',
+      target: `conversation:${conversationId}`,
+      details: { agentId, task },
+      result: 'success',
+    });
+  }
+
+  logSubAgentEnd(
+    conversationId: string,
+    agentId: string,
+    tokensUsed: number,
+  ): number | Promise<number> {
+    return this.log({
+      actor: 'system',
+      action: 'sub_agent.end',
+      target: `conversation:${conversationId}`,
+      details: { agentId, tokensUsed },
+      result: 'success',
+    });
+  }
+
   logFailure(
     actor: string,
     action: string,

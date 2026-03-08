@@ -287,7 +287,8 @@ export type ChatEvent =
   | { type: 'compaction'; compactedMessages: number; summaryTokens: number }
   | { type: 'sub_agent_start'; agentId: string; task: string }
   | { type: 'sub_agent_end'; agentId: string; tokensUsed: number }
-  | { type: 'thinking'; content: string };
+  | { type: 'thinking'; content: string }
+  | { type: 'context_metrics'; systemPromptTokens: number; toolTokens: number; toolCount: number; promptBreakdown: Record<string, number> };
 
 // --- Bots ---
 
@@ -551,6 +552,8 @@ export interface ObservabilityHooks {
     tokensUsed: number;
     timeMs: number;
   }): void;
+  onSubAgentStart?(data: { conversationId: string; agentId: string; task: string }): void;
+  onSubAgentEnd?(data: { conversationId: string; agentId: string; tokensUsed: number }): void;
   onTraceEnd(traceId: string, output: {
     totalTokens: number;
     turns: number;

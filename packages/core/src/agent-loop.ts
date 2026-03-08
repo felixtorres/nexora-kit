@@ -546,7 +546,7 @@ export class AgentLoop {
           request.conversationId,
         );
 
-        const effectiveSystemPrompt = this.promptBuilder.build({
+        const { prompt: effectiveSystemPrompt, metrics: promptMetrics } = this.promptBuilder.buildWithMetrics({
           workspacePrefix: workspacePromptPrefix || undefined,
           basePrompt: request.systemPrompt ?? this.systemPrompt,
           commandPrompt,
@@ -555,6 +555,23 @@ export class AgentLoop {
           skillIndexSuffix: skillIndexSuffix || undefined,
           workingMemoryNotes: [...workingMemoryNotes, ...turnReminders],
         });
+
+        // Estimate tool token overhead
+        const toolTokens = tools.reduce((sum, t) => {
+          const desc = `${t.name} ${t.description} ${JSON.stringify(t.parameters)}`;
+          return sum + Math.ceil(desc.length / 4);
+        }, 0);
+
+        // Emit context metrics on first turn (avoid noise on subsequent turns)
+        if (turn === 1) {
+          yield {
+            type: 'context_metrics',
+            systemPromptTokens: promptMetrics.totalTokens,
+            toolTokens,
+            toolCount: tools.length,
+            promptBreakdown: promptMetrics.breakdown,
+          };
+        }
 
         // Compact conversation history if configured, otherwise hard-truncate
         if (this.compactor) {
@@ -729,11 +746,13 @@ export class AgentLoop {
         // Emit sub_agent_start for _spawn_agent calls before execution
         for (const tc of pendingToolCalls) {
           if (tc.name === '_spawn_agent') {
-            yield {
-              type: 'sub_agent_start',
+            const task = String((tc.input as Record<string, unknown>).task ?? '');
+            yield { type: 'sub_agent_start', agentId: tc.id, task };
+            this.observability.onSubAgentStart?.({
+              conversationId: request.conversationId,
               agentId: tc.id,
-              task: String((tc.input as Record<string, unknown>).task ?? ''),
-            };
+              task,
+            });
           }
         }
 
@@ -885,6 +904,11 @@ export class AgentLoop {
             const subTokens = this.subAgentRunner.getTokensUsed(subAgentId);
             cumulativeInputTokens += subTokens;
             yield { type: 'sub_agent_end', agentId: subAgentId, tokensUsed: subTokens };
+            this.observability.onSubAgentEnd?.({
+              conversationId: request.conversationId,
+              agentId: subAgentId,
+              tokensUsed: subTokens,
+            });
           }
         }
 
