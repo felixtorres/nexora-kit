@@ -8,4 +8,7 @@ export { loadClaudePlugin, isClaudePlugin, loadMcpPlugin, isMcpPlugin } from './
 export { discoverSkillResources, hasResources } from './resource-discovery.js';
 export { PluginLifecycleManager, type LifecycleOptions } from './lifecycle.js';
 export { PluginDevWatcher, type DevWatcherOptions } from './dev-watcher.js';
+export { ToolExtensionLoader, type ToolExtensionLoaderOptions, type LoadedToolExtension } from './tool-extension-loader.js';
+export { ToolExtensionWatcher, type ToolExtensionWatcherOptions } from './tool-extension-watcher.js';
+export { TOOLS_NAMESPACE, type ToolExtension } from './tool-extension-types.js';
 export type { McpServerConfig } from '@nexora-kit/mcp';

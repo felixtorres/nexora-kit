@@ -8,7 +8,7 @@ import { AgentLoop, ContextManager, ToolDispatcher, JsonLogger, type CompactionC
 import type { LogLevel } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
-import { PluginLifecycleManager, discoverPlugins } from '@nexora-kit/plugins';
+import { PluginLifecycleManager, discoverPlugins, ToolExtensionLoader } from '@nexora-kit/plugins';
 import {
   ToolIndex,
   AdaptiveToolSelector,
@@ -40,6 +40,7 @@ interface InstanceConfig {
     poolSize?: number;
   };
   plugins?: { directory?: string };
+  tools?: { directory?: string; namespace?: string; sandbox?: { tier?: 'none' | 'basic' | 'strict' } };
   sandbox?: { defaultTier?: 'none' | 'basic' | 'strict' };
   llm?: LlmConfig;
   agent?: {
@@ -233,6 +234,27 @@ export const serveCommand: CliCommand = {
 
     // Sync registered commands into the parser so isCommand() works
     commandDispatcher.syncFromRegistry();
+
+    // --- Tool Extensions ---
+    const toolsDir = resolve(instanceDir, config.tools?.directory ?? './tools');
+    const toolExtensionLoader = new ToolExtensionLoader({
+      toolDispatcher,
+      toolIndex,
+      logger: logger.child({ component: 'tool-extensions' }),
+      defaultNamespace: config.tools?.namespace,
+      defaultSandboxTier: config.tools?.sandbox?.tier ?? config.sandbox?.defaultTier ?? 'basic',
+    });
+    try {
+      const toolResult = await toolExtensionLoader.loadDirectory(toolsDir);
+      if (toolResult.loaded.length > 0) {
+        logger.info('tool_extensions.loaded', { count: toolResult.loaded.length });
+      }
+      for (const err of toolResult.errors) {
+        error(`Tool extension error: ${err}`);
+      }
+    } catch {
+      // tools/ directory may not exist — that's fine
+    }
 
     // --- Agent Loop ---
     let compactionConfig: CompactionConfig | undefined;
