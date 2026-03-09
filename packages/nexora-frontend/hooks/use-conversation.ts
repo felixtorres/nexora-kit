@@ -40,8 +40,15 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
     }
   }
 
-  // Pass 2: normalize user + assistant messages, reconstruct tool call blocks
-  const messages: Message[] = [];
+  // Pass 2: extract text + tool blocks from each message
+  interface ParsedMsg {
+    role: string;
+    text: string;
+    toolBlocks: ToolCallBlock[];
+    existingBlocks: DisplayBlock[];
+  }
+
+  const parsed: ParsedMsg[] = [];
 
   for (const raw of rawMessages) {
     const msg = raw as Record<string, unknown>;
@@ -78,16 +85,44 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
       text = String(content ?? '');
     }
 
-    // Skip empty messages
     if (!text && toolBlocks.length === 0) continue;
 
     const existingBlocks = (msg.blocks as DisplayBlock[] | undefined) ?? [];
-    const allBlocks = [...existingBlocks, ...toolBlocks];
+    parsed.push({ role, text, toolBlocks, existingBlocks });
+  }
+
+  // Pass 3: merge consecutive assistant messages into single turns.
+  // The backend stores one turn as: assistant (tool_use) → tool → assistant (text).
+  // During streaming, the frontend shows these as one bubble. Merge them here
+  // so reload matches the live experience.
+  const messages: Message[] = [];
+
+  for (let i = 0; i < parsed.length; i++) {
+    const p = parsed[i];
+
+    if (p.role === 'user') {
+      messages.push({ role: 'user', content: p.text });
+      continue;
+    }
+
+    // Assistant message — merge with subsequent consecutive assistant messages
+    let mergedText = p.text;
+    const mergedBlocks: DisplayBlock[] = [...p.existingBlocks, ...p.toolBlocks];
+
+    while (i + 1 < parsed.length && parsed[i + 1].role === 'assistant') {
+      i++;
+      const next = parsed[i];
+      if (next.text) {
+        if (mergedText) mergedText += '\n\n';
+        mergedText += next.text;
+      }
+      mergedBlocks.push(...next.existingBlocks, ...next.toolBlocks);
+    }
 
     messages.push({
-      role: role as Message['role'],
-      content: text,
-      blocks: allBlocks.length > 0 ? allBlocks : undefined,
+      role: 'assistant',
+      content: mergedText,
+      blocks: mergedBlocks.length > 0 ? mergedBlocks : undefined,
     });
   }
 
