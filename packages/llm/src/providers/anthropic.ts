@@ -128,6 +128,9 @@ export class AnthropicProvider implements LlmProvider {
       temperature: request.temperature,
     });
 
+    let streamedInputTokens = 0;
+    let streamedOutputTokens = 0;
+
     for await (const event of stream) {
       if (event.type === 'content_block_delta') {
         if (event.delta.type === 'text_delta') {
@@ -136,12 +139,14 @@ export class AnthropicProvider implements LlmProvider {
           // Tool input is streamed as JSON deltas; we handle the complete tool call at content_block_stop
         }
       } else if (event.type === 'message_start' && event.message.usage) {
+        streamedInputTokens += event.message.usage.input_tokens;
         yield {
           type: 'usage',
           inputTokens: event.message.usage.input_tokens,
           outputTokens: 0,
         };
       } else if (event.type === 'message_delta' && event.usage) {
+        streamedOutputTokens += event.usage.output_tokens;
         yield {
           type: 'usage',
           inputTokens: 0,
@@ -173,6 +178,16 @@ export class AnthropicProvider implements LlmProvider {
       stopReason: finalMessage.stop_reason,
       toolCallCount,
     });
+    // Fallback: emit usage from the final message if streaming events didn't
+    // include token counts (e.g. proxy stripping message_start/message_delta usage)
+    if (streamedInputTokens === 0 && streamedOutputTokens === 0) {
+      yield {
+        type: 'usage',
+        inputTokens: finalMessage.usage.input_tokens,
+        outputTokens: finalMessage.usage.output_tokens,
+      };
+    }
+
     this.logger?.debug('llm.usage', {
       model,
       inputTokens: finalMessage.usage.input_tokens,
