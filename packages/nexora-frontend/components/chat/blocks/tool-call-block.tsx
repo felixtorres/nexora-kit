@@ -24,10 +24,14 @@ function StatusIcon({ status }: { status: ToolCallBlockType['status'] }) {
   }
 }
 
+const TRUNCATE_THRESHOLD = 2000;
+
 export function ToolCallBlock({ block }: { block: ToolCallBlockType }) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const displayName = formatToolName(block.name);
   const hasContent = block.input || block.result;
+  const isLongResult = block.result ? block.result.length > TRUNCATE_THRESHOLD : false;
 
   return (
     <div className="rounded-lg border bg-muted/10">
@@ -62,9 +66,20 @@ export function ToolCallBlock({ block }: { block: ToolCallBlockType }) {
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
                 {block.isError ? 'Error' : 'Result'}
               </div>
-              <pre className={`overflow-x-auto rounded px-2 py-1.5 text-xs font-mono whitespace-pre-wrap break-words max-h-60 overflow-y-auto ${block.isError ? 'bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200' : 'bg-muted/30'}`}>
-                {block.result.length > 2000 ? block.result.slice(0, 2000) + '\n... (truncated)' : block.result}
+              <pre className={`overflow-x-auto rounded px-2 py-1.5 text-xs font-mono whitespace-pre-wrap break-words ${expanded ? 'max-h-[600px]' : 'max-h-60'} overflow-y-auto ${block.isError ? 'bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200' : 'bg-muted/30'}`}>
+                {isLongResult && !expanded
+                  ? block.result.slice(0, TRUNCATE_THRESHOLD)
+                  : block.result}
               </pre>
+              {isLongResult && (
+                <button
+                  type="button"
+                  className="mt-1 text-[10px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+                  onClick={() => setExpanded(!expanded)}
+                >
+                  {expanded ? 'Show less' : `Show full result (${block.result.length.toLocaleString()} chars)`}
+                </button>
+              )}
             </div>
           )}
         </div>
