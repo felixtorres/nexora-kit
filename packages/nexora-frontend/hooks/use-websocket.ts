@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSettings, useSettingsHydrated } from '@/store/settings';
 import { useConversationStore } from '@/store/conversation';
 import type { ResponseBlock } from '@/lib/block-types';
@@ -22,6 +23,7 @@ export function useWebSocket(conversationId: string | null) {
   const serverUrl = useSettings((s) => s.serverUrl);
   const apiKey = useSettings((s) => s.apiKey);
   const hydrated = useSettingsHydrated();
+  const queryClient = useQueryClient();
 
   // Store actions behind a ref so connect() has a stable identity.
   // Zustand actions are stable, but listing 15 deps makes the useCallback
@@ -119,10 +121,13 @@ export function useWebSocket(conversationId: string | null) {
           }
           case 'done': {
             s.finalizeStreaming(cid);
+            // Refresh conversation list to pick up auto-generated title
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
             break;
           }
           case 'cancelled': {
             s.finalizeStreaming(cid);
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
             break;
           }
           case 'error': {
