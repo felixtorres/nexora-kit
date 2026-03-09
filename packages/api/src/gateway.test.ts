@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Agent, request as httpRequest } from 'node:http';
 import { Gateway } from './gateway.js';
 import { ApiKeyAuth } from './auth.js';
 
@@ -15,14 +16,45 @@ function makeMockAgentLoop(events: any[] = [{ type: 'text', content: 'Hi' }, { t
 function makeMockPlugins(plugins: any[] = []) {
   return {
     listPlugins: vi.fn().mockReturnValue(plugins),
-    getPlugin: vi.fn().mockImplementation((ns: string) => plugins.find((p: any) => p.manifest.namespace === ns)),
+    getPlugin: vi
+      .fn()
+      .mockImplementation((ns: string) => plugins.find((p: any) => p.manifest.namespace === ns)),
   } as any;
 }
 
-async function fetchJson(url: string, options?: RequestInit): Promise<{ status: number; body: any; headers: Headers }> {
+async function fetchJson(
+  url: string,
+  options?: RequestInit,
+): Promise<{ status: number; body: any; headers: Headers }> {
   const res = await fetch(url, options);
   const body = res.status !== 204 ? await res.json() : null;
   return { status: res.status, body, headers: res.headers };
+}
+
+async function requestWithKeepAlive(options: {
+  host: string;
+  port: number;
+  path: string;
+  agent: Agent;
+}): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        host: options.host,
+        port: options.port,
+        path: options.path,
+        method: 'GET',
+        agent: options.agent,
+        headers: { Connection: 'keep-alive' },
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 describe('Gateway', () => {
@@ -98,7 +130,7 @@ describe('Gateway', () => {
     gateway = new Gateway({
       port: 0,
       agentLoop: makeMockAgentLoop(),
-      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+      auth: new ApiKeyAuth({ key: { userId: 'u1', teamId: 't1', role: 'user' } }),
     });
     await gateway.start();
     const addr = gateway.getAddress()!;
@@ -110,7 +142,15 @@ describe('Gateway', () => {
   it('lists plugins', async () => {
     const plugins = makeMockPlugins([
       {
-        manifest: { name: 'Test', namespace: 'test', version: '1.0.0', description: 'A test', permissions: [], dependencies: [], sandbox: { tier: 'basic' } },
+        manifest: {
+          name: 'Test',
+          namespace: 'test',
+          version: '1.0.0',
+          description: 'A test',
+          permissions: [],
+          dependencies: [],
+          sandbox: { tier: 'basic' },
+        },
         state: 'enabled',
         tools: [{ name: 'tool1', description: 'Tool' }],
       },
@@ -119,7 +159,7 @@ describe('Gateway', () => {
     gateway = new Gateway({
       port: 0,
       agentLoop: makeMockAgentLoop(),
-      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+      auth: new ApiKeyAuth({ key: { userId: 'u1', teamId: 't1', role: 'user' } }),
       plugins,
     });
     await gateway.start();
@@ -137,7 +177,15 @@ describe('Gateway', () => {
   it('returns plugin details', async () => {
     const plugins = makeMockPlugins([
       {
-        manifest: { name: 'Test', namespace: 'test', version: '1.0.0', description: 'A test', permissions: ['llm:invoke'], dependencies: [], sandbox: { tier: 'basic' } },
+        manifest: {
+          name: 'Test',
+          namespace: 'test',
+          version: '1.0.0',
+          description: 'A test',
+          permissions: ['llm:invoke'],
+          dependencies: [],
+          sandbox: { tier: 'basic' },
+        },
         state: 'enabled',
         tools: [{ name: 'tool1', description: 'Tool' }],
       },
@@ -146,7 +194,7 @@ describe('Gateway', () => {
     gateway = new Gateway({
       port: 0,
       agentLoop: makeMockAgentLoop(),
-      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+      auth: new ApiKeyAuth({ key: { userId: 'u1', teamId: 't1', role: 'user' } }),
       plugins,
     });
     await gateway.start();
@@ -165,7 +213,7 @@ describe('Gateway', () => {
     gateway = new Gateway({
       port: 0,
       agentLoop: makeMockAgentLoop(),
-      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+      auth: new ApiKeyAuth({ key: { userId: 'u1', teamId: 't1', role: 'user' } }),
       rateLimit: { windowMs: 60_000, maxRequests: 2 },
     });
     await gateway.start();
@@ -174,7 +222,11 @@ describe('Gateway', () => {
     const headers = { Authorization: 'Bearer key' };
     await fetchJson(`http://${addr.host}:${addr.port}/v1/plugins`, { headers });
     await fetchJson(`http://${addr.host}:${addr.port}/v1/plugins`, { headers });
-    const { status, body, headers: resHeaders } = await fetchJson(`http://${addr.host}:${addr.port}/v1/plugins`, { headers });
+    const {
+      status,
+      body,
+      headers: resHeaders,
+    } = await fetchJson(`http://${addr.host}:${addr.port}/v1/plugins`, { headers });
 
     expect(status).toBe(429);
     expect(body.error.code).toBe('RATE_LIMITED');
@@ -298,7 +350,7 @@ describe('Gateway', () => {
     gateway = new Gateway({
       port: 0,
       agentLoop: makeMockAgentLoop(),
-      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+      auth: new ApiKeyAuth({ key: { userId: 'u1', teamId: 't1', role: 'user' } }),
     });
     await gateway.start();
     const addr = gateway.getAddress()!;
@@ -318,7 +370,7 @@ describe('Gateway', () => {
     gateway = new Gateway({
       port: 0,
       agentLoop: makeMockAgentLoop(),
-      auth: new ApiKeyAuth({ 'key': { userId: 'u1', teamId: 't1', role: 'user' } }),
+      auth: new ApiKeyAuth({ key: { userId: 'u1', teamId: 't1', role: 'user' } }),
       publicMetrics: true,
     });
     await gateway.start();
@@ -327,5 +379,41 @@ describe('Gateway', () => {
     const { status, body } = await fetchJson(`http://${addr.host}:${addr.port}/v1/metrics`);
     expect(status).toBe(200);
     expect(body.uptime_seconds).toBeDefined();
+  });
+
+  it('does not accumulate close listeners on keep-alive sockets', async () => {
+    gateway = new Gateway({
+      port: 0,
+      agentLoop: makeMockAgentLoop(),
+      auth: new ApiKeyAuth({}),
+    });
+    await gateway.start();
+    const addr = gateway.getAddress()!;
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    const warnings: Error[] = [];
+    const onWarning = (warning: Error) => {
+      if (warning.name === 'MaxListenersExceededWarning') {
+        warnings.push(warning);
+      }
+    };
+
+    process.on('warning', onWarning);
+
+    try {
+      for (let i = 0; i < 12; i += 1) {
+        const status = await requestWithKeepAlive({
+          host: addr.host,
+          port: addr.port,
+          path: '/v1/health',
+          agent,
+        });
+        expect(status).toBe(200);
+      }
+
+      expect(warnings).toHaveLength(0);
+    } finally {
+      process.off('warning', onWarning);
+      agent.destroy();
+    }
   });
 });

@@ -14,7 +14,13 @@ import { startEvalServer } from './server.js';
 import { createEvalClient } from './client.js';
 import { extractMetrics, aggregateMetrics } from './metrics.js';
 import { runValidators } from './validators.js';
-import { loadBaseline, saveBaseline, buildBaseline, checkRegressions, checkCaseChanges } from './baseline.js';
+import {
+  loadBaseline,
+  saveBaseline,
+  buildBaseline,
+  checkRegressions,
+  checkCaseChanges,
+} from './baseline.js';
 import { printReport, writeJsonReport } from './report.js';
 
 export async function runEval(config: EvalConfig): Promise<EvalRun> {
@@ -39,7 +45,14 @@ export async function runEval(config: EvalConfig): Promise<EvalRun> {
 
     if (filtered.length === 0) {
       console.log('No scenarios matched the given tags.');
-      return { runId: randomUUID(), timestamp: new Date().toISOString(), scenarios: [], regressions: [], newFailures: [], fixed: [] };
+      return {
+        runId: randomUUID(),
+        timestamp: new Date().toISOString(),
+        scenarios: [],
+        regressions: [],
+        newFailures: [],
+        fixed: [],
+      };
     }
 
     // 4. Run scenarios
@@ -114,7 +127,9 @@ async function runScenario(
         console.log(`    Case: ${evalCase.name}${repLabel}...`);
         const result = await runCase(evalCase, client);
         const status = result.passed ? 'PASS' : `FAIL${result.error ? ': ' + result.error : ''}`;
-        console.log(`    -> ${status} (${result.metrics.latencyMs}ms, ${result.metrics.totalTokens} tokens)`);
+        console.log(
+          `    -> ${status} (${result.metrics.latencyMs}ms, ${result.metrics.totalTokens} tokens)`,
+        );
         caseResults.push(result);
       }
     }
@@ -137,7 +152,10 @@ async function runScenario(
   };
 }
 
-async function runCase(evalCase: import('./types.js').EvalCase, client: EvalClient): Promise<CaseResult> {
+async function runCase(
+  evalCase: import('./types.js').EvalCase,
+  client: EvalClient,
+): Promise<CaseResult> {
   const CASE_TIMEOUT_MS = 180_000; // 3 minutes per case max
 
   const TIMEOUT_MSG = `Case "${evalCase.name}" timed out after ${CASE_TIMEOUT_MS / 1000}s`;
@@ -176,7 +194,10 @@ async function runCase(evalCase: import('./types.js').EvalCase, client: EvalClie
   }
 }
 
-async function runCaseInner(evalCase: import('./types.js').EvalCase, client: EvalClient): Promise<CaseResult> {
+async function runCaseInner(
+  evalCase: import('./types.js').EvalCase,
+  client: EvalClient,
+): Promise<CaseResult> {
   const conv = await client.createConversation(
     evalCase.agentSlug ? { agentSlug: evalCase.agentSlug } : undefined,
   );
@@ -207,12 +228,20 @@ async function runCaseInner(evalCase: import('./types.js').EvalCase, client: Eva
   };
 
   const validations = runValidators(evalCase.validate, partialResult);
-  const passed = validations.every((v) => v.passed);
+  const errorEvents = allEvents.filter((event) => event.type === 'error');
+  const errorMessage =
+    errorEvents.length > 0
+      ? errorEvents
+          .map((event) => ('message' in event ? event.message : 'Unknown error'))
+          .join('; ')
+      : undefined;
+  const passed = validations.every((v) => v.passed) && errorMessage === undefined;
 
   return {
     ...partialResult,
     validations,
     passed,
+    error: errorMessage,
   };
 }
 
@@ -256,35 +285,23 @@ async function loadYamlScenario(path: string): Promise<Scenario[]> {
     cases: Array<{
       id: string;
       name: string;
-      messages: Array<{ text: string }>;
-      validate?: Array<{ type: string; value?: string; pattern?: string; flags?: string; limit?: number; caseSensitive?: boolean }>;
+      messages: Array<{ text?: string; content?: string; role?: string }>;
+      validate?: Array<RawYamlValidator>;
+      validators?: RawYamlValidatorMap;
+      botId?: string;
+      agentSlug?: string;
+      metadata?: Record<string, unknown>;
     }>;
   };
 
   const cases = raw.cases.map((c) => ({
     id: c.id,
     name: c.name,
-    messages: c.messages.map((m) => ({ role: 'user' as const, text: m.text })),
-    validate: (c.validate ?? []).map((v) => {
-      switch (v.type) {
-        case 'contains':
-          return { type: 'contains' as const, value: v.value!, caseSensitive: v.caseSensitive };
-        case 'not_contains':
-          return { type: 'not_contains' as const, value: v.value! };
-        case 'regex':
-          return { type: 'regex' as const, pattern: v.pattern!, flags: v.flags };
-        case 'json_valid':
-          return { type: 'json_valid' as const };
-        case 'max_tokens':
-          return { type: 'max_tokens' as const, limit: v.limit! };
-        case 'max_turns':
-          return { type: 'max_turns' as const, limit: v.limit! };
-        case 'max_latency_ms':
-          return { type: 'max_latency_ms' as const, limit: v.limit! };
-        default:
-          throw new Error(`Unknown validator type in YAML: ${v.type}`);
-      }
-    }),
+    messages: c.messages.map((m) => ({ role: 'user' as const, text: m.text ?? m.content ?? '' })),
+    validate: normalizeYamlValidators(c.validate, c.validators),
+    botId: c.botId,
+    agentSlug: c.agentSlug,
+    metadata: c.metadata,
   }));
 
   return [
@@ -295,4 +312,98 @@ async function loadYamlScenario(path: string): Promise<Scenario[]> {
       cases,
     },
   ];
+}
+
+type RawYamlValidator = {
+  type: string;
+  value?: string;
+  pattern?: string;
+  flags?: string;
+  limit?: number;
+  caseSensitive?: boolean;
+};
+
+type RawYamlValidatorMap = {
+  contains?: string[];
+  not_contains?: string[];
+  regex?: string[];
+  max_tokens?: number;
+  max_turns?: number;
+  max_latency_ms?: number;
+  json_valid?: boolean;
+};
+
+function normalizeYamlValidators(
+  validate?: RawYamlValidator[],
+  validators?: RawYamlValidatorMap,
+): import('./types.js').Validator[] {
+  const normalized: RawYamlValidator[] = [...(validate ?? [])];
+
+  if (validators?.contains) {
+    normalized.push(...validators.contains.map((value) => ({ type: 'contains', value })));
+  }
+
+  if (validators?.not_contains) {
+    normalized.push(...validators.not_contains.map((value) => ({ type: 'not_contains', value })));
+  }
+
+  if (validators?.regex) {
+    normalized.push(...validators.regex.map((pattern) => ({ type: 'regex', pattern })));
+  }
+
+  if (typeof validators?.max_tokens === 'number') {
+    normalized.push({ type: 'max_tokens', limit: validators.max_tokens });
+  }
+
+  if (typeof validators?.max_turns === 'number') {
+    normalized.push({ type: 'max_turns', limit: validators.max_turns });
+  }
+
+  if (typeof validators?.max_latency_ms === 'number') {
+    normalized.push({ type: 'max_latency_ms', limit: validators.max_latency_ms });
+  }
+
+  if (validators?.json_valid) {
+    normalized.push({ type: 'json_valid' });
+  }
+
+  return normalized.map((v) => {
+    switch (v.type) {
+      case 'contains':
+        return { type: 'contains' as const, value: v.value!, caseSensitive: v.caseSensitive };
+      case 'not_contains':
+        return { type: 'not_contains' as const, value: v.value! };
+      case 'regex':
+        return normalizeRegexValidator(v.pattern!, v.flags);
+      case 'json_valid':
+        return { type: 'json_valid' as const };
+      case 'max_tokens':
+        return { type: 'max_tokens' as const, limit: v.limit! };
+      case 'max_turns':
+        return { type: 'max_turns' as const, limit: v.limit! };
+      case 'max_latency_ms':
+        return { type: 'max_latency_ms' as const, limit: v.limit! };
+      default:
+        throw new Error(`Unknown validator type in YAML: ${v.type}`);
+    }
+  });
+}
+
+function normalizeRegexValidator(pattern: string, flags?: string): import('./types.js').Validator {
+  let normalizedPattern = pattern;
+  let normalizedFlags = flags ?? '';
+
+  const inlineFlagMatch = normalizedPattern.match(/^\(\?([a-z]+)\)(.*)$/i);
+  if (inlineFlagMatch) {
+    normalizedFlags = `${normalizedFlags}${inlineFlagMatch[1]}`;
+    normalizedPattern = inlineFlagMatch[2];
+  }
+
+  normalizedFlags = Array.from(new Set(normalizedFlags.split(''))).join('');
+
+  return {
+    type: 'regex' as const,
+    pattern: normalizedPattern,
+    flags: normalizedFlags || undefined,
+  };
 }

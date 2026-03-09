@@ -634,7 +634,17 @@ export class Gateway {
 
       // Wire client disconnect to AbortSignal for long-running requests
       const ac = new AbortController();
-      req.socket.on('close', () => ac.abort());
+      const abortRequest = () => {
+        if (!ac.signal.aborted) {
+          ac.abort();
+        }
+      };
+      req.once('aborted', abortRequest);
+      res.once('close', () => {
+        if (!res.writableEnded) {
+          abortRequest();
+        }
+      });
       apiReq.signal = ac.signal;
 
       // For client API routes, resolve the agent by slug and inject into params
