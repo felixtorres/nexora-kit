@@ -18,17 +18,18 @@ export function getSearchToolsDefinition(): ToolDefinition {
     description:
       'Search for available tools by keyword or description. ' +
       'Use this when you need a capability that is not in your current tool set. ' +
-      'Found tools will become available on the next turn.',
+      'Found tools will become available on the next turn. ' +
+      'Omit namespace to search all tools — only use namespace if you know the exact plugin name.',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Search query describing the tool capability you need',
+          description: 'Search query describing the tool capability you need (e.g. "database schema", "send email")',
         },
         namespace: {
           type: 'string',
-          description: 'Optional namespace to restrict search to',
+          description: 'Optional: exact plugin namespace to restrict search. Omit to search all plugins.',
         },
       },
       required: ['query'],

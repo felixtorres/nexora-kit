@@ -127,6 +127,15 @@ export class ToolIndex {
     if (!namespaces || namespaces.length === 0) {
       return new Set(this.tools.keys());
     }
+
+    // Check if any of the requested namespaces actually exist in the index
+    const anyKnown = namespaces.some((ns) => this.namespaceIndex.has(ns));
+    if (!anyKnown) {
+      // None of the namespaces are registered — fall back to searching all tools.
+      // Handles LLM hallucinating namespaces like "functions" or "database".
+      return new Set(this.tools.keys());
+    }
+
     const names = new Set<string>();
     for (const ns of namespaces) {
       const nsTools = this.namespaceIndex.get(ns);

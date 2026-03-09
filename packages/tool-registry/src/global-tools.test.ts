@@ -41,6 +41,7 @@ describe('ToolIndex global namespace', () => {
   });
 
   it('global tools bypass namespace filter for different namespace', () => {
+    index.register(makeTool('ns-a-tool', 'Tool in A'), 'ns-a');
     index.register(makeTool('ns-b-tool', 'Tool in B'), 'ns-b');
     index.register(makeTool('global-helper', 'Global helper tool'), GLOBAL_NAMESPACE);
 
@@ -49,6 +50,17 @@ describe('ToolIndex global namespace', () => {
     const names = results.map((r) => r.tool.name);
     expect(names).not.toContain('ns-b-tool');
     expect(names).toContain('global-helper');
+  });
+
+  it('falls back to all tools when namespace is unknown', () => {
+    index.register(makeTool('real-tool', 'A real tool'), 'my-plugin');
+    index.register(makeTool('global-tool', 'Global tool'), GLOBAL_NAMESPACE);
+
+    // Search with a hallucinated namespace — should fall back to all tools
+    const results = index.search({ text: 'tool', namespaces: ['functions'] });
+    const names = results.map((r) => r.tool.name);
+    expect(names).toContain('real-tool');
+    expect(names).toContain('global-tool');
   });
 });
 
