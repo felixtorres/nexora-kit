@@ -10,7 +10,7 @@ import { MessageInput } from '@/components/chat/message-input';
 import { DevPanel } from '@/components/chat/dev-panel';
 import { useConversationStore } from '@/store/conversation';
 import { useWebSocket } from '@/hooks/use-websocket';
-import { useSendMessage, normalizeMessage } from '@/hooks/use-conversation';
+import { useSendMessage, normalizeMessages } from '@/hooks/use-conversation';
 import { useSettingsHydrated } from '@/store/settings';
 import { api } from '@/lib/api';
 
@@ -39,13 +39,7 @@ export default function ConversationPage() {
     api.messages
       .list(conversationId)
       .then((res) => {
-        const visible = res.messages
-          .map(normalizeMessage)
-          .filter(
-            (m) =>
-              (m.role === 'user' || m.role === 'assistant') &&
-              (m.content || (m.blocks && m.blocks.length > 0)),
-          );
+        const visible = normalizeMessages(res.messages);
         setMessages(conversationId, visible);
       })
       .catch(() => {
