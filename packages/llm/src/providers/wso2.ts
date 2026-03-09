@@ -626,6 +626,8 @@ export class Wso2Provider implements LlmProvider {
 
     // Accumulate streaming tool call fragments
     const toolCallAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
+    let gotUsage = false;
+    let streamedText = '';
 
     try {
       while (true) {
@@ -649,6 +651,7 @@ export class Wso2Provider implements LlmProvider {
               chunkCount++;
 
               if (delta?.content) {
+                streamedText += delta.content;
                 yield { type: 'text', content: delta.content };
               }
 
@@ -667,6 +670,7 @@ export class Wso2Provider implements LlmProvider {
               }
 
               if (chunk.usage) {
+                gotUsage = true;
                 this.logger?.debug('llm.usage', {
                   model: this.deploymentId,
                   inputTokens: chunk.usage.prompt_tokens,
@@ -710,6 +714,17 @@ export class Wso2Provider implements LlmProvider {
       chunkCount,
       toolCallCount: toolCallAccumulator.size,
     });
+
+    // Fallback: estimate usage when stream_options was omitted or API didn't report it
+    if (!gotUsage) {
+      const inputEstimate = Math.ceil(JSON.stringify(body.messages).length / 4);
+      const outputEstimate = Math.ceil(streamedText.length / 4);
+      yield {
+        type: 'usage',
+        inputTokens: inputEstimate,
+        outputTokens: outputEstimate,
+      };
+    }
 
     yield { type: 'done' };
   }

@@ -483,6 +483,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     let chunkCount = 0;
 
     const toolCallAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
+    let gotUsage = false;
+    let streamedText = '';
 
     try {
       while (true) {
@@ -505,6 +507,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
               chunkCount++;
 
               if (delta?.content) {
+                streamedText += delta.content;
                 yield { type: 'text', content: delta.content };
               }
 
@@ -522,6 +525,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
               }
 
               if (chunk.usage) {
+                gotUsage = true;
                 this.logger?.debug('llm.usage', {
                   model: this.model,
                   inputTokens: chunk.usage.prompt_tokens,
@@ -564,6 +568,17 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       chunkCount,
       toolCallCount: toolCallAccumulator.size,
     });
+
+    // Fallback: estimate usage when stream didn't include token counts
+    if (!gotUsage) {
+      const inputEstimate = Math.ceil(JSON.stringify(body.messages).length / 4);
+      const outputEstimate = Math.ceil(streamedText.length / 4);
+      yield {
+        type: 'usage',
+        inputTokens: inputEstimate,
+        outputTokens: outputEstimate,
+      };
+    }
 
     yield { type: 'done' };
   }
