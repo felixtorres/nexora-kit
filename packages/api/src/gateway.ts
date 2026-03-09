@@ -410,6 +410,7 @@ export class Gateway {
     this.wsManager = new WebSocketManager({
       agentLoop: config.agentLoop,
       auth: config.auth,
+      conversationStore: config.conversationStore,
       heartbeatMs: config.wsHeartbeatMs,
       rateLimits: {
         maxMessagesPerMinute: config.wsMaxMessagesPerMinute,

@@ -1,6 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 import type { AgentLoop } from '@nexora-kit/core';
+import type { IConversationStore } from '@nexora-kit/storage';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import type { AuthProvider, AuthIdentity } from './types.js';
 import { wsChatMessageSchema, wsPingMessageSchema, wsCancelMessageSchema } from './types.js';
@@ -27,6 +28,7 @@ export class WebSocketManager {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private readonly agentLoop: AgentLoop;
   private readonly auth: AuthProvider;
+  private readonly conversationStore?: IConversationStore;
   private readonly heartbeatMs: number;
   private readonly rateLimits: WsRateLimitConfig;
   private readonly server = new WebSocketServer({ noServer: true });
@@ -35,11 +37,13 @@ export class WebSocketManager {
   constructor(options: {
     agentLoop: AgentLoop;
     auth: AuthProvider;
+    conversationStore?: IConversationStore;
     heartbeatMs?: number;
     rateLimits?: WsRateLimitConfig;
   }) {
     this.agentLoop = options.agentLoop;
     this.auth = options.auth;
+    this.conversationStore = options.conversationStore;
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
     this.rateLimits = options.rateLimits ?? {};
   }
@@ -288,6 +292,22 @@ export class WebSocketManager {
 
       if (abortController.signal.aborted) {
         sendJson(conn.socket, { type: 'cancelled', conversationId });
+      }
+
+      // Auto-title: set conversation title from first user message if not already set
+      if (this.conversationStore) {
+        try {
+          const conversation = await this.conversationStore.get(conversationId, conn.auth.userId);
+          if (conversation && !conversation.title) {
+            const inputText = typeof msg.input === 'string' ? msg.input : (chatInput.text ?? '');
+            if (inputText) {
+              const title = inputText.length > 80 ? inputText.slice(0, 77) + '...' : inputText;
+              await this.conversationStore.update(conversationId, conn.auth.userId, { title });
+            }
+          }
+        } catch {
+          // Best-effort — don't fail the chat
+        }
       }
     } finally {
       conn.activeChats--;
