@@ -35,3 +35,12 @@ export {
   agentDeleteCommand,
   agentBindCommand,
 } from './cmd-agent.js';
+export {
+  optimizeSkillCommand,
+  optimizeToolCommand,
+  optimizeBotCommand,
+  optimizeListCommand,
+  optimizeApproveCommand,
+  optimizeRollbackCommand,
+  optimizeStatusCommand,
+} from './cmd-optimize.js';

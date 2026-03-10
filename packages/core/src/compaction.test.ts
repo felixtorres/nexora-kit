@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ContextCompactor } from './compaction.js';
 import type { LlmProvider, LlmRequest, LlmEvent } from '@nexora-kit/llm';
 import type { Message } from './types.js';
+import type { Logger } from './logger.js';
 
 function createMockLlm(summaryText: string): LlmProvider {
   return {
@@ -119,5 +120,92 @@ describe('ContextCompactor', () => {
     const result = await compactor.compact(messages);
     // System messages are excluded from compaction
     expect(result.compactedMessages).toBe(2); // user+assistant, not system
+  });
+
+  it('skips compaction when input tokens exceed maxCompactionInputTokens', async () => {
+    const chatFn = vi.fn();
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [{ id: 'cheap', name: 'Cheap', provider: 'mock', contextWindow: 8000, maxOutputTokens: 1024 }],
+      async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
+        chatFn(request);
+        yield { type: 'text', content: 'should not be called' };
+        yield { type: 'done' };
+      },
+      async countTokens() { return 100; },
+    };
+
+    const mockLogger = {
+      debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+      child: () => mockLogger,
+    } as unknown as Logger;
+
+    const compactor = new ContextCompactor(llm, {
+      keepRecentGroups: 1,
+      maxCompactionInputTokens: 10, // Very low limit
+      logger: mockLogger,
+    });
+
+    const messages: Message[] = [
+      { role: 'user', content: 'Hello, this is a long message that exceeds the token limit' },
+      { role: 'assistant', content: 'Response that is also quite long and will push over the limit' },
+      { role: 'user', content: 'Another turn' },
+    ];
+
+    const result = await compactor.compact(messages);
+    expect(result.summary).toBe('');
+    expect(result.compactedMessages).toBe(0);
+    expect(chatFn).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'compaction.skipped_over_budget',
+      expect.objectContaining({ maxCompactionInputTokens: 10 }),
+    );
+  });
+
+  it('logs warning for high input token count', async () => {
+    const mockLogger = {
+      debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+      child: () => mockLogger,
+    } as unknown as Logger;
+
+    // Create a long conversation that exceeds 10k tokens (~40k chars)
+    const longContent = 'x'.repeat(50_000);
+    const llm = createMockLlm('summary');
+    const compactor = new ContextCompactor(llm, {
+      keepRecentGroups: 1,
+      logger: mockLogger,
+    });
+
+    const messages: Message[] = [
+      { role: 'user', content: longContent },
+      { role: 'assistant', content: 'ok' },
+      { role: 'user', content: 'next' },
+    ];
+
+    await compactor.compact(messages);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'compaction.high_input_tokens',
+      expect.objectContaining({ model: 'cheap-model' }),
+    );
+  });
+
+  it('warns when no models available', () => {
+    const mockLogger = {
+      debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+      child: () => mockLogger,
+    } as unknown as Logger;
+
+    const llm: LlmProvider = {
+      name: 'mock',
+      models: [],
+      async *chat(): AsyncIterable<LlmEvent> { yield { type: 'done' }; },
+      async countTokens() { return 0; },
+    };
+
+    new ContextCompactor(llm, { logger: mockLogger });
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'compaction.no_models',
+      expect.objectContaining({ message: expect.stringContaining('No models available') }),
+    );
   });
 });

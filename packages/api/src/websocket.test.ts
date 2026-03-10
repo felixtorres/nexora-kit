@@ -246,6 +246,31 @@ describe('WebSocketManager', () => {
     });
     ws.close();
   });
+
+  it('sends rate_limited event when message rate exceeded', async () => {
+    manager = new WebSocketManager({
+      agentLoop: makeMockAgentLoop(),
+      auth: makeMockAuth(),
+      rateLimits: { maxMessagesPerMinute: 2 },
+    });
+    const started = await startWsServer(manager);
+    shutdown = started.close;
+
+    const ws = await connectWebSocket(`${started.url}/v1/ws?token=dev-key`);
+
+    // Send 2 pings (within limit), then a 3rd that should be rate-limited
+    ws.send(JSON.stringify({ type: 'ping' }));
+    await nextJsonMessage(ws); // pong
+    ws.send(JSON.stringify({ type: 'ping' }));
+    await nextJsonMessage(ws); // pong
+
+    ws.send(JSON.stringify({ type: 'ping' }));
+    const msg = await nextJsonMessage(ws);
+    expect(msg.type).toBe('rate_limited');
+    expect(msg.message).toContain('rate limit');
+
+    ws.close();
+  });
 });
 
 describe('isWebSocketUpgrade', () => {

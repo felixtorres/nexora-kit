@@ -3,6 +3,7 @@ import { ContextManager } from './context.js';
 import { ToolDispatcher, type ToolExecutionContext } from './dispatcher.js';
 import { InMemoryMessageStore, type MessageStore } from './memory.js';
 import { NoopObservability } from './observability.js';
+import { NoopLogger, type Logger } from './logger.js';
 import { ActionRouter } from './action-router.js';
 import { filterPersistableBlocks } from './blocks.js';
 import { estimateTokens } from './token-utils.js';
@@ -129,6 +130,8 @@ export interface AgentLoopOptions {
   _depth?: number;
   /** Internal: parent trace ID for sub-agent observability correlation. */
   _parentTraceId?: string;
+  /** Logger for agent loop warnings (context budget, compaction, etc.). */
+  logger?: Logger;
 }
 
 export class AgentLoop {
@@ -161,6 +164,7 @@ export class AgentLoop {
   private readonly subAgentRunner?: SubAgentRunner;
   private readonly skillActivation: SkillActivationManager;
   private readonly parentTraceId?: string;
+  private readonly logger: Logger;
   private currentTraceId?: string;
   private readonly actionRouter = new ActionRouter();
   private abortControllers = new Map<string, AbortController>();
@@ -190,10 +194,14 @@ export class AgentLoop {
     this.enableWorkingMemory = options.enableWorkingMemory ?? true;
     this.workingMemory = new InMemoryWorkingMemory();
     this.skillActivation = options.skillActivationManager ?? new SkillActivationManager();
+    this.logger = options.logger ?? new NoopLogger();
 
     // Set up compaction
     if (options.compaction) {
-      this.compactor = new ContextCompactor(this.llm, options.compaction);
+      this.compactor = new ContextCompactor(this.llm, {
+        ...options.compaction,
+        logger: this.logger.child({ component: 'compaction' }),
+      });
     }
 
     // Register built-in tools
@@ -568,10 +576,16 @@ export class AgentLoop {
           workingMemoryNotes: [...workingMemoryNotes, ...turnReminders],
         });
 
-        // Estimate tool token overhead
+        // Estimate tool token overhead (aggregate + per-namespace)
+        const namespaceTokens = new Map<string, number>();
         const toolTokens = tools.reduce((sum, t) => {
           const desc = `${t.name} ${t.description} ${JSON.stringify(t.parameters)}`;
-          return sum + Math.ceil(desc.length / 4);
+          const tokens = Math.ceil(desc.length / 4);
+          // Extract namespace from tool name (e.g. "@ns/tool" → "@ns", "tool" → "_builtin")
+          const slashIdx = t.name.indexOf('/');
+          const ns = slashIdx > 0 ? t.name.slice(0, slashIdx) : '_builtin';
+          namespaceTokens.set(ns, (namespaceTokens.get(ns) ?? 0) + tokens);
+          return sum + tokens;
         }, 0);
 
         // Emit context metrics on first turn (avoid noise on subsequent turns)
@@ -583,6 +597,28 @@ export class AgentLoop {
             toolCount: tools.length,
             promptBreakdown: promptMetrics.breakdown,
           };
+
+          // Warn if framework system prompt tokens exceed recommended ceiling
+          const frameworkTokens = promptMetrics.totalTokens - promptMetrics.breakdown.base;
+          if (frameworkTokens > 2000) {
+            this.logger.warn('context.system_prompt_overhead', {
+              frameworkTokens,
+              totalSystemPromptTokens: promptMetrics.totalTokens,
+              breakdown: promptMetrics.breakdown,
+              message: 'Framework system prompt exceeds 2k token ceiling — consider reducing skill index or working memory',
+            });
+          }
+
+          // Warn if any plugin namespace injects >2k tokens of tool definitions
+          for (const [ns, tokens] of namespaceTokens) {
+            if (ns !== '_builtin' && tokens > 2000) {
+              this.logger.warn('context.plugin_tool_overhead', {
+                namespace: ns,
+                toolTokens: tokens,
+                message: `Plugin "${ns}" injects ${tokens} tokens of tool definitions per turn`,
+              });
+            }
+          }
         }
 
         // Compact conversation history if configured, otherwise hard-truncate

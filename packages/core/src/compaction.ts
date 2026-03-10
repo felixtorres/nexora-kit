@@ -1,5 +1,6 @@
 import type { LlmProvider } from '@nexora-kit/llm';
 import type { Message } from './types.js';
+import type { Logger } from './logger.js';
 import { buildAtomicGroups } from './context.js';
 import { estimateTokens } from './token-utils.js';
 
@@ -14,6 +15,12 @@ export interface CompactionConfig {
   keepRecentGroups?: number;
   /** Maximum tokens for the summary. Default: 1000 */
   maxSummaryTokens?: number;
+  /** Maximum input tokens allowed for compaction summarization. If the transcript
+   *  to summarize exceeds this, skip compaction and fall back to hard truncation.
+   *  Default: 0 (no limit — always attempt compaction). */
+  maxCompactionInputTokens?: number;
+  /** Logger for cost warnings. */
+  logger?: Logger;
 }
 
 export interface CompactionResult {
@@ -28,12 +35,16 @@ export class ContextCompactor {
   private readonly triggerRatio: number;
   private readonly keepRecentGroups: number;
   private readonly maxSummaryTokens: number;
+  private readonly maxCompactionInputTokens: number;
+  private readonly logger?: Logger;
 
   constructor(mainProvider: LlmProvider, config: CompactionConfig = {}) {
     this.provider = config.provider ?? mainProvider;
     this.triggerRatio = config.triggerRatio ?? 0.75;
     this.keepRecentGroups = config.keepRecentGroups ?? 4;
     this.maxSummaryTokens = config.maxSummaryTokens ?? 1000;
+    this.maxCompactionInputTokens = config.maxCompactionInputTokens ?? 0;
+    this.logger = config.logger;
 
     // Pick model: explicit config > cheapest available (smallest contextWindow heuristic)
     if (config.model) {
@@ -42,6 +53,11 @@ export class ContextCompactor {
       const sorted = [...this.provider.models].sort(
         (a, b) => a.contextWindow - b.contextWindow,
       );
+      if (sorted.length === 0) {
+        this.logger?.warn('compaction.no_models', {
+          message: 'No models available for compaction — will fall back to hard truncation',
+        });
+      }
       this.model = sorted[0]?.id ?? 'default';
     }
   }
@@ -73,6 +89,26 @@ export class ContextCompactor {
         return `[${m.role}]: ${content}`;
       })
       .join('\n');
+
+    // Cost estimation: check input token count before calling LLM
+    const inputTokenEstimate = estimateTokens(transcript);
+    if (this.maxCompactionInputTokens > 0 && inputTokenEstimate > this.maxCompactionInputTokens) {
+      this.logger?.warn('compaction.skipped_over_budget', {
+        inputTokenEstimate,
+        maxCompactionInputTokens: this.maxCompactionInputTokens,
+        messagesToCompact: compactedCount,
+        message: 'Compaction input exceeds budget — falling back to hard truncation',
+      });
+      return { summary: '', compactedMessages: 0, summaryTokens: 0 };
+    }
+
+    if (inputTokenEstimate > 10_000) {
+      this.logger?.warn('compaction.high_input_tokens', {
+        inputTokenEstimate,
+        messagesToCompact: compactedCount,
+        model: this.model,
+      });
+    }
 
     const summaryPrompt = `Summarize the following conversation history concisely. Preserve:
 - Key decisions and conclusions

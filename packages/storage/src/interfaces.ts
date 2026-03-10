@@ -640,3 +640,126 @@ export interface IEndUserStore {
   list(agentId: string): EndUserRecord[] | Promise<EndUserRecord[]>;
   updateLastSeen(id: string): void | Promise<void>;
 }
+
+// --- Execution Trace Store ---
+
+export interface ExecutionTraceRecord {
+  id: string;
+  conversationId: string;
+  traceId: string;
+  skillName: string | null;
+  botId: string | null;
+  model: string | null;
+  prompt: string;
+  toolCalls: { name: string; input: Record<string, unknown>; output?: string; isError: boolean }[];
+  retrievedDocs: string[];
+  agentReasoning: string | null;
+  finalAnswer: string;
+  score: number | null;
+  scoreFeedback: string | null;
+  userFeedback: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  createdAt: string;
+}
+
+export interface CreateExecutionTraceInput {
+  conversationId: string;
+  traceId: string;
+  skillName?: string;
+  botId?: string;
+  model?: string;
+  prompt: string;
+  toolCalls?: ExecutionTraceRecord['toolCalls'];
+  retrievedDocs?: string[];
+  agentReasoning?: string;
+  finalAnswer: string;
+  score?: number;
+  scoreFeedback?: string;
+  userFeedback?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  durationMs?: number;
+}
+
+export interface ExecutionTraceFilter {
+  conversationId?: string;
+  skillName?: string;
+  botId?: string;
+  model?: string;
+  hasScore?: boolean;
+  hasNegativeScore?: boolean;
+  since?: string;
+  limit?: number;
+}
+
+export interface IExecutionTraceStore {
+  insert(trace: CreateExecutionTraceInput): string | Promise<string>;
+  get(id: string): ExecutionTraceRecord | undefined | Promise<ExecutionTraceRecord | undefined>;
+  query(filter?: ExecutionTraceFilter): ExecutionTraceRecord[] | Promise<ExecutionTraceRecord[]>;
+  count(filter?: ExecutionTraceFilter): number | Promise<number>;
+  updateScore(id: string, score: number, feedback?: string): void | Promise<void>;
+  averageScore(componentName: string, botId: string | null, days: number): number | null | Promise<number | null>;
+  deleteOlderThan(days: number): number | Promise<number>;
+}
+
+// --- Optimized Prompt Store ---
+
+export type OptimizedPromptComponentType = 'skill' | 'tool_description' | 'system_prompt' | 'compaction';
+export type OptimizedPromptStatus = 'candidate' | 'approved' | 'active' | 'unvalidated' | 'rolled_back';
+
+export interface OptimizedPromptRecord {
+  id: string;
+  componentType: OptimizedPromptComponentType;
+  componentName: string;
+  botId: string | null;
+  originalPrompt: string;
+  optimizedPrompt: string;
+  score: number;
+  scoreImprovement: number;
+  paretoRank: number;
+  evolutionDepth: number;
+  parentId: string | null;
+  reflectionLog: string;
+  optimizedForModel: string;
+  status: OptimizedPromptStatus;
+  rollingScore: number | null;
+  createdAt: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+}
+
+export interface CreateOptimizedPromptInput {
+  componentType: OptimizedPromptComponentType;
+  componentName: string;
+  botId?: string;
+  originalPrompt: string;
+  optimizedPrompt: string;
+  score: number;
+  scoreImprovement: number;
+  paretoRank?: number;
+  evolutionDepth?: number;
+  parentId?: string;
+  reflectionLog: string;
+  optimizedForModel: string;
+}
+
+export interface OptimizedPromptFilter {
+  componentType?: OptimizedPromptComponentType;
+  componentName?: string;
+  botId?: string;
+  status?: OptimizedPromptStatus;
+  optimizedForModel?: string;
+  limit?: number;
+}
+
+export interface IOptimizedPromptStore {
+  insert(prompt: CreateOptimizedPromptInput): string | Promise<string>;
+  get(id: string): OptimizedPromptRecord | undefined | Promise<OptimizedPromptRecord | undefined>;
+  query(filter?: OptimizedPromptFilter): OptimizedPromptRecord[] | Promise<OptimizedPromptRecord[]>;
+  updateStatus(id: string, status: OptimizedPromptStatus, approvedBy?: string): void | Promise<void>;
+  updateRollingScore(id: string, score: number): void | Promise<void>;
+  getActive(componentType: OptimizedPromptComponentType, componentName: string, botId?: string): OptimizedPromptRecord | undefined | Promise<OptimizedPromptRecord | undefined>;
+  deleteOlderThan(days: number): number | Promise<number>;
+}

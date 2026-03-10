@@ -18,6 +18,8 @@ export { SqliteFileStore } from './file-store.js';
 export { SqliteWorkspaceStore } from './workspace-store.js';
 export { SqliteContextDocumentStore } from './context-document-store.js';
 export { SqliteArtifactStore } from './artifact-store.js';
+export { SqliteExecutionTraceStore } from './execution-trace-store.js';
+export { SqliteOptimizedPromptStore } from './optimized-prompt-store.js';
 
 // Interfaces
 export type {
@@ -77,6 +79,16 @@ export type {
   ArtifactVersionRecord,
   CreateArtifactInput,
   ArtifactType,
+  IExecutionTraceStore,
+  ExecutionTraceRecord,
+  CreateExecutionTraceInput,
+  ExecutionTraceFilter,
+  IOptimizedPromptStore,
+  OptimizedPromptRecord,
+  CreateOptimizedPromptInput,
+  OptimizedPromptFilter,
+  OptimizedPromptComponentType,
+  OptimizedPromptStatus,
 } from './interfaces.js';
 
 // Backend factory
@@ -101,6 +113,8 @@ export { PgFileStore } from './postgres/pg-file-store.js';
 export { PgWorkspaceStore } from './postgres/pg-workspace-store.js';
 export { PgContextDocumentStore } from './postgres/pg-context-document-store.js';
 export { PgArtifactStore } from './postgres/pg-artifact-store.js';
+export { PgExecutionTraceStore } from './postgres/pg-execution-trace-store.js';
+export { PgOptimizedPromptStore } from './postgres/pg-optimized-prompt-store.js';
 export { initPgSchema } from './postgres/schema.js';
 export type { PgPool } from './postgres/pg-pool.js';
 

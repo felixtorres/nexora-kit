@@ -26,6 +26,7 @@ export { BotRunner, type BotConfig } from './bot-runner.js';
 export { Orchestrator, type OrchestratorConfig, type OrchestratorBotBinding } from './orchestrator.js';
 export { ActionRouter, type ActionMapping } from './action-router.js';
 export { NoopObservability } from './observability.js';
+export { TraceCapture, type CapturedTrace, type TraceCallback } from './trace-capture.js';
 export { truncateToolResult, estimateTokens } from './token-utils.js';
 export { ContextBudget, type ContextBudgetOptions, type BudgetAllocation } from './context-budget.js';
 export { LangfuseObservability, type LangfuseConfig } from './langfuse.js';
@@ -38,6 +39,25 @@ export { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js';
 export { SubAgentRunner, type SubAgentConfig, type SubAgentRequest, type SubAgentResult } from './sub-agent.js';
 export type { UserMemoryStoreInterface } from './user-memory-interface.js';
 export { SkillActivationManager, type ActiveSkill } from './skill-activation.js';
+export { PromptOptimizer, type PromptOptimizerConfig, type OptimizationResult, type ScoredTrace } from './prompt-optimizer.js';
+export {
+  RegressionMonitor,
+  type RegressionMonitorConfig,
+  type RegressionMonitorStore,
+  type RegressionTraceStore,
+} from './regression-monitor.js';
+export {
+  answerCorrectness,
+  toolSelection,
+  retrievalRelevance,
+  userSatisfaction,
+  compactionRetention,
+  MetricRegistry,
+  type ScoreWithFeedback,
+  type ExecutionTraceInput,
+  type MetricContext,
+  type MetricFunction,
+} from './metrics.js';
 export {
   HookRegistry,
   runHook,

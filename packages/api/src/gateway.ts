@@ -37,6 +37,12 @@ import {
   createAdminAuditPurgeHandler,
 } from './admin-handlers.js';
 import {
+  createOptimizeTriggerHandler,
+  createOptimizeCandidatesHandler,
+  createOptimizeApproveHandler,
+  createOptimizeRollbackHandler,
+} from './optimization-handlers.js';
+import {
   createBotCreateHandler,
   createBotListHandler,
   createBotGetHandler,
@@ -338,6 +344,21 @@ export class Gateway {
         createAdminAuditPurgeHandler(config.admin),
       );
       this.router.get(`${prefix}/admin/usage`, createAdminUsageHandler(config.admin));
+
+      // Optimization routes
+      this.router.post(`${prefix}/admin/optimize`, createOptimizeTriggerHandler(config.admin));
+      this.router.get(
+        `${prefix}/admin/optimize/candidates`,
+        createOptimizeCandidatesHandler(config.admin),
+      );
+      this.router.post(
+        `${prefix}/admin/optimize/candidates/:id/approve`,
+        createOptimizeApproveHandler(config.admin),
+      );
+      this.router.post(
+        `${prefix}/admin/optimize/candidates/:id/rollback`,
+        createOptimizeRollbackHandler(config.admin),
+      );
     }
 
     // Bot & Agent admin routes

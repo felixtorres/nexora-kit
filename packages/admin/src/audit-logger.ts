@@ -94,6 +94,64 @@ export class AuditLogger {
     });
   }
 
+  logOptimizationStart(
+    actor: string,
+    componentType: string,
+    componentName: string,
+    details?: Record<string, unknown>,
+  ): number | Promise<number> {
+    return this.log({
+      actor,
+      action: 'optimization.start',
+      target: `${componentType}:${componentName}`,
+      details,
+      result: 'success',
+    });
+  }
+
+  logOptimizationComplete(
+    actor: string,
+    componentType: string,
+    componentName: string,
+    details?: Record<string, unknown>,
+  ): number | Promise<number> {
+    return this.log({
+      actor,
+      action: 'optimization.complete',
+      target: `${componentType}:${componentName}`,
+      details,
+      result: 'success',
+    });
+  }
+
+  logOptimizationApprove(
+    actor: string,
+    promptId: string,
+    details?: Record<string, unknown>,
+  ): number | Promise<number> {
+    return this.log({
+      actor,
+      action: 'optimization.approve',
+      target: `prompt:${promptId}`,
+      details,
+      result: 'success',
+    });
+  }
+
+  logOptimizationRollback(
+    actor: string,
+    promptId: string,
+    details?: Record<string, unknown>,
+  ): number | Promise<number> {
+    return this.log({
+      actor,
+      action: 'optimization.rollback',
+      target: `prompt:${promptId}`,
+      details,
+      result: 'success',
+    });
+  }
+
   logFailure(
     actor: string,
     action: string,

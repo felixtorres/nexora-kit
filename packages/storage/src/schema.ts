@@ -247,6 +247,59 @@ const TABLES = [
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+
+  // --- GEPA Optimizer tables ---
+
+  `CREATE TABLE IF NOT EXISTS execution_traces (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    skill_name TEXT,
+    bot_id TEXT,
+    model TEXT,
+    prompt TEXT NOT NULL,
+    tool_calls TEXT NOT NULL DEFAULT '[]',
+    retrieved_docs TEXT NOT NULL DEFAULT '[]',
+    agent_reasoning TEXT,
+    final_answer TEXT NOT NULL,
+    score REAL,
+    score_feedback TEXT,
+    user_feedback TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_execution_traces_conversation ON execution_traces(conversation_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_traces_skill ON execution_traces(skill_name)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_traces_bot ON execution_traces(bot_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_traces_score ON execution_traces(score)`,
+
+  `CREATE TABLE IF NOT EXISTS optimized_prompts (
+    id TEXT PRIMARY KEY,
+    component_type TEXT NOT NULL CHECK (component_type IN ('skill', 'tool_description', 'system_prompt', 'compaction')),
+    component_name TEXT NOT NULL,
+    bot_id TEXT,
+    original_prompt TEXT NOT NULL,
+    optimized_prompt TEXT NOT NULL,
+    score REAL NOT NULL,
+    score_improvement REAL NOT NULL,
+    pareto_rank INTEGER NOT NULL DEFAULT 0,
+    evolution_depth INTEGER NOT NULL DEFAULT 0,
+    parent_id TEXT,
+    reflection_log TEXT NOT NULL,
+    optimized_for_model TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate', 'approved', 'active', 'unvalidated', 'rolled_back')),
+    rolling_score REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    approved_by TEXT,
+    approved_at TEXT
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_optimized_prompts_component ON optimized_prompts(component_type, component_name)`,
+  `CREATE INDEX IF NOT EXISTS idx_optimized_prompts_status ON optimized_prompts(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_optimized_prompts_bot ON optimized_prompts(bot_id)`,
 ];
 
 export function initSchema(db: Database.Database): void {

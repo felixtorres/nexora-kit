@@ -171,6 +171,62 @@ agent:
 
 Without `compaction`, the system falls back to hard truncation (dropping oldest messages). Enabling compaction is recommended for any bot that handles multi-step tasks or long conversations.
 
+### System Prompts
+
+System prompts can be set at three levels, with later levels overriding earlier ones:
+
+**1. Instance default** — applies to all conversations when no bot or conversation override is set:
+
+```yaml
+# nexora.yaml — not a direct config key; set via the first bot or via API
+# The instance's default system prompt comes from the base prompt in @nexora-kit/core.
+```
+
+**2. Bot-level** — each bot has its own `systemPrompt` that overrides the instance default:
+
+```bash
+nexora-kit bot create \
+  --name "Support Bot" \
+  --model claude-sonnet-4-6 \
+  --system-prompt "You are a support agent. Be concise and helpful."
+```
+
+Or via the API:
+
+```bash
+curl -X POST http://localhost:3000/v1/admin/bots \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Support Bot", "model": "claude-sonnet-4-6", "systemPrompt": "You are a support agent."}'
+```
+
+**3. Conversation-level** — set when creating a conversation, overrides bot defaults:
+
+```bash
+curl -X POST http://localhost:3000/v1/conversations \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"systemPrompt": "You are a legal advisor. Only discuss contract law.", "model": "claude-opus-4-6"}'
+```
+
+**4. Conversation templates** — reusable presets for common configurations:
+
+```bash
+# Create a template (admin only)
+curl -X POST http://localhost:3000/v1/admin/templates \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Legal Advisor", "systemPrompt": "You are a legal advisor.", "model": "claude-opus-4-6"}'
+
+# Use the template when creating a conversation
+curl -X POST http://localhost:3000/v1/conversations \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"templateId": "<template-id>"}'
+```
+
+The priority cascade is: **conversation → bot → instance default**. The `model` field follows the same cascade.
+
 ## Validate and Start
 
 ```bash

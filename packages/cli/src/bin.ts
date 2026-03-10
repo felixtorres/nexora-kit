@@ -34,6 +34,15 @@ import {
   agentBindCommand,
 } from './cmd-agent.js';
 import { completionCommand } from './cmd-completion.js';
+import {
+  optimizeSkillCommand,
+  optimizeToolCommand,
+  optimizeBotCommand,
+  optimizeListCommand,
+  optimizeApproveCommand,
+  optimizeRollbackCommand,
+  optimizeStatusCommand,
+} from './cmd-optimize.js';
 import { error } from './output.js';
 
 const router = new CommandRouter();
@@ -80,6 +89,15 @@ router.register(adminUsageCommand);
 router.register(adminAuditCommand);
 router.register(adminFeedbackCommand);
 router.register(adminCleanupCommand);
+
+// Optimize subcommands
+router.register(optimizeSkillCommand);
+router.register(optimizeToolCommand);
+router.register(optimizeBotCommand);
+router.register(optimizeListCommand);
+router.register(optimizeApproveCommand);
+router.register(optimizeRollbackCommand);
+router.register(optimizeStatusCommand);
 
 // Utility
 router.register(completionCommand);

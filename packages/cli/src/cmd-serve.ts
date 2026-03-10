@@ -4,7 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import type { CliCommand } from './commands.js';
 import { error, fmt } from './output.js';
 
-import { AgentLoop, ContextManager, ToolDispatcher, JsonLogger, type CompactionConfig } from '@nexora-kit/core';
+import { AgentLoop, ContextManager, ToolDispatcher, JsonLogger, TraceCapture, PromptOptimizer, NoopObservability, type CompactionConfig, type ObservabilityHooks } from '@nexora-kit/core';
 import type { LogLevel } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
@@ -58,6 +58,12 @@ interface InstanceConfig {
       passthroughBudgetRatio?: number;
       essentialTools?: string[];
     };
+  };
+  optimization?: {
+    /** Enable execution trace capture and prompt optimization. Default: false */
+    enabled?: boolean;
+    /** LLM model for the reflection/rewrite step. Defaults to the instance's primary model. */
+    model?: string;
   };
   rateLimit?: { windowMs?: number; maxRequests?: number };
 }
@@ -256,6 +262,32 @@ export const serveCommand: CliCommand = {
       // tools/ directory may not exist — that's fine
     }
 
+    // --- Trace Capture (opt-in via optimization.enabled) ---
+    const optimizationEnabled = config.optimization?.enabled === true;
+    let baseObservability: ObservabilityHooks | undefined;
+
+    if (optimizationEnabled) {
+      baseObservability = new TraceCapture(async (trace) => {
+        try {
+          await storageBackend.executionTraceStore.insert({
+            conversationId: trace.conversationId,
+            traceId: trace.traceId,
+            model: trace.model ?? undefined,
+            prompt: trace.prompt,
+            toolCalls: trace.toolCalls,
+            agentReasoning: trace.agentReasoning ?? undefined,
+            finalAnswer: trace.finalAnswer,
+            inputTokens: trace.inputTokens,
+            outputTokens: trace.outputTokens,
+            durationMs: trace.durationMs,
+          });
+        } catch (err) {
+          logger.warn('trace_capture.insert_failed', { err: err instanceof Error ? err.message : String(err) });
+        }
+      });
+      logger.info('optimization.trace_capture_enabled', {});
+    }
+
     // --- Agent Loop ---
     let compactionConfig: CompactionConfig | undefined;
     if (config.agent?.compaction) {
@@ -268,6 +300,27 @@ export const serveCommand: CliCommand = {
       };
     }
 
+    // Observability: compose base (TraceCapture) with audit-backed sub-agent hooks
+    // AuditLogger is created below, so we wire via a deferred reference
+    let auditLogger: AuditLogger | undefined;
+    const base: ObservabilityHooks = baseObservability ?? new NoopObservability();
+    const observabilityHooks: ObservabilityHooks = {
+      onTraceStart: base.onTraceStart.bind(base),
+      onGeneration: base.onGeneration.bind(base),
+      onToolCall: base.onToolCall.bind(base),
+      onToolSelection: base.onToolSelection.bind(base),
+      onTraceEnd: base.onTraceEnd.bind(base),
+      flush: base.flush.bind(base),
+      onSubAgentStart(data) {
+        base.onSubAgentStart?.(data);
+        auditLogger?.logSubAgentStart(data.conversationId, data.agentId, data.task);
+      },
+      onSubAgentEnd(data) {
+        base.onSubAgentEnd?.(data);
+        auditLogger?.logSubAgentEnd(data.conversationId, data.agentId, data.tokensUsed);
+      },
+    };
+
     const agentLoop = new AgentLoop({
       llm: llmProvider,
       contextManager: new ContextManager(),
@@ -276,20 +329,36 @@ export const serveCommand: CliCommand = {
       commandDispatcher,
       skillIndexProvider: skillIndexAdapter,
       toolSelector,
+      observability: observabilityHooks,
       maxContextTokens: config.agent?.maxContextTokens,
       compaction: compactionConfig,
+      logger: logger.child({ component: 'agent-loop' }),
     });
 
     // --- Auth ---
     const auth = buildAuth(config, logger);
 
     // --- Admin ---
-    const auditLogger = new AuditLogger(auditEventStore);
+    auditLogger = new AuditLogger(auditEventStore);
     const usageAnalytics = new UsageAnalytics(usageEventStore);
+    // --- Prompt Optimizer (only when optimization is enabled) ---
+    let promptOptimizer: PromptOptimizer | undefined;
+    if (optimizationEnabled) {
+      promptOptimizer = new PromptOptimizer({
+        llm: llmProvider,
+        model: config.optimization?.model,
+      });
+    }
+
     const adminService = new AdminService({
       plugins: lifecycle,
       auditLogger,
       usageAnalytics,
+      ...(optimizationEnabled && {
+        executionTraceStore: storageBackend.executionTraceStore,
+        optimizedPromptStore: storageBackend.optimizedPromptStore,
+        promptOptimizer,
+      }),
     });
 
     // --- Gateway ---

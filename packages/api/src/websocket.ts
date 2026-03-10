@@ -202,7 +202,7 @@ export class WebSocketManager {
       const windowStart = now - 60_000;
       conn.messageTimestamps = conn.messageTimestamps.filter((t) => t > windowStart);
       if (conn.messageTimestamps.length >= this.rateLimits.maxMessagesPerMinute) {
-        sendJson(conn.socket, { type: 'error', message: 'Message rate limit exceeded' });
+        sendJson(conn.socket, { type: 'rate_limited', message: 'Message rate limit exceeded' });
         return;
       }
       conn.messageTimestamps.push(now);

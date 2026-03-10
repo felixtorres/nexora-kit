@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SystemPromptBuilder } from './system-prompt-builder.js';
+import { SystemPromptBuilder, type PromptMetrics } from './system-prompt-builder.js';
 
 describe('SystemPromptBuilder', () => {
   it('builds prompt from all components', () => {
@@ -62,5 +62,29 @@ describe('SystemPromptBuilder', () => {
 
     expect(reminders[0]).toContain('2 turn(s) remaining');
     expect(reminders[0]).toContain('Turn 8/10');
+  });
+
+  it('buildWithMetrics returns per-component token breakdown', () => {
+    const builder = new SystemPromptBuilder();
+    const { metrics } = builder.buildWithMetrics({
+      workspacePrefix: 'workspace context here',
+      basePrompt: 'You are a helpful assistant.',
+      commandPrompt: '/help — show help',
+      artifactSuffix: '## Artifacts\n- doc.md v1',
+      skillIndexSuffix: '## Skills\n- @plugin/greet',
+      workingMemoryNotes: ['user prefers formal tone'],
+    });
+
+    expect(metrics.totalTokens).toBeGreaterThan(0);
+    expect(metrics.breakdown.workspace).toBeGreaterThan(0);
+    expect(metrics.breakdown.base).toBeGreaterThan(0);
+    expect(metrics.breakdown.command).toBeGreaterThan(0);
+    expect(metrics.breakdown.artifacts).toBeGreaterThan(0);
+    expect(metrics.breakdown.skillIndex).toBeGreaterThan(0);
+    expect(metrics.breakdown.workingMemory).toBeGreaterThan(0);
+
+    // Framework tokens = totalTokens - base (user-provided prompt)
+    const frameworkTokens = metrics.totalTokens - metrics.breakdown.base;
+    expect(frameworkTokens).toBeGreaterThan(0);
   });
 });

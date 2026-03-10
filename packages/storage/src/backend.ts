@@ -1,5 +1,5 @@
 import type { MessageStore } from '@nexora-kit/core';
-import type { IConversationStore, IConfigStore, IPluginStateStore, ITokenUsageStore, IUsageEventStore, IAuditEventStore, IBotStore, IAgentStore, IAgentBotBindingStore, IEndUserStore } from './interfaces.js';
+import type { IConversationStore, IConfigStore, IPluginStateStore, ITokenUsageStore, IUsageEventStore, IAuditEventStore, IBotStore, IAgentStore, IAgentBotBindingStore, IEndUserStore, IExecutionTraceStore, IOptimizedPromptStore } from './interfaces.js';
 
 export type StorageBackendConfig =
   | { type: 'sqlite'; path: string; walMode?: boolean }
@@ -17,6 +17,8 @@ export interface StorageBackend {
   agentStore: IAgentStore;
   agentBotBindingStore: IAgentBotBindingStore;
   endUserStore: IEndUserStore;
+  executionTraceStore: IExecutionTraceStore;
+  optimizedPromptStore: IOptimizedPromptStore;
   close(): Promise<void>;
 }
 
@@ -44,6 +46,8 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
   const { SqliteAgentStore } = await import('./agent-store.js');
   const { SqliteAgentBotBindingStore } = await import('./agent-bot-binding-store.js');
   const { SqliteEndUserStore } = await import('./end-user-store.js');
+  const { SqliteExecutionTraceStore } = await import('./execution-trace-store.js');
+  const { SqliteOptimizedPromptStore } = await import('./optimized-prompt-store.js');
 
   const storage = new StorageDatabase({ path: config.path, walMode: config.walMode });
   initSchema(storage.db);
@@ -60,6 +64,8 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
     agentStore: new SqliteAgentStore(storage.db),
     agentBotBindingStore: new SqliteAgentBotBindingStore(storage.db),
     endUserStore: new SqliteEndUserStore(storage.db),
+    executionTraceStore: new SqliteExecutionTraceStore(storage.db),
+    optimizedPromptStore: new SqliteOptimizedPromptStore(storage.db),
     async close() {
       storage.close();
     },
@@ -97,6 +103,8 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
   const { PgAgentStore } = await import('./postgres/pg-agent-store.js');
   const { PgAgentBotBindingStore } = await import('./postgres/pg-agent-bot-binding-store.js');
   const { PgEndUserStore } = await import('./postgres/pg-end-user-store.js');
+  const { PgExecutionTraceStore } = await import('./postgres/pg-execution-trace-store.js');
+  const { PgOptimizedPromptStore } = await import('./postgres/pg-optimized-prompt-store.js');
 
   return {
     messageStore: new PgMessageStore(pool),
@@ -110,6 +118,8 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
     agentStore: new PgAgentStore(pool),
     agentBotBindingStore: new PgAgentBotBindingStore(pool),
     endUserStore: new PgEndUserStore(pool),
+    executionTraceStore: new PgExecutionTraceStore(pool),
+    optimizedPromptStore: new PgOptimizedPromptStore(pool),
     async close() {
       await pool.end();
     },
