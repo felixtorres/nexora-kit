@@ -4,7 +4,17 @@ import { parse as parseYaml } from 'yaml';
 import type { CliCommand } from './commands.js';
 import { error, fmt } from './output.js';
 
-import { AgentLoop, ContextManager, ToolDispatcher, JsonLogger, TraceCapture, PromptOptimizer, NoopObservability, type CompactionConfig, type ObservabilityHooks } from '@nexora-kit/core';
+import {
+  AgentLoop,
+  ContextManager,
+  ToolDispatcher,
+  JsonLogger,
+  TraceCapture,
+  PromptOptimizer,
+  NoopObservability,
+  type CompactionConfig,
+  type ObservabilityHooks,
+} from '@nexora-kit/core';
 import type { LogLevel } from '@nexora-kit/core';
 import { ConfigResolver } from '@nexora-kit/config';
 import { PermissionGate } from '@nexora-kit/sandbox';
@@ -20,7 +30,7 @@ import {
 import { SkillRegistry, SkillHandlerFactory, SkillIndexAdapter } from '@nexora-kit/skills';
 import { CommandRegistry, CommandDispatcher } from '@nexora-kit/commands';
 import { McpManager } from '@nexora-kit/mcp';
-import { createStorageBackend, type StorageBackend } from '@nexora-kit/storage';
+import { createStorageBackend } from '@nexora-kit/storage';
 import { AuditLogger, UsageAnalytics, AdminService } from '@nexora-kit/admin';
 import { Gateway, ApiKeyAuth } from '@nexora-kit/api';
 import { createProviderFromConfig, type LlmConfig } from '@nexora-kit/llm';
@@ -40,7 +50,11 @@ interface InstanceConfig {
     poolSize?: number;
   };
   plugins?: { directory?: string };
-  tools?: { directory?: string; namespace?: string; sandbox?: { tier?: 'none' | 'basic' | 'strict' } };
+  tools?: {
+    directory?: string;
+    namespace?: string;
+    sandbox?: { tier?: 'none' | 'basic' | 'strict' };
+  };
   sandbox?: { defaultTier?: 'none' | 'basic' | 'strict' };
   llm?: LlmConfig;
   agent?: {
@@ -116,18 +130,25 @@ export const serveCommand: CliCommand = {
     });
 
     // --- Storage ---
-    let storageBackend: StorageBackend;
+    const storageBackend =
+      config.storage?.backend === 'postgres' && config.storage.connectionString
+        ? await createStorageBackend({
+            type: 'postgres',
+            connectionString: config.storage.connectionString,
+            poolSize: config.storage.poolSize,
+          })
+        : await createStorageBackend({
+            type: 'sqlite',
+            path: resolve(instanceDir, config.storage?.path ?? './data/nexora.db'),
+          });
+
     if (config.storage?.backend === 'postgres' && config.storage.connectionString) {
-      storageBackend = await createStorageBackend({
-        type: 'postgres',
-        connectionString: config.storage.connectionString,
-        poolSize: config.storage.poolSize,
-      });
       logger.info('storage.ready', { backend: 'postgres' });
     } else {
-      const dbPath = resolve(instanceDir, config.storage?.path ?? './data/nexora.db');
-      storageBackend = await createStorageBackend({ type: 'sqlite', path: dbPath });
-      logger.info('storage.ready', { backend: 'sqlite', path: dbPath });
+      logger.info('storage.ready', {
+        backend: 'sqlite',
+        path: resolve(instanceDir, config.storage?.path ?? './data/nexora.db'),
+      });
     }
 
     const messageStore = storageBackend.messageStore;
@@ -159,9 +180,8 @@ export const serveCommand: CliCommand = {
       toolIndex,
       conversationToolMemory,
     });
-    toolDispatcher.register(
-      getSearchToolsDefinition(),
-      async (input, context) => searchToolsHandler(input, context),
+    toolDispatcher.register(getSearchToolsDefinition(), async (input, context) =>
+      searchToolsHandler(input, context),
     );
     const skillRegistry = new SkillRegistry();
     const commandRegistry = new CommandRegistry();
@@ -282,7 +302,9 @@ export const serveCommand: CliCommand = {
             durationMs: trace.durationMs,
           });
         } catch (err) {
-          logger.warn('trace_capture.insert_failed', { err: err instanceof Error ? err.message : String(err) });
+          logger.warn('trace_capture.insert_failed', {
+            err: err instanceof Error ? err.message : String(err),
+          });
         }
       });
       logger.info('optimization.trace_capture_enabled', {});
@@ -374,6 +396,7 @@ export const serveCommand: CliCommand = {
       agentStore: storageBackend.agentStore,
       agentBotBindingStore: storageBackend.agentBotBindingStore,
       endUserStore: storageBackend.endUserStore,
+      feedbackStore: storageBackend.feedbackStore,
       plugins: lifecycle,
       commandDispatcher,
       admin: adminService,

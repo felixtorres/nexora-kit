@@ -32,7 +32,11 @@ export function createSubmitFeedbackHandler(deps: FeedbackHandlerDeps) {
 
     const parsed = submitFeedbackSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new ApiError(400, `Invalid request: ${parsed.error.issues[0].message}`, 'VALIDATION_ERROR');
+      throw new ApiError(
+        400,
+        `Invalid request: ${parsed.error.issues[0].message}`,
+        'VALIDATION_ERROR',
+      );
     }
 
     const feedback = await deps.feedbackStore.submit({
@@ -45,6 +49,35 @@ export function createSubmitFeedbackHandler(deps: FeedbackHandlerDeps) {
     });
 
     return jsonResponse(200, feedback);
+  };
+}
+
+// --- GET /v1/conversations/:id/feedback ---
+
+const conversationFeedbackQuerySchema = z.object({
+  rating: z.enum(['positive', 'negative']).optional(),
+  cursor: z.string().optional(),
+  limit: z.string().transform(Number).pipe(z.number().int().positive().max(100)).optional(),
+});
+
+export function createConversationFeedbackQueryHandler(deps: FeedbackHandlerDeps) {
+  return async (req: ApiRequest): Promise<ApiResponse> => {
+    if (!req.auth) throw new ApiError(401, 'Authentication required');
+
+    const parsed = conversationFeedbackQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new ApiError(400, 'Invalid query parameters', 'VALIDATION_ERROR');
+    }
+
+    const result = await deps.feedbackStore.query({
+      conversationId: req.params.id,
+      userId: req.auth.userId,
+      rating: parsed.data.rating,
+      cursor: parsed.data.cursor,
+      limit: parsed.data.limit,
+    });
+
+    return jsonResponse(200, result);
   };
 }
 

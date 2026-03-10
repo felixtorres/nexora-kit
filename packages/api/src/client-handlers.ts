@@ -1,4 +1,12 @@
-import type { IAgentStore, IAgentBotBindingStore, IEndUserStore, IConversationStore } from '@nexora-kit/storage';
+import type {
+  IAgentStore,
+  IAgentBotBindingStore,
+  IBotStore,
+  IConversationStore,
+  IEndUserStore,
+  IUsageEventStore,
+  ConversationRecord,
+} from '@nexora-kit/storage';
 import type { AgentLoop, MessageStore, ResponseBlock, Logger } from '@nexora-kit/core';
 import type { ApiRequest, ApiResponse } from './types.js';
 import { createConversationSchema, sendMessageSchema } from './types.js';
@@ -9,11 +17,50 @@ import { AgentRateLimiter } from './agent-rate-limit.js';
 export interface ClientHandlerDeps {
   agentStore: IAgentStore;
   agentBotBindingStore: IAgentBotBindingStore;
+  botStore?: IBotStore;
   endUserStore: IEndUserStore;
   conversationStore: IConversationStore;
   messageStore: MessageStore;
   agentLoop: AgentLoop;
+  usageEventStore?: IUsageEventStore;
   logger?: Logger;
+}
+
+async function resolveConversationPluginNamespaces(
+  conversation: ConversationRecord,
+  deps: ClientHandlerDeps,
+): Promise<string[]> {
+  if (conversation.pluginNamespaces.length > 0) {
+    return conversation.pluginNamespaces;
+  }
+
+  if (!conversation.agentId || !deps.botStore) {
+    return [];
+  }
+
+  const agent = await deps.agentStore.get(conversation.agentId, conversation.teamId);
+  if (!agent) {
+    return [];
+  }
+
+  const candidateBotIds = [
+    agent.botId,
+    ...(await deps.agentBotBindingStore.list(conversation.agentId)).map((binding) => binding.botId),
+    agent.fallbackBotId,
+  ].filter((botId): botId is string => Boolean(botId));
+
+  for (const botId of candidateBotIds) {
+    const bot = await deps.botStore.get(botId, conversation.teamId);
+    if (bot && bot.pluginNamespaces.length > 0) {
+      return bot.pluginNamespaces;
+    }
+  }
+
+  return [];
+}
+
+function getUsagePluginName(pluginNamespaces?: string[]): string {
+  return pluginNamespaces?.[0] ?? '__core__';
 }
 
 const agentRateLimiter = new AgentRateLimiter();
@@ -63,12 +110,7 @@ async function resolveAgentAndAuth(
     throw new ApiError(404, 'Agent not found', 'NOT_FOUND');
   }
 
-  const endUser = await authenticateEndUser(
-    req,
-    agent.id,
-    agent.endUserAuth,
-    deps.endUserStore,
-  );
+  const endUser = await authenticateEndUser(req, agent.id, agent.endUserAuth, deps.endUserStore);
 
   // Check rate limits
   const msgCheck = agentRateLimiter.check(endUser.endUserId, agent.rateLimits, 'message');
@@ -108,13 +150,41 @@ export function createClientConversationCreateHandler(deps: ClientHandlerDeps) {
 
     const parsed = createConversationSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new ApiError(400, parsed.error.issues.map((i) => i.message).join(', '), 'VALIDATION_ERROR');
+      throw new ApiError(
+        400,
+        parsed.error.issues.map((i) => i.message).join(', '),
+        'VALIDATION_ERROR',
+      );
     }
 
     // Check conversation rate limit
-    const convCheck = agentRateLimiter.check(endUser.endUserId, (await deps.agentStore.get(agentId, teamId))!.rateLimits, 'conversation');
+    const convCheck = agentRateLimiter.check(
+      endUser.endUserId,
+      (await deps.agentStore.get(agentId, teamId))!.rateLimits,
+      'conversation',
+    );
     if (!convCheck.allowed) {
       throw new ApiError(429, 'Conversation rate limit exceeded', 'RATE_LIMITED');
+    }
+
+    let resolvedPluginNamespaces = parsed.data.pluginNamespaces;
+    if (!resolvedPluginNamespaces?.length && deps.botStore) {
+      const agent = await deps.agentStore.get(agentId, teamId);
+      if (agent) {
+        const candidateBotIds = [
+          agent.botId,
+          ...(await deps.agentBotBindingStore.list(agent.id)).map((binding) => binding.botId),
+          agent.fallbackBotId,
+        ].filter((botId): botId is string => Boolean(botId));
+
+        for (const botId of candidateBotIds) {
+          const bot = await deps.botStore.get(botId, teamId);
+          if (bot && bot.pluginNamespaces.length > 0) {
+            resolvedPluginNamespaces = bot.pluginNamespaces;
+            break;
+          }
+        }
+      }
     }
 
     const conv = await deps.conversationStore.create({
@@ -122,6 +192,7 @@ export function createClientConversationCreateHandler(deps: ClientHandlerDeps) {
       userId: endUser.endUserId,
       agentId,
       ...parsed.data,
+      pluginNamespaces: resolvedPluginNamespaces,
     });
 
     return jsonResponse(201, conv);
@@ -169,32 +240,58 @@ export function createClientSendMessageHandler(deps: ClientHandlerDeps) {
 
     const parsed = sendMessageSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new ApiError(400, parsed.error.issues.map((i) => i.message).join(', '), 'VALIDATION_ERROR');
+      throw new ApiError(
+        400,
+        parsed.error.issues.map((i) => i.message).join(', '),
+        'VALIDATION_ERROR',
+      );
     }
 
-    const input = typeof parsed.data.input === 'string'
-      ? { type: 'text' as const, text: parsed.data.input }
-      : parsed.data.input;
+    const input =
+      typeof parsed.data.input === 'string'
+        ? { type: 'text' as const, text: parsed.data.input }
+        : parsed.data.input;
+
+    const resolvedPluginNamespaces =
+      parsed.data.pluginNamespaces ?? (await resolveConversationPluginNamespaces(conv, deps));
 
     const chatRequest = {
       conversationId,
       input,
       teamId,
       userId: endUser.endUserId,
-      pluginNamespaces: parsed.data.pluginNamespaces,
+      pluginNamespaces: resolvedPluginNamespaces,
       metadata: parsed.data.metadata,
       workspaceId: conv.workspaceId ?? undefined,
     };
 
     let fullText = '';
     const allBlocks: ResponseBlock[] = [];
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    const loopStart = Date.now();
 
     deps.logger?.info('agent_loop.start', { conversationId, agentId });
     for await (const event of deps.agentLoop.run(chatRequest)) {
       if (event.type === 'text') fullText += event.content;
       else if (event.type === 'blocks') allBlocks.push(...event.blocks);
+      else if (event.type === 'usage') {
+        totalInputTokens += event.inputTokens;
+        totalOutputTokens += event.outputTokens;
+      }
     }
     deps.logger?.info('agent_loop.done', { conversationId, agentId });
+
+    if (deps.usageEventStore && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+      await deps.usageEventStore.insert({
+        pluginName: getUsagePluginName(resolvedPluginNamespaces),
+        userId: endUser.endUserId,
+        model: undefined,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        latencyMs: Date.now() - loopStart,
+      });
+    }
 
     // Update message stats
     const newCount = conv.messageCount + 2; // user + assistant

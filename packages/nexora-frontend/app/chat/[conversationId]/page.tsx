@@ -18,7 +18,8 @@ export default function ConversationPage() {
   const params = useParams();
   const conversationId = params.conversationId as string;
   const queryClient = useQueryClient();
-  const { setActiveConversation, setMessages, isSending, isStreaming } = useConversationStore();
+  const { setActiveConversation, setMessages, hydrateFeedback, isSending, isStreaming } =
+    useConversationStore();
   const hydrated = useSettingsHydrated();
   const sendMessageRest = useSendMessage();
   const {
@@ -46,8 +47,20 @@ export default function ConversationPage() {
         // Server may not have message store configured — start fresh
       });
 
+    api.feedback
+      .listConversation(conversationId)
+      .then((res) => {
+        hydrateFeedback(
+          conversationId,
+          res.items.map((item) => ({ messageSeq: item.messageSeq, rating: item.rating })),
+        );
+      })
+      .catch(() => {
+        // Older servers may not support feedback history yet
+      });
+
     return () => setActiveConversation(null);
-  }, [conversationId, hydrated, setActiveConversation, setMessages]);
+  }, [conversationId, hydrated, hydrateFeedback, setActiveConversation, setMessages]);
 
   const handleSend = useCallback(
     (input: string) => {

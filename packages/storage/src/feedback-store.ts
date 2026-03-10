@@ -60,6 +60,14 @@ export class SqliteFeedbackStore implements IFeedbackStore {
     const conditions: string[] = [];
     const params: unknown[] = [];
 
+    if (opts.conversationId) {
+      conditions.push('conversation_id = ?');
+      params.push(opts.conversationId);
+    }
+    if (opts.userId) {
+      conditions.push('user_id = ?');
+      params.push(opts.userId);
+    }
     if (opts.pluginNamespace) {
       conditions.push('plugin_namespace = ?');
       params.push(opts.pluginNamespace);
@@ -83,7 +91,8 @@ export class SqliteFeedbackStore implements IFeedbackStore {
       params.push(cursorTime, cursorTime, cursorId);
     }
 
-    let sql = 'SELECT id, conversation_id, message_seq, user_id, rating, comment, tags, plugin_namespace, model, created_at FROM feedback';
+    let sql =
+      'SELECT id, conversation_id, message_seq, user_id, rating, comment, tags, plugin_namespace, model, created_at FROM feedback';
     if (conditions.length > 0) {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
@@ -171,9 +180,9 @@ export class SqliteFeedbackStore implements IFeedbackStore {
     }
 
     // Top tags
-    const allRows = this.db
-      .prepare(`SELECT tags FROM feedback${where}`)
-      .all(...params) as { tags: string }[];
+    const allRows = this.db.prepare(`SELECT tags FROM feedback${where}`).all(...params) as {
+      tags: string;
+    }[];
 
     const tagCounts = new Map<string, number>();
     for (const r of allRows) {
@@ -193,7 +202,10 @@ export class SqliteFeedbackStore implements IFeedbackStore {
       positiveCount,
       negativeCount,
       positiveRate,
-      byPlugin: Array.from(pluginMap.entries()).map(([pluginNamespace, v]) => ({ pluginNamespace, ...v })),
+      byPlugin: Array.from(pluginMap.entries()).map(([pluginNamespace, v]) => ({
+        pluginNamespace,
+        ...v,
+      })),
       byModel: Array.from(modelMap.entries()).map(([model, v]) => ({ model, ...v })),
       topTags,
     };
@@ -204,7 +216,9 @@ export class SqliteFeedbackStore implements IFeedbackStore {
   }
 
   deleteFromSeq(conversationId: string, fromSeq: number): void {
-    this.db.prepare('DELETE FROM feedback WHERE conversation_id = ? AND message_seq >= ?').run(conversationId, fromSeq);
+    this.db
+      .prepare('DELETE FROM feedback WHERE conversation_id = ? AND message_seq >= ?')
+      .run(conversationId, fromSeq);
   }
 }
 

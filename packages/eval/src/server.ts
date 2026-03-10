@@ -18,7 +18,7 @@ import {
 import { SkillRegistry, SkillHandlerFactory, SkillIndexAdapter } from '@nexora-kit/skills';
 import { CommandRegistry, CommandDispatcher } from '@nexora-kit/commands';
 import { McpManager } from '@nexora-kit/mcp';
-import { createStorageBackend, type StorageBackend } from '@nexora-kit/storage';
+import { createStorageBackend } from '@nexora-kit/storage';
 import { AuditLogger, UsageAnalytics, AdminService } from '@nexora-kit/admin';
 import { Gateway, ApiKeyAuth } from '@nexora-kit/api';
 import { createProviderFromConfig, type LlmConfig } from '@nexora-kit/llm';
@@ -89,7 +89,7 @@ export async function startEvalServer(target: EvalTarget): Promise<EvalServer> {
   const instanceDir = resolve(configPath, '..');
 
   // --- Storage: ephemeral in-memory SQLite ---
-  const storageBackend: StorageBackend = await createStorageBackend({
+  const storageBackend = await createStorageBackend({
     type: 'sqlite',
     path: ':memory:',
   });
@@ -111,9 +111,8 @@ export async function startEvalServer(target: EvalTarget): Promise<EvalServer> {
   });
 
   const searchToolsHandler = createSearchToolsHandler({ toolIndex, conversationToolMemory });
-  toolDispatcher.register(
-    getSearchToolsDefinition(),
-    async (input, context) => searchToolsHandler(input, context),
+  toolDispatcher.register(getSearchToolsDefinition(), async (input, context) =>
+    searchToolsHandler(input, context),
   );
 
   const skillRegistry = new SkillRegistry();
@@ -158,7 +157,10 @@ export async function startEvalServer(target: EvalTarget): Promise<EvalServer> {
         lifecycle.setSkillDefinitions(result.plugin.manifest.namespace, result.skillDefinitions);
       }
       if (result.commandDefinitions.size > 0) {
-        lifecycle.setCommandDefinitions(result.plugin.manifest.namespace, result.commandDefinitions);
+        lifecycle.setCommandDefinitions(
+          result.plugin.manifest.namespace,
+          result.commandDefinitions,
+        );
       }
       if (result.mcpServerConfigs.length > 0) {
         lifecycle.setMcpConfigs(result.plugin.manifest.namespace, result.mcpServerConfigs);
@@ -231,6 +233,7 @@ export async function startEvalServer(target: EvalTarget): Promise<EvalServer> {
     agentStore: storageBackend.agentStore,
     agentBotBindingStore: storageBackend.agentBotBindingStore,
     endUserStore: storageBackend.endUserStore,
+    feedbackStore: storageBackend.feedbackStore,
     plugins: lifecycle,
     commandDispatcher,
     admin: adminService,

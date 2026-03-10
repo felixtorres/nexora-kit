@@ -313,10 +313,23 @@ export const api = {
       messageSeq: number,
       data: { rating: 'positive' | 'negative'; comment?: string; tags?: string[] },
     ) =>
-      request<FeedbackItem>(
-        `/conversations/${conversationId}/messages/${messageSeq}/feedback`,
-        { method: 'POST', body: JSON.stringify(data) },
-      ),
+      request<FeedbackItem>(`/conversations/${conversationId}/messages/${messageSeq}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    listConversation: (
+      conversationId: string,
+      params?: { rating?: 'positive' | 'negative'; cursor?: string; limit?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.rating) qs.set('rating', params.rating);
+      if (params?.cursor) qs.set('cursor', params.cursor);
+      if (params?.limit) qs.set('limit', String(params.limit));
+      const q = qs.toString();
+      return request<{ items: FeedbackItem[]; nextCursor: string | null }>(
+        `/conversations/${conversationId}/feedback${q ? `?${q}` : ''}`,
+      );
+    },
     list: (params?: { rating?: 'positive' | 'negative'; cursor?: string; limit?: number }) => {
       const qs = new URLSearchParams();
       if (params?.rating) qs.set('rating', params.rating);

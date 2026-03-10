@@ -40,7 +40,11 @@ export class PgFeedbackStore implements IFeedbackStore {
     return mapRow(rows[0]);
   }
 
-  async get(conversationId: string, messageSeq: number, userId: string): Promise<FeedbackRecord | undefined> {
+  async get(
+    conversationId: string,
+    messageSeq: number,
+    userId: string,
+  ): Promise<FeedbackRecord | undefined> {
     const { rows } = await this.pool.query(
       'SELECT id, conversation_id, message_seq, user_id, rating, comment, tags, plugin_namespace, model, created_at FROM feedback WHERE conversation_id = $1 AND message_seq = $2 AND user_id = $3',
       [conversationId, messageSeq, userId],
@@ -53,6 +57,14 @@ export class PgFeedbackStore implements IFeedbackStore {
     const params: unknown[] = [];
     let paramIdx = 1;
 
+    if (opts.conversationId) {
+      conditions.push(`conversation_id = $${paramIdx++}`);
+      params.push(opts.conversationId);
+    }
+    if (opts.userId) {
+      conditions.push(`user_id = $${paramIdx++}`);
+      params.push(opts.userId);
+    }
     if (opts.pluginNamespace) {
       conditions.push(`plugin_namespace = $${paramIdx++}`);
       params.push(opts.pluginNamespace);
@@ -71,12 +83,15 @@ export class PgFeedbackStore implements IFeedbackStore {
     }
     if (opts.cursor) {
       const [cursorTime, cursorId] = opts.cursor.split('|');
-      conditions.push(`(created_at < $${paramIdx} OR (created_at = $${paramIdx} AND id < $${paramIdx + 1}))`);
+      conditions.push(
+        `(created_at < $${paramIdx} OR (created_at = $${paramIdx} AND id < $${paramIdx + 1}))`,
+      );
       params.push(cursorTime, cursorId);
       paramIdx += 2;
     }
 
-    let sql = 'SELECT id, conversation_id, message_seq, user_id, rating, comment, tags, plugin_namespace, model, created_at FROM feedback';
+    let sql =
+      'SELECT id, conversation_id, message_seq, user_id, rating, comment, tags, plugin_namespace, model, created_at FROM feedback';
     if (conditions.length > 0) {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
@@ -164,10 +179,7 @@ export class PgFeedbackStore implements IFeedbackStore {
     }
 
     // Top tags — fetch all tags and aggregate in-memory
-    const { rows: tagRows } = await this.pool.query(
-      `SELECT tags FROM feedback${where}`,
-      params,
-    );
+    const { rows: tagRows } = await this.pool.query(`SELECT tags FROM feedback${where}`, params);
 
     const tagCounts = new Map<string, number>();
     for (const r of tagRows) {
@@ -187,7 +199,10 @@ export class PgFeedbackStore implements IFeedbackStore {
       positiveCount,
       negativeCount,
       positiveRate,
-      byPlugin: Array.from(pluginMap.entries()).map(([pluginNamespace, v]) => ({ pluginNamespace, ...v })),
+      byPlugin: Array.from(pluginMap.entries()).map(([pluginNamespace, v]) => ({
+        pluginNamespace,
+        ...v,
+      })),
       byModel: Array.from(modelMap.entries()).map(([model, v]) => ({ model, ...v })),
       topTags,
     };
@@ -198,7 +213,10 @@ export class PgFeedbackStore implements IFeedbackStore {
   }
 
   async deleteFromSeq(conversationId: string, fromSeq: number): Promise<void> {
-    await this.pool.query('DELETE FROM feedback WHERE conversation_id = $1 AND message_seq >= $2', [conversationId, fromSeq]);
+    await this.pool.query('DELETE FROM feedback WHERE conversation_id = $1 AND message_seq >= $2', [
+      conversationId,
+      fromSeq,
+    ]);
   }
 }
 

@@ -1,6 +1,13 @@
 import type { AgentLoop, MessageStore, ResponseBlock, Logger } from '@nexora-kit/core';
 import type { PluginLifecycleManager } from '@nexora-kit/plugins';
-import type { IConversationStore, IUsageEventStore } from '@nexora-kit/storage';
+import type {
+  IAgentBotBindingStore,
+  IAgentStore,
+  IBotStore,
+  IConversationStore,
+  IUsageEventStore,
+  ConversationRecord,
+} from '@nexora-kit/storage';
 import type { ApiRequest, ApiResponse } from './types.js';
 import {
   chatRequestSchema,
@@ -13,10 +20,52 @@ import { ApiError, jsonResponse } from './router.js';
 export interface HandlerDeps {
   agentLoop: AgentLoop;
   conversationStore?: IConversationStore;
+  botStore?: IBotStore;
+  agentStore?: IAgentStore;
+  agentBotBindingStore?: IAgentBotBindingStore;
   messageStore?: MessageStore;
   plugins?: PluginLifecycleManager;
   usageEventStore?: IUsageEventStore;
   logger?: Logger;
+}
+
+async function resolveConversationPluginNamespaces(
+  conversation: ConversationRecord,
+  deps: HandlerDeps,
+): Promise<string[]> {
+  if (conversation.pluginNamespaces.length > 0) {
+    return conversation.pluginNamespaces;
+  }
+
+  if (!conversation.agentId || !deps.agentStore || !deps.botStore) {
+    return [];
+  }
+
+  const agent = await deps.agentStore.get(conversation.agentId, conversation.teamId);
+  if (!agent) {
+    return [];
+  }
+
+  const candidateBotIds = [
+    agent.botId,
+    ...(deps.agentBotBindingStore
+      ? (await deps.agentBotBindingStore.list(conversation.agentId)).map((binding) => binding.botId)
+      : []),
+    agent.fallbackBotId,
+  ].filter((botId): botId is string => Boolean(botId));
+
+  for (const botId of candidateBotIds) {
+    const bot = await deps.botStore.get(botId, conversation.teamId);
+    if (bot && bot.pluginNamespaces.length > 0) {
+      return bot.pluginNamespaces;
+    }
+  }
+
+  return [];
+}
+
+function getUsagePluginName(pluginNamespaces?: string[]): string {
+  return pluginNamespaces?.[0] ?? '__core__';
 }
 
 // --- POST /v1/conversations ---
@@ -35,10 +84,39 @@ export function createConversationCreateHandler(deps: HandlerDeps) {
       );
     }
 
+    let resolvedPluginNamespaces = parsed.data.pluginNamespaces;
+
+    if (
+      (!resolvedPluginNamespaces || resolvedPluginNamespaces.length === 0) &&
+      parsed.data.agentId &&
+      deps.agentStore &&
+      deps.botStore
+    ) {
+      const agent = await deps.agentStore.get(parsed.data.agentId, req.auth.teamId);
+      if (agent) {
+        const candidateBotIds = [
+          agent.botId,
+          ...(deps.agentBotBindingStore
+            ? (await deps.agentBotBindingStore.list(agent.id)).map((binding) => binding.botId)
+            : []),
+          agent.fallbackBotId,
+        ].filter((botId): botId is string => Boolean(botId));
+
+        for (const botId of candidateBotIds) {
+          const bot = await deps.botStore.get(botId, req.auth.teamId);
+          if (bot && bot.pluginNamespaces.length > 0) {
+            resolvedPluginNamespaces = bot.pluginNamespaces;
+            break;
+          }
+        }
+      }
+    }
+
     const conversation = await deps.conversationStore.create({
       teamId: req.auth.teamId,
       userId: req.auth.userId,
       ...parsed.data,
+      pluginNamespaces: resolvedPluginNamespaces,
     });
 
     return jsonResponse(201, conversation);
@@ -163,12 +241,14 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     let conversationSystemPrompt: string | undefined;
     let conversationModel: string | undefined;
     let conversationWorkspaceId: string | undefined;
+    let resolvedPluginNamespaces: string[] | undefined;
     if (deps.conversationStore) {
       const conversation = await deps.conversationStore.get(conversationId, req.auth.userId);
       if (!conversation) throw new ApiError(404, 'Conversation not found');
       conversationSystemPrompt = conversation.systemPrompt ?? undefined;
       conversationModel = conversation.model ?? undefined;
       conversationWorkspaceId = conversation.workspaceId ?? undefined;
+      resolvedPluginNamespaces = await resolveConversationPluginNamespaces(conversation, deps);
     }
 
     const parsed = sendMessageSchema.safeParse(req.body);
@@ -181,6 +261,7 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     }
 
     const { input, pluginNamespaces, metadata } = parsed.data;
+    resolvedPluginNamespaces = pluginNamespaces ?? resolvedPluginNamespaces;
 
     // Normalize input: string shorthand → ChatInputText
     const chatInput = typeof input === 'string' ? { type: 'text' as const, text: input } : input;
@@ -204,7 +285,7 @@ export function createSendMessageHandler(deps: HandlerDeps) {
         input: chatInput,
         teamId: req.auth.teamId,
         userId: req.auth.userId,
-        pluginNamespaces,
+        pluginNamespaces: resolvedPluginNamespaces,
         metadata,
       },
       req.signal,
@@ -233,7 +314,7 @@ export function createSendMessageHandler(deps: HandlerDeps) {
     if (deps.usageEventStore && (totalInputTokens > 0 || totalOutputTokens > 0)) {
       try {
         await deps.usageEventStore.insert({
-          pluginName: pluginNamespaces?.[0] ?? '__core__',
+          pluginName: getUsagePluginName(resolvedPluginNamespaces),
           userId: req.auth.userId,
           model: undefined,
           inputTokens: totalInputTokens,
@@ -291,6 +372,14 @@ export function createChatHandler(deps: HandlerDeps) {
     const { input, conversationId, pluginNamespaces, metadata } = parsed.data;
     const resolvedConversationId =
       conversationId ?? `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    let resolvedPluginNamespaces = pluginNamespaces;
+
+    if (!resolvedPluginNamespaces?.length && conversationId && deps.conversationStore && req.auth) {
+      const conversation = await deps.conversationStore.get(conversationId, req.auth.userId);
+      if (conversation) {
+        resolvedPluginNamespaces = await resolveConversationPluginNamespaces(conversation, deps);
+      }
+    }
 
     // Normalize input: string shorthand → ChatInputText
     const chatInput = typeof input === 'string' ? { type: 'text' as const, text: input } : input;
@@ -315,7 +404,7 @@ export function createChatHandler(deps: HandlerDeps) {
         input: chatInput,
         teamId: req.auth.teamId,
         userId: req.auth.userId,
-        pluginNamespaces,
+        pluginNamespaces: resolvedPluginNamespaces,
         metadata,
       },
       req.signal,
@@ -345,7 +434,7 @@ export function createChatHandler(deps: HandlerDeps) {
     if (deps.usageEventStore && (totalInputTokens > 0 || totalOutputTokens > 0)) {
       try {
         await deps.usageEventStore.insert({
-          pluginName: pluginNamespaces?.[0] ?? '__core__',
+          pluginName: getUsagePluginName(resolvedPluginNamespaces),
           userId: req.auth.userId,
           model: undefined,
           inputTokens: totalInputTokens,

@@ -72,6 +72,7 @@ import {
   type TemplateHandlerDeps,
 } from './template-handlers.js';
 import {
+  createConversationFeedbackQueryHandler,
   createSubmitFeedbackHandler,
   createAdminFeedbackQueryHandler,
   createAdminFeedbackSummaryHandler,
@@ -142,6 +143,9 @@ export class Gateway {
     const deps: HandlerDeps = {
       agentLoop: config.agentLoop,
       conversationStore: config.conversationStore,
+      botStore: config.botStore,
+      agentStore: config.agentStore,
+      agentBotBindingStore: config.agentBotBindingStore,
       messageStore: config.messageStore,
       plugins: config.plugins,
       usageEventStore: config.usageEventStore,
@@ -182,6 +186,10 @@ export class Gateway {
     // Feedback endpoints
     if (config.feedbackStore) {
       const fbDeps: FeedbackHandlerDeps = { feedbackStore: config.feedbackStore };
+      this.router.get(
+        `${prefix}/conversations/:id/feedback`,
+        createConversationFeedbackQueryHandler(fbDeps),
+      );
       this.router.post(
         `${prefix}/conversations/:id/messages/:seq/feedback`,
         createSubmitFeedbackHandler(fbDeps),
@@ -398,10 +406,12 @@ export class Gateway {
         const clientDeps: ClientHandlerDeps = {
           agentStore: config.agentStore,
           agentBotBindingStore: config.agentBotBindingStore,
+          botStore: config.botStore,
           endUserStore: config.endUserStore,
           conversationStore: config.conversationStore,
           messageStore: config.messageStore,
           agentLoop: config.agentLoop,
+          usageEventStore: config.usageEventStore,
         };
 
         this.router.get(`${prefix}/agents/:slug`, createAgentAppearanceHandler(clientDeps));

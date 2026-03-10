@@ -9,3 +9,4 @@ coverage/
 .DS_Store
 .envrc
 *-bot/
+settings.local.json

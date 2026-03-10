@@ -1,5 +1,11 @@
-import { create } from "zustand";
-import type { ActivityBlock, Message, ResponseBlock, StreamingArtifact, ToolCallBlock } from "@/lib/block-types";
+import { create } from 'zustand';
+import type {
+  ActivityBlock,
+  Message,
+  ResponseBlock,
+  StreamingArtifact,
+  ToolCallBlock,
+} from '@/lib/block-types';
 
 // ── Dev Panel types ────────────────────────────────────────────────────
 
@@ -58,7 +64,15 @@ interface ConversationState {
   markArtifactDone: (artifactId: string) => void;
 
   // Feedback actions
-  setFeedback: (conversationId: string, messageSeq: number, rating: 'positive' | 'negative') => void;
+  setFeedback: (
+    conversationId: string,
+    messageSeq: number,
+    rating: 'positive' | 'negative',
+  ) => void;
+  hydrateFeedback: (
+    conversationId: string,
+    feedback: Array<{ messageSeq: number; rating: 'positive' | 'negative' }>,
+  ) => void;
   getFeedback: (conversationId: string, messageSeq: number) => 'positive' | 'negative' | undefined;
 
   // Dev panel actions
@@ -72,7 +86,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messagesByConversation: {},
   isSending: false,
   isStreaming: false,
-  streamingText: "",
+  streamingText: '',
   streamingBlocks: [],
   streamingToolCalls: [],
   streamingActivities: [],
@@ -86,7 +100,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeConversationId: id,
       isSending: false,
       isStreaming: false,
-      streamingText: "",
+      streamingText: '',
       streamingBlocks: [],
       streamingToolCalls: [],
       streamingActivities: [],
@@ -104,23 +118,25 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((state) => ({
       messagesByConversation: {
         ...state.messagesByConversation,
-        [conversationId]: [
-          ...(state.messagesByConversation[conversationId] ?? []),
-          message,
-        ],
+        [conversationId]: [...(state.messagesByConversation[conversationId] ?? []), message],
       },
     })),
 
   setIsSending: (sending) => set({ isSending: sending }),
 
   startStreaming: () =>
-    set({ isStreaming: true, streamingText: "", streamingBlocks: [], streamingToolCalls: [], streamingActivities: [], isSending: true }),
+    set({
+      isStreaming: true,
+      streamingText: '',
+      streamingBlocks: [],
+      streamingToolCalls: [],
+      streamingActivities: [],
+      isSending: true,
+    }),
 
-  appendStreamingText: (text) =>
-    set((state) => ({ streamingText: state.streamingText + text })),
+  appendStreamingText: (text) => set((state) => ({ streamingText: state.streamingText + text })),
 
-  setStreamingBlocks: (blocks) =>
-    set({ streamingBlocks: blocks }),
+  setStreamingBlocks: (blocks) => set({ streamingBlocks: blocks }),
 
   addToolCall: (tc) =>
     set((state) => ({
@@ -130,14 +146,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   updateToolCallStatus: (id, status) =>
     set((state) => ({
       streamingToolCalls: state.streamingToolCalls.map((tc) =>
-        tc.id === id ? { ...tc, status } : tc
+        tc.id === id ? { ...tc, status } : tc,
       ),
     })),
 
   updateToolCallResult: (id, result, isError) =>
     set((state) => ({
       streamingToolCalls: state.streamingToolCalls.map((tc) =>
-        tc.id === id ? { ...tc, result, isError, status: isError ? 'error' as const : 'completed' as const } : tc
+        tc.id === id
+          ? {
+              ...tc,
+              result,
+              isError,
+              status: isError ? ('error' as const) : ('completed' as const),
+            }
+          : tc,
       ),
     })),
 
@@ -154,9 +177,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       ...(streamingBlocks.length > 0 ? streamingBlocks : []),
     ];
     const blocks = allBlocks.length > 0 ? allBlocks : undefined;
-    const content = streamingText || (blocks ? "" : "");
+    const content = streamingText || (blocks ? '' : '');
     const assistantMessage: Message = {
-      role: "assistant",
+      role: 'assistant',
       content,
       blocks,
     };
@@ -167,7 +190,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       isStreaming: false,
       isSending: false,
-      streamingText: "",
+      streamingText: '',
       streamingBlocks: [],
       streamingToolCalls: [],
       streamingActivities: [],
@@ -178,7 +201,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       isStreaming: false,
       isSending: false,
-      streamingText: "",
+      streamingText: '',
       streamingBlocks: [],
       streamingToolCalls: [],
       streamingActivities: [],
@@ -218,6 +241,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         [`${conversationId}:${messageSeq}`]: rating,
       },
     })),
+
+  hydrateFeedback: (conversationId, feedback) =>
+    set((state) => {
+      const next = { ...state.feedbackByMessage };
+
+      for (const key of Object.keys(next)) {
+        if (key.startsWith(`${conversationId}:`)) {
+          delete next[key];
+        }
+      }
+
+      for (const item of feedback) {
+        next[`${conversationId}:${item.messageSeq}`] = item.rating;
+      }
+
+      return { feedbackByMessage: next };
+    }),
 
   getFeedback: (conversationId, messageSeq) => {
     return get().feedbackByMessage[`${conversationId}:${messageSeq}`];

@@ -1,5 +1,19 @@
 import type { MessageStore } from '@nexora-kit/core';
-import type { IConversationStore, IConfigStore, IPluginStateStore, ITokenUsageStore, IUsageEventStore, IAuditEventStore, IBotStore, IAgentStore, IAgentBotBindingStore, IEndUserStore, IExecutionTraceStore, IOptimizedPromptStore } from './interfaces.js';
+import type {
+  IConversationStore,
+  IConfigStore,
+  IPluginStateStore,
+  ITokenUsageStore,
+  IUsageEventStore,
+  IAuditEventStore,
+  IBotStore,
+  IAgentStore,
+  IAgentBotBindingStore,
+  IEndUserStore,
+  IFeedbackStore,
+  IExecutionTraceStore,
+  IOptimizedPromptStore,
+} from './interfaces.js';
 
 export type StorageBackendConfig =
   | { type: 'sqlite'; path: string; walMode?: boolean }
@@ -17,6 +31,7 @@ export interface StorageBackend {
   agentStore: IAgentStore;
   agentBotBindingStore: IAgentBotBindingStore;
   endUserStore: IEndUserStore;
+  feedbackStore: IFeedbackStore;
   executionTraceStore: IExecutionTraceStore;
   optimizedPromptStore: IOptimizedPromptStore;
   close(): Promise<void>;
@@ -32,7 +47,10 @@ export async function createStorageBackend(config: StorageBackendConfig): Promis
   throw new Error(`Unknown storage backend type: ${(config as any).type}`);
 }
 
-async function createSqliteBackend(config: { path: string; walMode?: boolean }): Promise<StorageBackend> {
+async function createSqliteBackend(config: {
+  path: string;
+  walMode?: boolean;
+}): Promise<StorageBackend> {
   const { StorageDatabase } = await import('./database.js');
   const { initSchema } = await import('./schema.js');
   const { SqliteMessageStore } = await import('./memory-store.js');
@@ -46,6 +64,7 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
   const { SqliteAgentStore } = await import('./agent-store.js');
   const { SqliteAgentBotBindingStore } = await import('./agent-bot-binding-store.js');
   const { SqliteEndUserStore } = await import('./end-user-store.js');
+  const { SqliteFeedbackStore } = await import('./feedback-store.js');
   const { SqliteExecutionTraceStore } = await import('./execution-trace-store.js');
   const { SqliteOptimizedPromptStore } = await import('./optimized-prompt-store.js');
 
@@ -64,6 +83,7 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
     agentStore: new SqliteAgentStore(storage.db),
     agentBotBindingStore: new SqliteAgentBotBindingStore(storage.db),
     endUserStore: new SqliteEndUserStore(storage.db),
+    feedbackStore: new SqliteFeedbackStore(storage.db),
     executionTraceStore: new SqliteExecutionTraceStore(storage.db),
     optimizedPromptStore: new SqliteOptimizedPromptStore(storage.db),
     async close() {
@@ -72,7 +92,10 @@ async function createSqliteBackend(config: { path: string; walMode?: boolean }):
   };
 }
 
-async function createPostgresBackend(config: { connectionString: string; poolSize?: number }): Promise<StorageBackend> {
+async function createPostgresBackend(config: {
+  connectionString: string;
+  poolSize?: number;
+}): Promise<StorageBackend> {
   let pg: any;
   try {
     // Dynamic import — pg is an optional peer dependency
@@ -103,6 +126,7 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
   const { PgAgentStore } = await import('./postgres/pg-agent-store.js');
   const { PgAgentBotBindingStore } = await import('./postgres/pg-agent-bot-binding-store.js');
   const { PgEndUserStore } = await import('./postgres/pg-end-user-store.js');
+  const { PgFeedbackStore } = await import('./postgres/pg-feedback-store.js');
   const { PgExecutionTraceStore } = await import('./postgres/pg-execution-trace-store.js');
   const { PgOptimizedPromptStore } = await import('./postgres/pg-optimized-prompt-store.js');
 
@@ -118,6 +142,7 @@ async function createPostgresBackend(config: { connectionString: string; poolSiz
     agentStore: new PgAgentStore(pool),
     agentBotBindingStore: new PgAgentBotBindingStore(pool),
     endUserStore: new PgEndUserStore(pool),
+    feedbackStore: new PgFeedbackStore(pool),
     executionTraceStore: new PgExecutionTraceStore(pool),
     optimizedPromptStore: new PgOptimizedPromptStore(pool),
     async close() {

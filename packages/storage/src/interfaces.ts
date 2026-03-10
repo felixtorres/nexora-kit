@@ -246,6 +246,8 @@ export interface SubmitFeedbackInput {
 }
 
 export interface FeedbackQueryOptions {
+  conversationId?: string;
+  userId?: string;
   pluginNamespace?: string;
   rating?: 'positive' | 'negative';
   from?: string;
@@ -700,14 +702,27 @@ export interface IExecutionTraceStore {
   query(filter?: ExecutionTraceFilter): ExecutionTraceRecord[] | Promise<ExecutionTraceRecord[]>;
   count(filter?: ExecutionTraceFilter): number | Promise<number>;
   updateScore(id: string, score: number, feedback?: string): void | Promise<void>;
-  averageScore(componentName: string, botId: string | null, days: number): number | null | Promise<number | null>;
+  averageScore(
+    componentName: string,
+    botId: string | null,
+    days: number,
+  ): number | null | Promise<number | null>;
   deleteOlderThan(days: number): number | Promise<number>;
 }
 
 // --- Optimized Prompt Store ---
 
-export type OptimizedPromptComponentType = 'skill' | 'tool_description' | 'system_prompt' | 'compaction';
-export type OptimizedPromptStatus = 'candidate' | 'approved' | 'active' | 'unvalidated' | 'rolled_back';
+export type OptimizedPromptComponentType =
+  | 'skill'
+  | 'tool_description'
+  | 'system_prompt'
+  | 'compaction';
+export type OptimizedPromptStatus =
+  | 'candidate'
+  | 'approved'
+  | 'active'
+  | 'unvalidated'
+  | 'rolled_back';
 
 export interface OptimizedPromptRecord {
   id: string;
@@ -758,8 +773,16 @@ export interface IOptimizedPromptStore {
   insert(prompt: CreateOptimizedPromptInput): string | Promise<string>;
   get(id: string): OptimizedPromptRecord | undefined | Promise<OptimizedPromptRecord | undefined>;
   query(filter?: OptimizedPromptFilter): OptimizedPromptRecord[] | Promise<OptimizedPromptRecord[]>;
-  updateStatus(id: string, status: OptimizedPromptStatus, approvedBy?: string): void | Promise<void>;
+  updateStatus(
+    id: string,
+    status: OptimizedPromptStatus,
+    approvedBy?: string,
+  ): void | Promise<void>;
   updateRollingScore(id: string, score: number): void | Promise<void>;
-  getActive(componentType: OptimizedPromptComponentType, componentName: string, botId?: string): OptimizedPromptRecord | undefined | Promise<OptimizedPromptRecord | undefined>;
+  getActive(
+    componentType: OptimizedPromptComponentType,
+    componentName: string,
+    botId?: string,
+  ): OptimizedPromptRecord | undefined | Promise<OptimizedPromptRecord | undefined>;
   deleteOlderThan(days: number): number | Promise<number>;
 }
