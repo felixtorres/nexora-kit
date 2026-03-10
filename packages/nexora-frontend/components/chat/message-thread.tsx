@@ -7,6 +7,7 @@ import rehypeHighlight from 'rehype-highlight';
 import { Bot, User } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { BlockRenderer } from './blocks/block-renderer';
+import { MessageFeedback } from './message-feedback';
 import { StreamingIndicator } from './streaming-indicator';
 import { VizRunner } from './blocks/viz-runner';
 import { detectVizKind } from '@/lib/pyodide';
@@ -67,6 +68,8 @@ const markdownComponents: Components = {
 
 interface MessageBubbleProps {
   message: Message;
+  conversationId?: string;
+  messageSeq?: number;
   onAction?: (actionId: string, payload: Record<string, unknown>) => void;
   onReply?: (text: string) => void;
 }
@@ -74,7 +77,7 @@ interface MessageBubbleProps {
 /** Content block types that already represent the response text */
 const CONTENT_BLOCK_TYPES = new Set(['text', 'code', 'table', 'card', 'image', 'form']);
 
-function MessageBubble({ message, onAction, onReply }: MessageBubbleProps) {
+function MessageBubble({ message, conversationId, messageSeq, onAction, onReply }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const blocks = message.blocks && message.blocks.length > 0 ? message.blocks : null;
 
@@ -119,6 +122,9 @@ function MessageBubble({ message, onAction, onReply }: MessageBubbleProps) {
               {typeof message.content === 'string' ? message.content : ''}
             </ReactMarkdown>
           </div>
+        )}
+        {!isUser && conversationId != null && messageSeq != null && (
+          <MessageFeedback conversationId={conversationId} messageSeq={messageSeq} />
         )}
       </div>
     </div>
@@ -166,7 +172,14 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
     <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
       <div className="divide-y">
         {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} onAction={onAction} onReply={onReply} />
+          <MessageBubble
+            key={i}
+            message={msg}
+            conversationId={conversationId}
+            messageSeq={i}
+            onAction={onAction}
+            onReply={onReply}
+          />
         ))}
 
         {/* Streaming assistant response */}

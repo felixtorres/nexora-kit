@@ -29,6 +29,9 @@ interface ConversationState {
   streamingActivities: ActivityBlock[];
   artifacts: Map<string, StreamingArtifact>;
 
+  // Feedback state: "conversationId:messageSeq" → rating
+  feedbackByMessage: Record<string, 'positive' | 'negative'>;
+
   // Dev panel state
   devEvents: DevEvent[];
   lastUsage: UsageInfo | null;
@@ -54,6 +57,10 @@ interface ConversationState {
   appendArtifactDelta: (artifactId: string, delta: string) => void;
   markArtifactDone: (artifactId: string) => void;
 
+  // Feedback actions
+  setFeedback: (conversationId: string, messageSeq: number, rating: 'positive' | 'negative') => void;
+  getFeedback: (conversationId: string, messageSeq: number) => 'positive' | 'negative' | undefined;
+
   // Dev panel actions
   addDevEvent: (event: DevEvent) => void;
   setLastUsage: (usage: UsageInfo) => void;
@@ -70,6 +77,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   streamingToolCalls: [],
   streamingActivities: [],
   artifacts: new Map(),
+  feedbackByMessage: {},
   devEvents: [],
   lastUsage: null,
 
@@ -202,6 +210,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       }
       return { artifacts };
     }),
+
+  setFeedback: (conversationId, messageSeq, rating) =>
+    set((state) => ({
+      feedbackByMessage: {
+        ...state.feedbackByMessage,
+        [`${conversationId}:${messageSeq}`]: rating,
+      },
+    })),
+
+  getFeedback: (conversationId, messageSeq) => {
+    return get().feedbackByMessage[`${conversationId}:${messageSeq}`];
+  },
 
   addDevEvent: (event) =>
     set((state) => ({

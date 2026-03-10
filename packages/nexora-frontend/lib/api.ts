@@ -308,6 +308,15 @@ export const api = {
   },
 
   feedback: {
+    submit: (
+      conversationId: string,
+      messageSeq: number,
+      data: { rating: 'positive' | 'negative'; comment?: string; tags?: string[] },
+    ) =>
+      request<FeedbackItem>(
+        `/conversations/${conversationId}/messages/${messageSeq}/feedback`,
+        { method: 'POST', body: JSON.stringify(data) },
+      ),
     list: (params?: { rating?: 'positive' | 'negative'; cursor?: string; limit?: number }) => {
       const qs = new URLSearchParams();
       if (params?.rating) qs.set('rating', params.rating);
