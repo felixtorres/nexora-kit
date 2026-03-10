@@ -227,6 +227,78 @@ curl -X POST http://localhost:3000/v1/conversations \
 
 The priority cascade is: **conversation → bot → instance default**. The `model` field follows the same cascade.
 
+### Prompt Optimization
+
+NexoraKit includes a built-in prompt optimizer that uses LLM reflection to improve prompts based on real execution data. It captures traces, scores them with diagnostic feedback, and rewrites underperforming prompts.
+
+**Enable it** in `nexora.yaml`:
+
+```yaml
+optimization:
+  enabled: true                    # Enable trace capture + optimization
+  model: claude-sonnet-4-6        # LLM for the reflection step (optional)
+```
+
+When enabled, the system automatically captures execution traces for every agent run. These traces record the prompt used, tool calls made, reasoning, and the final answer.
+
+**Prerequisites:** User feedback fuels the optimizer. The frontend provides thumbs up/down on every assistant response, which feeds into the `user_satisfaction` metric. Collect feedback for a while before running optimization.
+
+#### Workflow
+
+**1. Check readiness** — the optimizer needs at least 20 scored traces with 3+ negative signals:
+
+```bash
+nexora-kit optimize status
+```
+
+**2. Run optimization** — analyzes traces, reflects on failures, and produces a rewritten prompt:
+
+```bash
+# Optimize a skill prompt
+nexora-kit optimize skill faq-answerer
+
+# Optimize a tool description
+nexora-kit optimize tool search-docs
+
+# Optimize a bot's system prompt
+nexora-kit optimize bot support-bot
+
+# Override the minimum trace requirement
+nexora-kit optimize skill faq-answerer --force
+```
+
+**3. Review candidates** — optimization produces a `candidate`, not an active prompt:
+
+```bash
+nexora-kit optimize list
+```
+
+This shows all candidates with their estimated score improvement, the model used, and current status.
+
+**4. Approve or rollback**:
+
+```bash
+# Deploy the optimized prompt
+nexora-kit optimize approve <id>
+
+# Revert to the original prompt
+nexora-kit optimize rollback <id>
+```
+
+Approval deactivates any previous active optimization for the same component. Rollback restores the original prompt.
+
+#### What gets optimized
+
+| Component | CLI command | Impact |
+|-----------|------------|--------|
+| Skill prompts | `optimize skill <name>` | Better task execution, fewer hallucinations |
+| Tool descriptions | `optimize tool <name>` | Better tool selection by the agent loop |
+| Bot system prompts | `optimize bot <slug>` | More accurate agent behavior |
+
+#### API
+
+All optimization operations are also available via the REST API. See [API Reference — Prompt Optimization](api-reference.md#prompt-optimization-requires-role-admin).
+
 ## Validate and Start
 
 ```bash
@@ -413,6 +485,18 @@ See [Plugin Authoring](plugin-authoring.md) for details.
 | `nexora-kit admin audit`    | Query audit log (`--actor`, `--action`, `--since`)   |
 | `nexora-kit admin feedback` | Feedback summary (`--since`, `--model`)              |
 | `nexora-kit admin cleanup`  | Purge old audit events (`--older-than`, `--dry-run`) |
+
+### Prompt Optimization
+
+| Command                               | Description                                           |
+| ------------------------------------- | ----------------------------------------------------- |
+| `nexora-kit optimize skill <name>`    | Optimize a skill prompt (`--bot`, `--force`)          |
+| `nexora-kit optimize tool <name>`     | Optimize a tool description (`--force`)               |
+| `nexora-kit optimize bot <slug>`      | Optimize a bot's system prompt (`--force`)            |
+| `nexora-kit optimize list`            | List candidates (`--status`, `--type`, `--bot`)       |
+| `nexora-kit optimize approve <id>`    | Approve and deploy an optimized prompt                |
+| `nexora-kit optimize rollback <id>`   | Roll back to original prompt                          |
+| `nexora-kit optimize status`          | Show optimization overview (active, pending, stale)   |
 
 ### Utility
 

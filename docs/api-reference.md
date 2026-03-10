@@ -656,6 +656,92 @@ Get aggregated feedback statistics. Requires admin role.
 }
 ```
 
+### Prompt Optimization (requires `role: admin`)
+
+Requires `optimization.enabled: true` in `nexora.yaml`.
+
+#### `POST /v1/admin/optimize`
+Trigger prompt optimization for a component. Runs the LLM reflection synchronously and returns a candidate.
+
+**Body:**
+```json
+{
+  "componentType": "skill",
+  "componentName": "faq-answerer",
+  "botId": "optional-bot-id",
+  "force": false
+}
+```
+
+`componentType`: `skill`, `tool_description`, `system_prompt`, or `compaction`.
+`force`: Skip the minimum trace requirement (default 20 traces, 3 negative).
+
+**Response:** `200`
+```json
+{
+  "status": "completed",
+  "candidateId": "abc123",
+  "scoreImprovement": 0.15,
+  "tracesAnalyzed": 42,
+  "message": "Optimization complete. Review with GET .../candidates or approve with POST .../approve"
+}
+```
+
+When not enough data:
+```json
+{
+  "status": "not_ready",
+  "traceCount": 8,
+  "negativeCount": 1,
+  "minRequired": 20,
+  "message": "Need at least 20 scored traces (have 8) and 3 negative scores (have 1). Use force=true to override."
+}
+```
+
+#### `GET /v1/admin/optimize/candidates`
+List optimization candidates.
+
+**Query params:** `status` (`candidate`, `approved`, `active`, `rolled_back`), `componentType`, `componentName`, `botId`, `limit`.
+
+**Response:** `200`
+```json
+{
+  "candidates": [
+    {
+      "id": "abc123",
+      "componentType": "skill",
+      "componentName": "faq-answerer",
+      "botId": null,
+      "originalPrompt": "...",
+      "optimizedPrompt": "...",
+      "score": 0.78,
+      "scoreImprovement": 0.15,
+      "reflectionLog": "The prompt fails because...",
+      "optimizedForModel": "claude-sonnet-4-6",
+      "status": "candidate",
+      "createdAt": "2026-03-10T12:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `POST /v1/admin/optimize/candidates/:id/approve`
+Approve a candidate and deploy the optimized prompt. Deactivates any previous active prompt for the same component.
+
+**Response:** `200`
+```json
+{ "status": "approved", "promptId": "abc123" }
+```
+
+#### `POST /v1/admin/optimize/candidates/:id/rollback`
+Roll back a deployed optimization to the original prompt.
+
+**Response:** `200`
+```json
+{ "status": "rolled_back", "promptId": "abc123" }
+```
+
 ### User Memory
 
 Requires `userMemoryStore` to be configured.
