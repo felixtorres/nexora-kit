@@ -41,34 +41,46 @@ describe('isClaudePlugin', () => {
 
 describe('loadClaudePlugin', () => {
   it('loads a full Claude plugin', () => {
-    writeFile('.claude-plugin/plugin.json', JSON.stringify({
-      name: 'kyvos-mcp',
-      version: '1.0.0',
-      description: 'Data analytics plugin',
-      author: 'Kyvos',
-    }));
+    writeFile(
+      '.claude-plugin/plugin.json',
+      JSON.stringify({
+        name: 'kyvos-mcp',
+        version: '1.0.0',
+        description: 'Data analytics plugin',
+        author: 'Kyvos',
+      }),
+    );
 
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: {
-        analytics: {
-          type: 'http',
-          url: 'http://localhost:8080/mcp',
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          analytics: {
+            type: 'http',
+            url: 'http://localhost:8080/mcp',
+          },
         },
-      },
-    }));
+      }),
+    );
 
-    writeFile('commands/search.md', `---
+    writeFile(
+      'commands/search.md',
+      `---
 description: Search the database
 argument-hint: search query
 ---
 You are a database search assistant.
-Search for: {{input}}`);
+Search for: {{input}}`,
+    );
 
-    writeFile('skills/summarize/SKILL.md', `---
+    writeFile(
+      'skills/summarize/SKILL.md',
+      `---
 name: summarize
 description: Summarize data
 ---
-Please summarize the following data.`);
+Please summarize the following data.`,
+    );
 
     writeFile('skills/summarize/references/schema.md', 'Schema reference content here.');
 
@@ -153,15 +165,18 @@ Please summarize the following data.`);
 
   it('handles stdio transport in .mcp.json', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'test' }));
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: {
-        local: {
-          type: 'stdio',
-          command: 'node',
-          args: ['server.js'],
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          local: {
+            type: 'stdio',
+            command: 'node',
+            args: ['server.js'],
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const result = loadClaudePlugin(tmpDir);
     expect(result.mcpServerConfigs[0].transport).toBe('stdio');
@@ -170,11 +185,14 @@ Please summarize the following data.`);
 
   it('handles skills without references directory', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'test' }));
-    writeFile('skills/analyze/SKILL.md', `---
+    writeFile(
+      'skills/analyze/SKILL.md',
+      `---
 name: analyze
 description: Analyze data
 ---
-Analyze prompt.`);
+Analyze prompt.`,
+    );
 
     const result = loadClaudePlugin(tmpDir);
     expect(result.skillDefinitions.size).toBe(1);
@@ -229,21 +247,27 @@ describe('isMcpPlugin', () => {
 
 describe('loadMcpPlugin', () => {
   it('loads a stdio MCP plugin with metadata from package.json', () => {
-    writeFile('package.json', JSON.stringify({
-      name: '@ki-kyvos/kyvos-plugins',
-      version: '2.1.0',
-      description: 'Kyvos analytics MCP server',
-    }));
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: {
-        kyvos: {
-          type: 'stdio',
-          command: 'node',
-          args: ['dist/index.js'],
-          env: { KYVOS_API_KEY: '${KYVOS_API_KEY}' },
+    writeFile(
+      'package.json',
+      JSON.stringify({
+        name: '@ki-kyvos/kyvos-plugins',
+        version: '2.1.0',
+        description: 'Kyvos analytics MCP server',
+      }),
+    );
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          kyvos: {
+            type: 'stdio',
+            command: 'node',
+            args: ['dist/index.js'],
+            env: { KYVOS_API_KEY: '${KYVOS_API_KEY}' },
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const result = loadMcpPlugin(tmpDir);
     expect(result.errors).toHaveLength(0);
@@ -258,11 +282,14 @@ describe('loadMcpPlugin', () => {
   });
 
   it('loads an SSE MCP plugin without package.json, uses dir name as namespace', () => {
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: {
-        remote: { type: 'sse', url: 'https://mcp.example.com/sse' },
-      },
-    }));
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          remote: { type: 'sse', url: 'https://mcp.example.com/sse' },
+        },
+      }),
+    );
 
     const result = loadMcpPlugin(tmpDir);
     expect(result.errors).toHaveLength(0);
@@ -278,6 +305,128 @@ describe('loadMcpPlugin', () => {
     expect(result.errors[0]).toContain('No MCP servers defined');
   });
 
+  it('expands ${ENV_VAR} in args from process.env', () => {
+    process.env['_TEST_KYVOS_URL'] = 'https://kyvos.example.com';
+    process.env['_TEST_KYVOS_USER'] = 'admin';
+    try {
+      writeFile(
+        '.mcp.json',
+        JSON.stringify({
+          mcpServers: {
+            kyvos: {
+              type: 'stdio',
+              command: 'mcp-kyvos-server',
+              args: [
+                '--kyvos-url',
+                '${_TEST_KYVOS_URL}',
+                '--kyvos-username',
+                '${_TEST_KYVOS_USER}',
+              ],
+            },
+          },
+        }),
+      );
+
+      const result = loadMcpPlugin(tmpDir);
+      expect(result.errors).toHaveLength(0);
+      expect(result.mcpServerConfigs[0].args).toEqual([
+        '--kyvos-url',
+        'https://kyvos.example.com',
+        '--kyvos-username',
+        'admin',
+      ]);
+    } finally {
+      delete process.env['_TEST_KYVOS_URL'];
+      delete process.env['_TEST_KYVOS_USER'];
+    }
+  });
+
+  it('uses fallback value for ${ENV_VAR:default} when env var is not set', () => {
+    delete process.env['_TEST_KYVOS_AUTH_TYPE'];
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          kyvos: {
+            type: 'stdio',
+            command: 'mcp-kyvos-server',
+            args: ['--server-auth-type', '${_TEST_KYVOS_AUTH_TYPE:basic}'],
+          },
+        },
+      }),
+    );
+
+    const result = loadMcpPlugin(tmpDir);
+    expect(result.errors).toHaveLength(0);
+    expect(result.mcpServerConfigs[0].args).toEqual(['--server-auth-type', 'basic']);
+  });
+
+  it('prefers env var over fallback in ${ENV_VAR:default}', () => {
+    process.env['_TEST_KYVOS_AUTH_TYPE'] = 'oauth2';
+    try {
+      writeFile(
+        '.mcp.json',
+        JSON.stringify({
+          mcpServers: {
+            kyvos: {
+              type: 'stdio',
+              command: 'mcp-kyvos-server',
+              args: ['--server-auth-type', '${_TEST_KYVOS_AUTH_TYPE:basic}'],
+            },
+          },
+        }),
+      );
+
+      const result = loadMcpPlugin(tmpDir);
+      expect(result.mcpServerConfigs[0].args).toEqual(['--server-auth-type', 'oauth2']);
+    } finally {
+      delete process.env['_TEST_KYVOS_AUTH_TYPE'];
+    }
+  });
+
+  it('leaves ${UNSET_VAR} as-is when env var is not set and no default', () => {
+    delete process.env['_TEST_MISSING_VAR'];
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          kyvos: {
+            type: 'stdio',
+            command: 'mcp-kyvos-server',
+            args: ['--flag', '${_TEST_MISSING_VAR}'],
+          },
+        },
+      }),
+    );
+
+    const result = loadMcpPlugin(tmpDir);
+    expect(result.mcpServerConfigs[0].args).toEqual(['--flag', '${_TEST_MISSING_VAR}']);
+  });
+
+  it('expands ${ENV_VAR} in env block values', () => {
+    process.env['_TEST_MCP_TOKEN'] = 'secret-token';
+    try {
+      writeFile(
+        '.mcp.json',
+        JSON.stringify({
+          mcpServers: {
+            kyvos: {
+              type: 'stdio',
+              command: 'mcp-kyvos-server',
+              args: [],
+              env: { API_TOKEN: '${_TEST_MCP_TOKEN}' },
+            },
+          },
+        }),
+      );
+
+      const result = loadMcpPlugin(tmpDir);
+      expect(result.mcpServerConfigs[0].env).toEqual({ API_TOKEN: 'secret-token' });
+    } finally {
+      delete process.env['_TEST_MCP_TOKEN'];
+    }
+  });
+
   it('errors on malformed .mcp.json', () => {
     writeFile('.mcp.json', 'not json {{{');
 
@@ -287,11 +436,14 @@ describe('loadMcpPlugin', () => {
   });
 
   it('preserves http transport type regardless of URL path', () => {
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: {
-        server: { type: 'http', url: 'https://mcp.example.com/sse' },
-      },
-    }));
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          server: { type: 'http', url: 'https://mcp.example.com/sse' },
+        },
+      }),
+    );
 
     const result = loadMcpPlugin(tmpDir);
     expect(result.errors).toHaveLength(0);
@@ -302,11 +454,14 @@ describe('loadMcpPlugin', () => {
 describe('loadClaudePlugin — resource discovery', () => {
   it('discovers scripts/, references/, and assets/ per skill', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'res-test' }));
-    writeFile('skills/analyze/SKILL.md', `---
+    writeFile(
+      'skills/analyze/SKILL.md',
+      `---
 name: analyze
 description: Analyze data
 ---
-Analyze prompt.`);
+Analyze prompt.`,
+    );
     writeFile('skills/analyze/scripts/validate.sh', '#!/bin/bash\necho ok');
     writeFile('skills/analyze/scripts/check.py', 'print("ok")');
     writeFile('skills/analyze/references/schema.md', 'Schema docs');
@@ -327,11 +482,14 @@ Analyze prompt.`);
 
   it('returns empty resources when no resource directories exist', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'no-res' }));
-    writeFile('skills/simple/SKILL.md', `---
+    writeFile(
+      'skills/simple/SKILL.md',
+      `---
 name: simple
 description: Simple skill
 ---
-Do something.`);
+Do something.`,
+    );
 
     const result = loadClaudePlugin(tmpDir);
     const skill = result.skillDefinitions.get('no-res:simple')!;
@@ -346,16 +504,19 @@ Do something.`);
 describe('loadClaudePlugin — ${CLAUDE_PLUGIN_ROOT} substitution', () => {
   it('substitutes ${CLAUDE_PLUGIN_ROOT} in MCP server configs', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'root-test' }));
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: {
-        local: {
-          type: 'stdio',
-          command: '${CLAUDE_PLUGIN_ROOT}/bin/server',
-          args: ['--config', '${CLAUDE_PLUGIN_ROOT}/config.json'],
-          env: { DATA_DIR: '${CLAUDE_PLUGIN_ROOT}/data' },
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          local: {
+            type: 'stdio',
+            command: '${CLAUDE_PLUGIN_ROOT}/bin/server',
+            args: ['--config', '${CLAUDE_PLUGIN_ROOT}/config.json'],
+            env: { DATA_DIR: '${CLAUDE_PLUGIN_ROOT}/data' },
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const result = loadClaudePlugin(tmpDir);
     const server = result.mcpServerConfigs[0];
@@ -369,15 +530,18 @@ describe('loadClaudePlugin — ${CLAUDE_PLUGIN_ROOT} substitution', () => {
 
 describe('loadClaudePlugin — inline mcpServers from plugin.json', () => {
   it('loads MCP servers from inline plugin.json mcpServers', () => {
-    writeFile('.claude-plugin/plugin.json', JSON.stringify({
-      name: 'inline-mcp',
-      mcpServers: {
-        embedded: {
-          type: 'http',
-          url: 'http://localhost:9090/mcp',
+    writeFile(
+      '.claude-plugin/plugin.json',
+      JSON.stringify({
+        name: 'inline-mcp',
+        mcpServers: {
+          embedded: {
+            type: 'http',
+            url: 'http://localhost:9090/mcp',
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const result = loadClaudePlugin(tmpDir);
     expect(result.mcpServerConfigs).toHaveLength(1);
@@ -386,17 +550,23 @@ describe('loadClaudePlugin — inline mcpServers from plugin.json', () => {
   });
 
   it('merges inline and .mcp.json servers', () => {
-    writeFile('.claude-plugin/plugin.json', JSON.stringify({
-      name: 'merged-mcp',
-      mcpServers: {
-        inline: { type: 'http', url: 'http://localhost:1111' },
-      },
-    }));
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: {
-        external: { type: 'stdio', command: 'node', args: ['server.js'] },
-      },
-    }));
+    writeFile(
+      '.claude-plugin/plugin.json',
+      JSON.stringify({
+        name: 'merged-mcp',
+        mcpServers: {
+          inline: { type: 'http', url: 'http://localhost:1111' },
+        },
+      }),
+    );
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: {
+          external: { type: 'stdio', command: 'node', args: ['server.js'] },
+        },
+      }),
+    );
 
     const result = loadClaudePlugin(tmpDir);
     expect(result.mcpServerConfigs).toHaveLength(2);
@@ -407,16 +577,19 @@ describe('loadClaudePlugin — inline mcpServers from plugin.json', () => {
 
 describe('loadClaudePlugin — extended manifest fields', () => {
   it('parses author, homepage, repository, license, keywords from plugin.json', () => {
-    writeFile('.claude-plugin/plugin.json', JSON.stringify({
-      name: 'full-meta',
-      version: '2.0.0',
-      description: 'A fully described plugin',
-      author: { name: 'Test Author', email: 'test@example.com' },
-      homepage: 'https://example.com',
-      repository: 'https://github.com/test/plugin',
-      license: 'MIT',
-      keywords: ['analytics', 'data'],
-    }));
+    writeFile(
+      '.claude-plugin/plugin.json',
+      JSON.stringify({
+        name: 'full-meta',
+        version: '2.0.0',
+        description: 'A fully described plugin',
+        author: { name: 'Test Author', email: 'test@example.com' },
+        homepage: 'https://example.com',
+        repository: 'https://github.com/test/plugin',
+        license: 'MIT',
+        keywords: ['analytics', 'data'],
+      }),
+    );
 
     const result = loadClaudePlugin(tmpDir);
     const m = result.plugin.manifest;
@@ -430,9 +603,12 @@ describe('loadClaudePlugin — extended manifest fields', () => {
 
   it('infers only mcp permissions when no skills exist', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'mcp-only' }));
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: { srv: { type: 'stdio', command: 'node' } },
-    }));
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: { srv: { type: 'stdio', command: 'node' } },
+      }),
+    );
 
     const result = loadClaudePlugin(tmpDir);
     expect(result.plugin.manifest.permissions).toContain('mcp:connect');
@@ -441,11 +617,14 @@ describe('loadClaudePlugin — extended manifest fields', () => {
 
   it('infers only llm permission when no MCP servers exist', () => {
     writeFile('.claude-plugin/plugin.json', JSON.stringify({ name: 'skill-only' }));
-    writeFile('skills/greet/SKILL.md', `---
+    writeFile(
+      'skills/greet/SKILL.md',
+      `---
 name: greet
 description: Greet
 ---
-Hello.`);
+Hello.`,
+    );
 
     const result = loadClaudePlugin(tmpDir);
     expect(result.plugin.manifest.permissions).toContain('llm:invoke');
@@ -455,15 +634,21 @@ Hello.`);
 
 describe('loadClaudePlugin — custom skills path', () => {
   it('reads skills from custom directory specified in plugin.json', () => {
-    writeFile('.claude-plugin/plugin.json', JSON.stringify({
-      name: 'custom-path',
-      skills: './custom/skills',
-    }));
-    writeFile('custom/skills/do-thing/SKILL.md', `---
+    writeFile(
+      '.claude-plugin/plugin.json',
+      JSON.stringify({
+        name: 'custom-path',
+        skills: './custom/skills',
+      }),
+    );
+    writeFile(
+      'custom/skills/do-thing/SKILL.md',
+      `---
 name: do-thing
 description: Does a thing
 ---
-Instructions.`);
+Instructions.`,
+    );
 
     const result = loadClaudePlugin(tmpDir);
     expect(result.skillDefinitions.size).toBe(1);
@@ -473,9 +658,12 @@ Instructions.`);
 
 describe('loadMcpPlugin — format tag', () => {
   it('sets format to mcp', () => {
-    writeFile('.mcp.json', JSON.stringify({
-      mcpServers: { srv: { type: 'stdio', command: 'node' } },
-    }));
+    writeFile(
+      '.mcp.json',
+      JSON.stringify({
+        mcpServers: { srv: { type: 'stdio', command: 'node' } },
+      }),
+    );
 
     const result = loadMcpPlugin(tmpDir);
     expect(result.plugin.manifest.format).toBe('mcp');
@@ -485,22 +673,31 @@ describe('loadMcpPlugin — format tag', () => {
 describe('discoverPlugins with Claude plugins', () => {
   it('discovers nexora, Claude, and MCP-native plugins', () => {
     // Nexora plugin
-    writeFile('nexora-plugin/plugin.yaml', `
+    writeFile(
+      'nexora-plugin/plugin.yaml',
+      `
 name: Nexora Plugin
 version: "1.0.0"
 namespace: nexora-plugin
-`);
+`,
+    );
 
     // Claude plugin
-    writeFile('claude-plugin/.claude-plugin/plugin.json', JSON.stringify({
-      name: 'claude-ext',
-      version: '1.0.0',
-    }));
+    writeFile(
+      'claude-plugin/.claude-plugin/plugin.json',
+      JSON.stringify({
+        name: 'claude-ext',
+        version: '1.0.0',
+      }),
+    );
 
     // MCP-native plugin
-    writeFile('mcp-plugin/.mcp.json', JSON.stringify({
-      mcpServers: { analytics: { type: 'stdio', command: 'node', args: ['index.js'] } },
-    }));
+    writeFile(
+      'mcp-plugin/.mcp.json',
+      JSON.stringify({
+        mcpServers: { analytics: { type: 'stdio', command: 'node', args: ['index.js'] } },
+      }),
+    );
 
     // Neither
     writeFile('random-dir/readme.md', 'Not a plugin');

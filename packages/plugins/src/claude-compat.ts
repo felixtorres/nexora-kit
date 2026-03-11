@@ -28,14 +28,17 @@ interface ClaudePluginJson {
   settings?: Record<string, unknown>;
 }
 
-type ClaudeMcpServerMap = Record<string, {
-  type?: string;
-  url?: string;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  headers?: Record<string, string>;
-}>;
+type ClaudeMcpServerMap = Record<
+  string,
+  {
+    type?: string;
+    url?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    headers?: Record<string, string>;
+  }
+>;
 
 interface ClaudeMcpJson {
   mcpServers?: ClaudeMcpServerMap;
@@ -48,37 +51,52 @@ function resolveTransportType(type?: string): McpTransportType {
 }
 
 /**
- * Replace ${CLAUDE_PLUGIN_ROOT} in string values within MCP server configs.
+ * Expand ${VAR} and ${VAR:default} references using process.env, then
+ * replace ${CLAUDE_PLUGIN_ROOT} with the plugin directory path.
+ *
+ * Expansion order:
+ *   1. ${VAR:default} — use process.env[VAR] if set, otherwise "default"
+ *   2. ${VAR}         — use process.env[VAR] if set, otherwise leave as-is
+ *   3. ${CLAUDE_PLUGIN_ROOT} — replaced with pluginDir (treated as a named var above)
  */
-function substitutePluginRoot(value: string, pluginDir: string): string {
-  return value.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, pluginDir);
+function substituteValue(value: string, pluginDir: string): string {
+  return value.replace(/\$\{([^}]+)\}/g, (_match, inner: string) => {
+    const colonIdx = inner.indexOf(':');
+    if (colonIdx !== -1) {
+      const varName = inner.slice(0, colonIdx);
+      const fallback = inner.slice(colonIdx + 1);
+      if (varName === 'CLAUDE_PLUGIN_ROOT') return pluginDir;
+      return process.env[varName] ?? fallback;
+    }
+    if (inner === 'CLAUDE_PLUGIN_ROOT') return pluginDir;
+    return process.env[inner] ?? _match;
+  });
 }
 
-function substituteMcpConfig(
-  servers: ClaudeMcpServerMap,
-  pluginDir: string,
-): ClaudeMcpServerMap {
+function substituteMcpConfig(servers: ClaudeMcpServerMap, pluginDir: string): ClaudeMcpServerMap {
   const result: ClaudeMcpServerMap = {};
   for (const [name, config] of Object.entries(servers)) {
     result[name] = {
       ...config,
-      url: config.url ? substitutePluginRoot(config.url, pluginDir) : config.url,
-      command: config.command ? substitutePluginRoot(config.command, pluginDir) : config.command,
-      args: config.args?.map((a) => substitutePluginRoot(a, pluginDir)),
+      url: config.url ? substituteValue(config.url, pluginDir) : config.url,
+      command: config.command ? substituteValue(config.command, pluginDir) : config.command,
+      args: config.args?.map((a) => substituteValue(a, pluginDir)),
       env: config.env
         ? Object.fromEntries(
-            Object.entries(config.env).map(([k, v]) => [k, substitutePluginRoot(v, pluginDir)]),
+            Object.entries(config.env).map(([k, v]) => [k, substituteValue(v, pluginDir)]),
           )
         : config.env,
+      headers: config.headers
+        ? Object.fromEntries(
+            Object.entries(config.headers).map(([k, v]) => [k, substituteValue(v, pluginDir)]),
+          )
+        : config.headers,
     };
   }
   return result;
 }
 
-function parseMcpServers(
-  servers: ClaudeMcpServerMap,
-  pluginDir: string,
-): McpServerConfig[] {
+function parseMcpServers(servers: ClaudeMcpServerMap, pluginDir: string): McpServerConfig[] {
   const substituted = substituteMcpConfig(servers, pluginDir);
   const configs: McpServerConfig[] = [];
   for (const [name, config] of Object.entries(substituted)) {
@@ -114,7 +132,14 @@ export function loadMcpPlugin(pluginDir: string): LoadResult {
     const msg = err instanceof Error ? err.message : String(err);
     return {
       plugin: {
-        manifest: { name: '', version: '0.0.0', namespace: '', permissions: [], dependencies: [], sandbox: { tier: 'basic' } },
+        manifest: {
+          name: '',
+          version: '0.0.0',
+          namespace: '',
+          permissions: [],
+          dependencies: [],
+          sandbox: { tier: 'basic' },
+        },
         state: 'errored',
         tools: [],
         error: `Invalid .mcp.json: ${msg}`,
@@ -134,12 +159,16 @@ export function loadMcpPlugin(pluginDir: string): LoadResult {
   if (fs.existsSync(pkgPath)) {
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as {
-        name?: string; version?: string; description?: string;
+        name?: string;
+        version?: string;
+        description?: string;
       };
       if (pkg.name) name = pkg.name.replace(/^@[^/]+\//, ''); // strip npm scope
       if (pkg.version) version = pkg.version;
       if (pkg.description) description = pkg.description;
-    } catch { /* ignore, use defaults */ }
+    } catch {
+      /* ignore, use defaults */
+    }
   }
 
   const namespace = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -154,9 +183,7 @@ export function loadMcpPlugin(pluginDir: string): LoadResult {
     format: 'mcp',
   };
 
-  const mcpServerConfigs = mcpJson.mcpServers
-    ? parseMcpServers(mcpJson.mcpServers, pluginDir)
-    : [];
+  const mcpServerConfigs = mcpJson.mcpServers ? parseMcpServers(mcpJson.mcpServers, pluginDir) : [];
 
   if (mcpServerConfigs.length === 0) {
     errors.push('No MCP servers defined in .mcp.json');
@@ -184,7 +211,14 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
   if (!fs.existsSync(pluginJsonPath)) {
     return {
       plugin: {
-        manifest: { name: '', version: '0.0.0', namespace: '', permissions: [], dependencies: [], sandbox: { tier: 'basic' } },
+        manifest: {
+          name: '',
+          version: '0.0.0',
+          namespace: '',
+          permissions: [],
+          dependencies: [],
+          sandbox: { tier: 'basic' },
+        },
         state: 'errored',
         tools: [],
         error: `No .claude-plugin/plugin.json found in ${pluginDir}`,
@@ -203,7 +237,14 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
     const msg = error instanceof Error ? error.message : String(error);
     return {
       plugin: {
-        manifest: { name: '', version: '0.0.0', namespace: '', permissions: [], dependencies: [], sandbox: { tier: 'basic' } },
+        manifest: {
+          name: '',
+          version: '0.0.0',
+          namespace: '',
+          permissions: [],
+          dependencies: [],
+          sandbox: { tier: 'basic' },
+        },
         state: 'errored',
         tools: [],
         error: `Invalid plugin.json: ${msg}`,
@@ -236,7 +277,9 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
 
   // Inline mcpServers from plugin.json (object form, not a path string)
   if (pluginJson.mcpServers && typeof pluginJson.mcpServers === 'object') {
-    mcpServerConfigs.push(...parseMcpServers(pluginJson.mcpServers as ClaudeMcpServerMap, pluginDir));
+    mcpServerConfigs.push(
+      ...parseMcpServers(pluginJson.mcpServers as ClaudeMcpServerMap, pluginDir),
+    );
   }
 
   if (mcpServerConfigs.length > 0) {
@@ -279,11 +322,13 @@ export function loadClaudePlugin(pluginDir: string): LoadResult {
   // 4. Scan skills/*/SKILL.md
   const tools: ToolDefinition[] = [];
   const skillDefinitions = new Map<string, SkillDefinition>();
-  const skillsBaseDir = typeof pluginJson.skills === 'string'
-    ? path.join(pluginDir, pluginJson.skills)
-    : path.join(pluginDir, 'skills');
+  const skillsBaseDir =
+    typeof pluginJson.skills === 'string'
+      ? path.join(pluginDir, pluginJson.skills)
+      : path.join(pluginDir, 'skills');
   if (fs.existsSync(skillsBaseDir)) {
-    const skillDirs = fs.readdirSync(skillsBaseDir, { withFileTypes: true })
+    const skillDirs = fs
+      .readdirSync(skillsBaseDir, { withFileTypes: true })
       .filter((d) => d.isDirectory());
 
     for (const skillDir of skillDirs) {
