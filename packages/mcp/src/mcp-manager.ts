@@ -20,17 +20,19 @@ export interface McpToolAdapter {
 }
 
 export interface TransportFactory {
-  create(config: McpServerConfig, timeoutMs: number): McpTransport;
+  create(config: McpServerConfig, timeoutMs: number, logger?: Logger): McpTransport;
 }
 
 const defaultTransportFactory: TransportFactory = {
-  create(config: McpServerConfig, timeoutMs: number): McpTransport {
+  create(config: McpServerConfig, timeoutMs: number, logger?: Logger): McpTransport {
     if (config.transport === 'stdio') {
       return new StdioTransport({
         command: config.command!,
         args: config.args,
         env: config.env,
         timeoutMs,
+        logger,
+        serverName: config.name,
       });
     }
     if (config.transport === 'http') {
@@ -98,7 +100,11 @@ export class McpManager {
         transport: config.transport,
       });
 
-      const transport = this.transportFactory.create(config, this.config.requestTimeoutMs);
+      const transport = this.transportFactory.create(
+        config,
+        this.config.requestTimeoutMs,
+        this.logger,
+      );
       const handle = new McpServerHandle({
         config,
         transport,

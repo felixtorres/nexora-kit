@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import type { JsonRpcRequest, JsonRpcResponse, JsonRpcNotification } from './types.js';
 import { McpOAuth2Client } from './oauth2.js';
+import type { Logger } from '@nexora-kit/core';
 
 export interface McpTransport {
   connect(): Promise<void>;
@@ -28,17 +29,23 @@ export class StdioTransport implements McpTransport {
   private readonly env: Record<string, string> | undefined;
   private readonly timeoutMs: number;
   private stderrChunks: string[] = [];
+  private readonly logger?: Logger;
+  private readonly serverName?: string;
 
   constructor(options: {
     command: string;
     args?: string[];
     env?: Record<string, string>;
     timeoutMs?: number;
+    logger?: Logger;
+    serverName?: string;
   }) {
     this.command = options.command;
     this.args = options.args ?? [];
     this.env = options.env;
     this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.logger = options.logger;
+    this.serverName = options.serverName;
   }
 
   async connect(): Promise<void> {
@@ -55,8 +62,19 @@ export class StdioTransport implements McpTransport {
     });
 
     this.process.stderr!.on('data', (chunk: Buffer) => {
-      this.stderrChunks.push(chunk.toString());
+      const text = chunk.toString();
+      this.stderrChunks.push(text);
       if (this.stderrChunks.length > 100) this.stderrChunks.shift();
+
+      if (this.logger) {
+        // Forward each non-empty line as a warn log so it surfaces in structured output
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed) {
+            this.logger.warn('mcp.server.stderr', { server: this.serverName, line: trimmed });
+          }
+        }
+      }
     });
 
     this.process.on('exit', () => {
@@ -212,9 +230,7 @@ export class SseTransport implements McpTransport {
         });
       } catch (authErr) {
         const detail = authErr instanceof Error ? authErr.message : String(authErr);
-        throw new Error(
-          `SSE ${response.status} and OAuth2 authorization failed: ${detail}`,
-        );
+        throw new Error(`SSE ${response.status} and OAuth2 authorization failed: ${detail}`);
       }
     }
 
@@ -240,7 +256,10 @@ export class SseTransport implements McpTransport {
     await Promise.race([
       this.endpointReady,
       new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error('SSE connected but server did not send endpoint event')), this.timeoutMs),
+        setTimeout(
+          () => reject(new Error('SSE connected but server did not send endpoint event')),
+          this.timeoutMs,
+        ),
       ),
     ]);
   }
@@ -473,8 +492,10 @@ export class HttpTransport implements McpTransport {
 
     // On 401/403/405 without a token, try OAuth2 auth first.
     // Some servers return 405 for unauthenticated requests instead of 401.
-    if ((response.status === 401 || response.status === 403 || response.status === 405)
-        && !(this.auth?.hasValidToken())) {
+    if (
+      (response.status === 401 || response.status === 403 || response.status === 405) &&
+      !this.auth?.hasValidToken()
+    ) {
       try {
         if (!this.auth) {
           this.auth = new McpOAuth2Client({});
@@ -493,9 +514,7 @@ export class HttpTransport implements McpTransport {
         });
       } catch (authErr) {
         const detail = authErr instanceof Error ? authErr.message : String(authErr);
-        throw new Error(
-          `HTTP ${response.status} and OAuth2 authorization failed: ${detail}`,
-        );
+        throw new Error(`HTTP ${response.status} and OAuth2 authorization failed: ${detail}`);
       }
     }
 
@@ -523,7 +542,7 @@ export class HttpTransport implements McpTransport {
       return this.parseSseResponse(response.body, id);
     }
 
-    const json = await response.json() as JsonRpcResponse;
+    const json = (await response.json()) as JsonRpcResponse;
     if (json.error) {
       throw new Error(`JSON-RPC error ${json.error.code}: ${json.error.message}`);
     }
@@ -593,7 +612,7 @@ export class HttpTransport implements McpTransport {
     const headers: Record<string, string> = {
       ...this.headers,
       'Content-Type': 'application/json',
-      'Accept': 'application/json, text/event-stream',
+      Accept: 'application/json, text/event-stream',
     };
     if (this.sessionId) {
       headers['mcp-session-id'] = this.sessionId;
@@ -611,7 +630,10 @@ export class HttpTransport implements McpTransport {
     }
   }
 
-  private async parseSseResponse(body: ReadableStream<Uint8Array>, requestId: number): Promise<unknown> {
+  private async parseSseResponse(
+    body: ReadableStream<Uint8Array>,
+    requestId: number,
+  ): Promise<unknown> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
