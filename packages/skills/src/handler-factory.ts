@@ -1,4 +1,5 @@
 import type { ToolHandler, ToolHandlerResponse, ToolExecutionContext, SkillResources } from '@nexora-kit/core';
+import type { ToolDispatcher } from '@nexora-kit/core';
 import { SkillActivationManager, type ActiveSkill } from '@nexora-kit/core';
 import type { LlmProvider } from '@nexora-kit/llm';
 import type { ConfigResolver, ConfigContext } from '@nexora-kit/config';
@@ -16,6 +17,8 @@ export interface SkillHandlerFactoryOptions {
   model?: string;
   workspaceSource?: WorkspaceContextSource;
   skillActivationManager?: SkillActivationManager;
+  /** Optional ToolDispatcher for SkillContext.invoke() — enables cross-plugin tool calls. */
+  toolDispatcher?: ToolDispatcher;
 }
 
 export class SkillHandlerFactory {
@@ -24,6 +27,7 @@ export class SkillHandlerFactory {
   private readonly model: string;
   private readonly workspaceSource?: WorkspaceContextSource;
   private readonly skillActivation: SkillActivationManager;
+  private readonly toolDispatcher?: ToolDispatcher;
 
   constructor(options: SkillHandlerFactoryOptions) {
     this.llm = options.llmProvider;
@@ -31,6 +35,7 @@ export class SkillHandlerFactory {
     this.model = options.model ?? options.llmProvider.models[0]?.id ?? 'default';
     this.workspaceSource = options.workspaceSource;
     this.skillActivation = options.skillActivationManager ?? new SkillActivationManager();
+    this.toolDispatcher = options.toolDispatcher;
   }
 
   createHandler(qualifiedName: string, skillDef: SkillDefinition, namespace: string): ToolHandler {
@@ -63,12 +68,21 @@ export class SkillHandlerFactory {
         };
       }
 
+      const dispatcher = this.toolDispatcher;
+      const ns = namespace;
       const context: SkillContext = {
         input,
         config: configValues,
         workspace,
-        invoke: async () => {
-          throw new Error('Skill composition is not yet implemented');
+        invoke: async (skillName: string, invokeInput: Record<string, unknown>) => {
+          if (!dispatcher) {
+            throw new Error('Skill composition requires a ToolDispatcher — pass toolDispatcher to SkillHandlerFactoryOptions');
+          }
+          const raw = await dispatcher.invoke(skillName, invokeInput, ns, execContext);
+          if (typeof raw === 'string') {
+            return { output: raw };
+          }
+          return { output: raw.content, artifacts: raw.artifacts };
         },
       };
 

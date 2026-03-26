@@ -8,16 +8,23 @@
  * Map to PluginLifecycleManager's toolHandlers option.
  */
 
-import type { ToolHandler } from '@nexora-kit/core';
+import type { ToolHandler, ToolDispatcher } from '@nexora-kit/core';
 import { DataSourceRegistry } from './data-sources/registry.js';
 import type { DataSourceConfig } from './data-sources/types.js';
 import { createListSourcesHandler } from './tools/list-sources.js';
 import { createQueryHandler } from './tools/query.js';
 import { createRenderChartHandler } from './tools/render-chart.js';
+import { createDashboardCreateHandler } from './tools/create-dashboard.js';
+import { createDashboardUpdateHandler } from './tools/update-dashboard.js';
+import { createDashboardRefreshHandler } from './tools/refresh-dashboard.js';
 import { buildDashboardContext } from './context/provider.js';
 
 export interface DashboardPluginOptions {
   dataSources: DataSourceConfig[];
+  /** Required when any data source uses type: 'tool'. */
+  dispatcher?: ToolDispatcher;
+  /** Namespace passed to ToolDispatcher.invoke() for tool-backed sources. */
+  toolNamespace?: string;
 }
 
 export interface DashboardPlugin {
@@ -34,7 +41,7 @@ export interface DashboardPlugin {
  * the returned toolHandlers to the lifecycle options.
  */
 export async function createDashboardPlugin(options: DashboardPluginOptions): Promise<DashboardPlugin> {
-  const registry = new DataSourceRegistry();
+  const registry = new DataSourceRegistry(options.dispatcher, options.toolNamespace);
 
   // Register all configured data sources
   for (const dsConfig of options.dataSources) {
@@ -46,6 +53,9 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
   toolHandlers.set('dashboard_list_sources', createListSourcesHandler(registry));
   toolHandlers.set('dashboard_query', createQueryHandler(registry));
   toolHandlers.set('dashboard_render_chart', createRenderChartHandler(registry));
+  toolHandlers.set('dashboard_create', createDashboardCreateHandler(registry));
+  toolHandlers.set('dashboard_update', createDashboardUpdateHandler(registry));
+  toolHandlers.set('dashboard_refresh', createDashboardRefreshHandler(registry));
 
   return {
     toolHandlers,
@@ -58,6 +68,33 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
 // Re-export types
 export type { DataSourceConfig, DataSourceSchema, TabularResult, QueryConstraints } from './data-sources/types.js';
 export { DataSourceRegistry } from './data-sources/registry.js';
+export { ToolBackedAdapter } from './data-sources/tool-adapter.js';
+export { ResultParserRegistry, parseToolResult } from './data-sources/result-parsers.js';
 export { validateQuery } from './query/validator.js';
 export { validateVegaLiteSpec } from './chart/validator.js';
 export { buildDashboardContext } from './context/provider.js';
+
+// Widget types and model
+export type {
+  DashboardWidget,
+  ChartWidget,
+  KpiWidget,
+  TableWidget,
+  FilterWidget,
+  FilterField,
+  WidgetQuery,
+  GridSize,
+} from './widgets/types.js';
+export type { DashboardDefinition } from './widgets/dashboard-model.js';
+export { createDashboardDefinition, serializeDashboard, parseDashboard } from './widgets/dashboard-model.js';
+
+// Widget handlers
+export { executeKpiWidget } from './widgets/kpi-handler.js';
+export type { KpiBlockData, KpiResult } from './widgets/kpi-handler.js';
+export { executeTableWidget } from './widgets/table-handler.js';
+export type { TableBlockData, TableResult } from './widgets/table-handler.js';
+
+// Dashboard tool handlers
+export { createDashboardCreateHandler } from './tools/create-dashboard.js';
+export { createDashboardUpdateHandler } from './tools/update-dashboard.js';
+export { createDashboardRefreshHandler } from './tools/refresh-dashboard.js';

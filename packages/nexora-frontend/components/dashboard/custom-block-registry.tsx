@@ -4,6 +4,12 @@ import type { ComponentType } from 'react';
 import type { CustomBlock } from '@/lib/block-types';
 import { ChartWidget } from './ChartWidget';
 import type { ChartWidgetData } from './ChartWidget';
+import { KpiCard } from './KpiCard';
+import type { KpiCardData } from './KpiCard';
+import { DataTable } from './DataTable';
+import type { DataTableData } from './DataTable';
+import { DashboardGrid } from './DashboardGrid';
+import type { DashboardGridData } from './DashboardGrid';
 
 type CustomBlockComponentProps = { block: CustomBlock };
 
@@ -19,7 +25,22 @@ function DashboardChartBlock({ block }: CustomBlockComponentProps) {
   return <ChartWidget data={block.data as ChartWidgetData} />;
 }
 
+function DashboardKpiBlock({ block }: CustomBlockComponentProps) {
+  return <KpiCard data={block.data as KpiCardData} />;
+}
+
+function DashboardTableBlock({ block }: CustomBlockComponentProps) {
+  return <DataTable data={block.data as DataTableData} />;
+}
+
+function DashboardGridBlock({ block }: CustomBlockComponentProps) {
+  return <DashboardGrid data={block.data as DashboardGridData} />;
+}
+
 registry.set('custom:dashboard/chart', DashboardChartBlock);
+registry.set('custom:dashboard/kpi', DashboardKpiBlock);
+registry.set('custom:dashboard/table', DashboardTableBlock);
+registry.set('custom:dashboard/grid', DashboardGridBlock);
 
 // ── Public API ─────────────────────────────────────────────────────────
 

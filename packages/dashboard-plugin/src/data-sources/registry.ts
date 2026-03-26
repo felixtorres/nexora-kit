@@ -5,6 +5,7 @@
  * All downstream code operates on DataAdapter — agnostic to source type.
  */
 
+import type { ToolDispatcher } from '@nexora-kit/core';
 import type {
   DataAdapter,
   DataSourceConfig,
@@ -12,13 +13,24 @@ import type {
   TabularResult,
   QueryConstraints,
   SqlConfig,
+  ToolConfig,
+  CsvConfig,
 } from './types.js';
 import { DEFAULT_CONSTRAINTS } from './types.js';
 import { SqlAdapter } from './sql-adapter.js';
+import { ToolBackedAdapter } from './tool-adapter.js';
+import { CsvAdapter } from './csv-adapter.js';
 
 export class DataSourceRegistry {
   private adapters = new Map<string, DataAdapter>();
   private configs = new Map<string, DataSourceConfig>();
+  private dispatcher?: ToolDispatcher;
+  private toolNamespace: string;
+
+  constructor(dispatcher?: ToolDispatcher, toolNamespace = 'dashboard') {
+    this.dispatcher = dispatcher;
+    this.toolNamespace = toolNamespace;
+  }
 
   async register(config: DataSourceConfig): Promise<void> {
     if (this.adapters.has(config.id)) {
@@ -36,15 +48,34 @@ export class DataSourceRegistry {
       case 'sql':
         adapter = new SqlAdapter(config.id, config.config as SqlConfig, constraints);
         break;
-      case 'tool':
-        // Tool-backed adapters are Phase 2
-        throw new Error('Tool-backed data sources are not yet supported');
+      case 'tool': {
+        if (!this.dispatcher) {
+          throw new Error(
+            'Cannot register tool-backed data source: no ToolDispatcher was provided to the registry',
+          );
+        }
+        adapter = new ToolBackedAdapter(
+          config.id,
+          config.config as ToolConfig,
+          this.dispatcher,
+          this.toolNamespace,
+        );
+        break;
+      }
+      case 'csv': {
+        const csvConfig = config.config as CsvConfig;
+        adapter = new CsvAdapter(config.id, csvConfig.content, constraints, csvConfig.tableName);
+        break;
+      }
       default:
         throw new Error(`Unsupported data source type: ${(config.config as { type: string }).type}`);
     }
 
     // Validate connection by introspecting schema
-    await adapter.introspectSchema();
+    // Skip for tool-backed sources that have no schemaTool (validation would throw)
+    if (config.config.type !== 'tool' || (config.config as ToolConfig).schemaTool) {
+      await adapter.introspectSchema();
+    }
 
     this.adapters.set(config.id, adapter);
     this.configs.set(config.id, config);

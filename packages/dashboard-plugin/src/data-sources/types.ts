@@ -65,7 +65,7 @@ export interface DataSourceConfig {
   id: string;
   name: string;
   type: DataSourceType;
-  config: SqlConfig | ToolConfig;
+  config: SqlConfig | ToolConfig | CsvConfig;
   constraints: QueryConstraints;
 }
 
@@ -85,6 +85,12 @@ export interface ToolConfig {
   queryTool: string;
   schemaTool?: string;
   resultFormat: string;
+}
+
+export interface CsvConfig {
+  type: 'csv';
+  content: string;
+  tableName?: string;
 }
 
 export interface QueryConstraints {

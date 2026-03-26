@@ -25,10 +25,15 @@ interface RegisteredTool {
   requiredPermissions: Permission[];
 }
 
+/** Max depth for programmatic invoke() calls to prevent infinite cycles. */
+const MAX_INVOKE_DEPTH = 5;
+
 export class ToolDispatcher {
   private tools = new Map<string, RegisteredTool>();
   private definitions = new Map<string, ToolDefinition>();
   private permissionChecker?: PermissionChecker;
+  /** Tracks the current programmatic invocation depth per async context. */
+  private invokeDepth = 0;
 
   setPermissionChecker(checker: PermissionChecker): void {
     this.permissionChecker = checker;
@@ -89,6 +94,43 @@ export class ToolDispatcher {
         content: `Tool execution error: ${message}`,
         isError: true,
       };
+    }
+  }
+
+  /**
+   * Programmatically invoke a tool from plugin code.
+   * Unlike dispatch() (which is called by the LLM via agent loop), invoke() is
+   * called by one plugin's tool handler to execute another plugin's tool directly.
+   *
+   * Requires the caller to have 'tool:invoke' permission.
+   * Includes cycle detection (max depth 5) to prevent infinite recursion.
+   */
+  async invoke(
+    toolName: string,
+    input: Record<string, unknown>,
+    callerNamespace: string,
+    context?: ToolExecutionContext,
+  ): Promise<string | ToolHandlerResponse> {
+    // Check caller has tool:invoke permission
+    if (this.permissionChecker && !this.permissionChecker.check(callerNamespace, 'tool:invoke')) {
+      throw new Error(`Permission denied: plugin '${callerNamespace}' lacks 'tool:invoke' permission`);
+    }
+
+    // Cycle detection
+    if (this.invokeDepth >= MAX_INVOKE_DEPTH) {
+      throw new Error(`Invoke depth limit (${MAX_INVOKE_DEPTH}) exceeded — possible circular tool invocation`);
+    }
+
+    const tool = this.tools.get(toolName);
+    if (!tool) {
+      throw new Error(`Tool not found: ${toolName}`);
+    }
+
+    this.invokeDepth++;
+    try {
+      return await tool.handler(input, context);
+    } finally {
+      this.invokeDepth--;
     }
   }
 

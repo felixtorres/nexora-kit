@@ -292,3 +292,126 @@ describe('ToolDispatcher execution context', () => {
     expect(result.content).toBe('structured');
   });
 });
+
+describe('ToolDispatcher.invoke()', () => {
+  let dispatcher: ToolDispatcher;
+  const grantedPermissions = new Map<string, Set<Permission>>();
+
+  const checker: PermissionChecker = {
+    check(ns: string, perm: Permission) {
+      return grantedPermissions.get(ns)?.has(perm) ?? false;
+    },
+  };
+
+  beforeEach(() => {
+    dispatcher = new ToolDispatcher();
+    dispatcher.setPermissionChecker(checker);
+    grantedPermissions.clear();
+  });
+
+  it('invokes a tool programmatically and returns string result', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    dispatcher.register(
+      { name: 'greet', description: 'Greet', parameters: { type: 'object', properties: {} } },
+      async (input) => `Hello ${input.name}`,
+      { namespace: 'target' },
+    );
+
+    const result = await dispatcher.invoke('greet', { name: 'World' }, 'caller');
+    expect(result).toBe('Hello World');
+  });
+
+  it('invokes a tool and returns structured response', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    dispatcher.register(
+      { name: 'data', description: 'Data', parameters: { type: 'object', properties: {} } },
+      async () => ({ content: 'ok', blocks: [{ type: 'text' as const, content: 'hi' }] }),
+      { namespace: 'target' },
+    );
+
+    const result = await dispatcher.invoke('data', {}, 'caller');
+    expect(typeof result).toBe('object');
+    expect((result as { content: string }).content).toBe('ok');
+    expect((result as { blocks: unknown[] }).blocks).toHaveLength(1);
+  });
+
+  it('throws when caller lacks tool:invoke permission', async () => {
+    // No permissions granted for 'caller'
+    dispatcher.register(
+      { name: 'tool', description: 'T', parameters: { type: 'object', properties: {} } },
+      async () => 'ok',
+      { namespace: 'target' },
+    );
+
+    await expect(dispatcher.invoke('tool', {}, 'caller')).rejects.toThrow('tool:invoke');
+  });
+
+  it('throws when tool not found', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    await expect(dispatcher.invoke('nonexistent', {}, 'caller')).rejects.toThrow('not found');
+  });
+
+  it('throws on handler errors (not caught like dispatch)', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    dispatcher.register(
+      { name: 'fail', description: 'Fails', parameters: { type: 'object', properties: {} } },
+      async () => { throw new Error('boom'); },
+      { namespace: 'target' },
+    );
+
+    await expect(dispatcher.invoke('fail', {}, 'caller')).rejects.toThrow('boom');
+  });
+
+  it('enforces max invoke depth to prevent cycles', async () => {
+    grantedPermissions.set('a', new Set(['tool:invoke']));
+
+    // Register a tool that recursively invokes itself
+    dispatcher.register(
+      { name: 'recursive', description: 'Recursive', parameters: { type: 'object', properties: {} } },
+      async () => dispatcher.invoke('recursive', {}, 'a'),
+      { namespace: 'a' },
+    );
+
+    await expect(dispatcher.invoke('recursive', {}, 'a')).rejects.toThrow('depth limit');
+  });
+
+  it('resets depth after successful invocation', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    dispatcher.register(
+      { name: 'simple', description: 'Simple', parameters: { type: 'object', properties: {} } },
+      async () => 'ok',
+      { namespace: 'target' },
+    );
+
+    // Multiple sequential invocations should all succeed
+    const r1 = await dispatcher.invoke('simple', {}, 'caller');
+    const r2 = await dispatcher.invoke('simple', {}, 'caller');
+    const r3 = await dispatcher.invoke('simple', {}, 'caller');
+    expect(r1).toBe('ok');
+    expect(r2).toBe('ok');
+    expect(r3).toBe('ok');
+  });
+
+  it('allows invoke without permission checker (no checker set)', async () => {
+    const noCheckerDispatcher = new ToolDispatcher();
+    noCheckerDispatcher.register(
+      { name: 'tool', description: 'T', parameters: { type: 'object', properties: {} } },
+      async () => 'result',
+      { namespace: 'ns' },
+    );
+
+    const result = await noCheckerDispatcher.invoke('tool', {}, 'caller');
+    expect(result).toBe('result');
+  });
+
+  it('existing dispatch() is unaffected by invoke changes', async () => {
+    dispatcher.register(
+      { name: 'tool', description: 'T', parameters: { type: 'object', properties: {} } },
+      async () => 'dispatched',
+    );
+
+    const result = await dispatcher.dispatch({ id: '1', name: 'tool', input: {} });
+    expect(result.content).toBe('dispatched');
+    expect(result.isError).toBeUndefined();
+  });
+});

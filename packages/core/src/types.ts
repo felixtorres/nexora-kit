@@ -398,7 +398,8 @@ export type Permission =
   | 'fs:write'
   | 'network:connect'
   | 'env:read'
-  | 'secret:read';
+  | 'secret:read'
+  | 'tool:invoke';
 
 // --- Model Info ---
 

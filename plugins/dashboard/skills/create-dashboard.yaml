@@ -1,0 +1,13 @@
+name: dashboard_create
+description: Create a new interactive dashboard from a title and widget definitions. Widgets can be charts (Vega-Lite), KPIs, tables, or filters. All widget queries are executed immediately and rendered. Use dashboard_list_sources first to understand available data.
+invocation: model
+parameters:
+  title:
+    type: string
+    description: The dashboard title displayed at the top of the grid
+  widgets:
+    type: string
+    description: A JSON array of widget definitions. Each widget must have id, type (chart|kpi|table|filter), title, size ({col, row, width, height}), and type-specific fields (e.g. query, spec for charts, valueField for KPIs, columns for tables).
+  dataSourceId:
+    type: string
+    description: Optional default data source ID. If provided, added to the dashboard's dataSources list. Individual widgets specify their own dataSourceId in their query field.

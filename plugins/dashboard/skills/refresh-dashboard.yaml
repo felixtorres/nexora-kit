@@ -1,0 +1,10 @@
+name: dashboard_refresh
+description: Re-execute all widget queries in a dashboard and return fresh rendered results. Use this when the underlying data may have changed. The dashboard definition itself is not modified.
+invocation: model
+parameters:
+  dashboardId:
+    type: string
+    description: The artifact ID of the dashboard to refresh
+  definition:
+    type: string
+    description: The current dashboard definition JSON (from the dashboard artifact content)

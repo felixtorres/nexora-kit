@@ -200,6 +200,7 @@ export const serveCommand: CliCommand = {
     const skillHandlerFactory = new SkillHandlerFactory({
       llmProvider,
       configResolver,
+      toolDispatcher,
     });
 
     // --- Skill index adapter ---

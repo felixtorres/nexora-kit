@@ -1,0 +1,19 @@
+name: dashboard_update
+description: Modify an existing dashboard by adding, removing, or updating widgets. Provide the current dashboard definition (from the artifact) and the changes to apply. Only affected widgets are re-executed.
+invocation: model
+parameters:
+  dashboardId:
+    type: string
+    description: The artifact ID of the dashboard to update
+  definition:
+    type: string
+    description: The current dashboard definition JSON (from the dashboard artifact content)
+  addWidgets:
+    type: string
+    description: Optional JSON array of new widget definitions to add to the dashboard
+  removeWidgetIds:
+    type: string
+    description: Optional JSON array of widget ID strings to remove from the dashboard
+  updateWidgets:
+    type: string
+    description: Optional JSON array of partial widget objects (must include id) to merge into existing widgets
