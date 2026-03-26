@@ -1,0 +1,10 @@
+name: dashboard_promote
+description: Promote a conversation-scoped dashboard to a standalone dashboard that persists independently and can be shared via link. Use this when the user wants to save or share a dashboard.
+invocation: model
+parameters:
+  definition:
+    type: string
+    description: The dashboard definition JSON to promote
+  title:
+    type: string
+    description: Optional title override for the standalone dashboard

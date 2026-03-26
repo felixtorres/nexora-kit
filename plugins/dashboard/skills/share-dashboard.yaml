@@ -1,0 +1,10 @@
+name: dashboard_share
+description: Create a share link for a standalone dashboard. Returns a token that grants read-only access. Only works for promoted (standalone) dashboards.
+invocation: model
+parameters:
+  dashboardId:
+    type: string
+    description: The standalone dashboard ID (from dashboard_promote)
+  expiresInHours:
+    type: number
+    description: Optional — hours until the share link expires. Omit for no expiration.

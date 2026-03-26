@@ -19,7 +19,12 @@ import { createDashboardUpdateHandler } from './tools/update-dashboard.js';
 import { createDashboardRefreshHandler } from './tools/refresh-dashboard.js';
 import { createApplyFilterHandler } from './tools/apply-filter.js';
 import { createCrossFilterHandler } from './tools/cross-filter.js';
+import { createPromoteDashboardHandler } from './tools/promote-dashboard.js';
+import { createShareDashboardHandler } from './tools/share-dashboard.js';
+import { createListDashboardsHandler } from './tools/list-dashboards.js';
 import { buildDashboardContext } from './context/provider.js';
+import { InMemoryDashboardStore } from './store/dashboard-store.js';
+import type { DashboardStoreInterface } from './store/types.js';
 
 export interface DashboardPluginOptions {
   dataSources: DataSourceConfig[];
@@ -27,11 +32,14 @@ export interface DashboardPluginOptions {
   dispatcher?: ToolDispatcher;
   /** Namespace passed to ToolDispatcher.invoke() for tool-backed sources. */
   toolNamespace?: string;
+  /** Optional external dashboard store. Defaults to InMemoryDashboardStore. */
+  dashboardStore?: DashboardStoreInterface;
 }
 
 export interface DashboardPlugin {
   toolHandlers: Map<string, ToolHandler>;
   registry: DataSourceRegistry;
+  store: DashboardStoreInterface;
   buildContext(): Promise<string>;
   close(): Promise<void>;
 }
@@ -61,9 +69,16 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
   toolHandlers.set('dashboard_apply_filter', createApplyFilterHandler(registry));
   toolHandlers.set('dashboard_cross_filter', createCrossFilterHandler(registry));
 
+  // Phase 4: Standalone dashboard management
+  const store = options.dashboardStore ?? new InMemoryDashboardStore();
+  toolHandlers.set('dashboard_promote', createPromoteDashboardHandler(store));
+  toolHandlers.set('dashboard_share', createShareDashboardHandler(store));
+  toolHandlers.set('dashboard_list_standalone', createListDashboardsHandler(store));
+
   return {
     toolHandlers,
     registry,
+    store,
     buildContext: () => buildDashboardContext(registry),
     close: () => registry.closeAll(),
   };
@@ -104,3 +119,14 @@ export { createDashboardUpdateHandler } from './tools/update-dashboard.js';
 export { createDashboardRefreshHandler } from './tools/refresh-dashboard.js';
 export { createApplyFilterHandler } from './tools/apply-filter.js';
 export { createCrossFilterHandler } from './tools/cross-filter.js';
+export { createPromoteDashboardHandler } from './tools/promote-dashboard.js';
+export { createShareDashboardHandler } from './tools/share-dashboard.js';
+export { createListDashboardsHandler } from './tools/list-dashboards.js';
+
+// Store
+export type { DashboardStoreInterface, StoredDashboard, DashboardShare } from './store/types.js';
+export { InMemoryDashboardStore } from './store/dashboard-store.js';
+export { RefreshScheduler } from './store/refresh-scheduler.js';
+
+// Templates
+export { TEMPLATES, getTemplate, listTemplates } from './templates/index.js';

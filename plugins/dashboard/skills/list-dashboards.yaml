@@ -1,0 +1,4 @@
+name: dashboard_list_standalone
+description: List all standalone dashboards for the current team. These are dashboards that have been promoted from conversations and persist independently.
+invocation: model
+parameters: {}
