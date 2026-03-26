@@ -17,6 +17,8 @@ import { createRenderChartHandler } from './tools/render-chart.js';
 import { createDashboardCreateHandler } from './tools/create-dashboard.js';
 import { createDashboardUpdateHandler } from './tools/update-dashboard.js';
 import { createDashboardRefreshHandler } from './tools/refresh-dashboard.js';
+import { createApplyFilterHandler } from './tools/apply-filter.js';
+import { createCrossFilterHandler } from './tools/cross-filter.js';
 import { buildDashboardContext } from './context/provider.js';
 
 export interface DashboardPluginOptions {
@@ -56,6 +58,8 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
   toolHandlers.set('dashboard_create', createDashboardCreateHandler(registry));
   toolHandlers.set('dashboard_update', createDashboardUpdateHandler(registry));
   toolHandlers.set('dashboard_refresh', createDashboardRefreshHandler(registry));
+  toolHandlers.set('dashboard_apply_filter', createApplyFilterHandler(registry));
+  toolHandlers.set('dashboard_cross_filter', createCrossFilterHandler(registry));
 
   return {
     toolHandlers,
@@ -98,3 +102,5 @@ export type { TableBlockData, TableResult } from './widgets/table-handler.js';
 export { createDashboardCreateHandler } from './tools/create-dashboard.js';
 export { createDashboardUpdateHandler } from './tools/update-dashboard.js';
 export { createDashboardRefreshHandler } from './tools/refresh-dashboard.js';
+export { createApplyFilterHandler } from './tools/apply-filter.js';
+export { createCrossFilterHandler } from './tools/cross-filter.js';

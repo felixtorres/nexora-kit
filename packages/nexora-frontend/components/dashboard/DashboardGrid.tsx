@@ -27,6 +27,7 @@ export interface DashboardGridData {
 
 interface DashboardGridProps {
   data: DashboardGridData;
+  onAction?: (actionId: string, payload: Record<string, unknown>) => void;
 }
 
 function WidgetRenderer({ widget }: { widget: RenderedWidget }) {
@@ -46,10 +47,23 @@ function WidgetRenderer({ widget }: { widget: RenderedWidget }) {
   }
 }
 
-export function DashboardGrid({ data }: DashboardGridProps) {
+export function DashboardGrid({ data, onAction }: DashboardGridProps) {
+  const handleRefresh = () => {
+    onAction?.('dashboard-refresh', { dashboardId: data.dashboardId });
+  };
+
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-foreground">{data.title}</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">{data.title}</h2>
+        <button
+          onClick={handleRefresh}
+          className="rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="Refresh all widgets"
+        >
+          ↻ Refresh
+        </button>
+      </div>
       <div
         className="grid gap-4 max-sm:grid-cols-1"
         style={{

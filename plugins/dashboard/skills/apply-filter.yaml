@@ -1,0 +1,19 @@
+name: dashboard_apply_filter
+description: Apply a filter value to a dashboard, re-executing only the affected widgets. Use this when a user wants to filter dashboard data by a specific field and value.
+invocation: model
+parameters:
+  dashboardId:
+    type: string
+    description: The artifact ID of the dashboard
+  definition:
+    type: string
+    description: The current dashboard definition JSON
+  filterId:
+    type: string
+    description: The ID of the filter widget to apply
+  field:
+    type: string
+    description: The filter field name
+  value:
+    type: string
+    description: The filter value to apply

@@ -15,11 +15,13 @@ import type {
   SqlConfig,
   ToolConfig,
   CsvConfig,
+  RestConfig,
 } from './types.js';
 import { DEFAULT_CONSTRAINTS } from './types.js';
 import { SqlAdapter } from './sql-adapter.js';
 import { ToolBackedAdapter } from './tool-adapter.js';
 import { CsvAdapter } from './csv-adapter.js';
+import { RestAdapter } from './rest-adapter.js';
 
 export class DataSourceRegistry {
   private adapters = new Map<string, DataAdapter>();
@@ -67,6 +69,9 @@ export class DataSourceRegistry {
         adapter = new CsvAdapter(config.id, csvConfig.content, constraints, csvConfig.tableName);
         break;
       }
+      case 'rest':
+        adapter = new RestAdapter(config.id, config.config as RestConfig, constraints);
+        break;
       default:
         throw new Error(`Unsupported data source type: ${(config.config as { type: string }).type}`);
     }

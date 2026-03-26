@@ -1,0 +1,19 @@
+name: dashboard_cross_filter
+description: Apply cross-filtering when a user clicks or selects data points on a chart. The selection is applied as filter conditions to other widgets in the dashboard.
+invocation: model
+parameters:
+  dashboardId:
+    type: string
+    description: The artifact ID of the dashboard
+  definition:
+    type: string
+    description: The current dashboard definition JSON
+  sourceWidgetId:
+    type: string
+    description: The ID of the widget where the selection was made
+  selection:
+    type: string
+    description: JSON object of field-value pairs from the selected data point(s)
+  targetWidgetIds:
+    type: string
+    description: Optional JSON array of widget IDs to filter. If omitted, all widgets except the source are filtered.

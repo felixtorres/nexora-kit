@@ -10,6 +10,8 @@ import { DataTable } from './DataTable';
 import type { DataTableData } from './DataTable';
 import { DashboardGrid } from './DashboardGrid';
 import type { DashboardGridData } from './DashboardGrid';
+import { FilterBar } from './FilterBar';
+import type { FilterBarData } from './FilterBar';
 
 type CustomBlockComponentProps = { block: CustomBlock };
 
@@ -41,6 +43,12 @@ registry.set('custom:dashboard/chart', DashboardChartBlock);
 registry.set('custom:dashboard/kpi', DashboardKpiBlock);
 registry.set('custom:dashboard/table', DashboardTableBlock);
 registry.set('custom:dashboard/grid', DashboardGridBlock);
+
+function DashboardFilterBlock({ block }: CustomBlockComponentProps) {
+  return <FilterBar data={block.data as FilterBarData} />;
+}
+
+registry.set('custom:dashboard/filter', DashboardFilterBlock);
 
 // ── Public API ─────────────────────────────────────────────────────────
 

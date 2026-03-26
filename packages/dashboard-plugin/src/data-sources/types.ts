@@ -65,11 +65,11 @@ export interface DataSourceConfig {
   id: string;
   name: string;
   type: DataSourceType;
-  config: SqlConfig | ToolConfig | CsvConfig;
+  config: SqlConfig | ToolConfig | CsvConfig | RestConfig;
   constraints: QueryConstraints;
 }
 
-export type DataSourceType = 'sql' | 'tool' | 'csv';
+export type DataSourceType = 'sql' | 'tool' | 'csv' | 'rest';
 
 export interface SqlConfig {
   type: 'sql';
@@ -91,6 +91,23 @@ export interface CsvConfig {
   type: 'csv';
   content: string;
   tableName?: string;
+}
+
+export interface RestConfig {
+  type: 'rest';
+  baseUrl: string;
+  auth?: { type: 'bearer' | 'api-key'; token: string; header?: string };
+  endpoints: RestEndpoint[];
+  defaultHeaders?: Record<string, string>;
+}
+
+export interface RestEndpoint {
+  name: string;
+  path: string;
+  method?: 'GET' | 'POST';
+  body?: Record<string, unknown>;
+  resultPath?: string;
+  columns?: ColumnInfo[];
 }
 
 export interface QueryConstraints {
