@@ -34,6 +34,7 @@ import { createStorageBackend } from '@nexora-kit/storage';
 import { AuditLogger, UsageAnalytics, AdminService } from '@nexora-kit/admin';
 import { Gateway, ApiKeyAuth } from '@nexora-kit/api';
 import { createProviderFromConfig, type LlmConfig } from '@nexora-kit/llm';
+import { createDashboardPlugin, type DashboardPluginOptions } from '@nexora-kit/dashboard-plugin';
 
 interface InstanceConfig {
   name: string;
@@ -80,6 +81,7 @@ interface InstanceConfig {
     model?: string;
   };
   rateLimit?: { windowMs?: number; maxRequests?: number };
+  dashboard?: DashboardPluginOptions;
 }
 
 export const serveCommand: CliCommand = {
@@ -203,11 +205,29 @@ export const serveCommand: CliCommand = {
     // --- Skill index adapter ---
     const skillIndexAdapter = new SkillIndexAdapter(skillRegistry);
 
+    // --- Dashboard plugin (optional, if configured) ---
+    const toolHandlers = new Map<string, import('@nexora-kit/core').ToolHandler>();
+    let dashboardPlugin: Awaited<ReturnType<typeof createDashboardPlugin>> | undefined;
+    if (config.dashboard?.dataSources && config.dashboard.dataSources.length > 0) {
+      try {
+        dashboardPlugin = await createDashboardPlugin(config.dashboard);
+        for (const [name, handler] of dashboardPlugin.toolHandlers) {
+          toolHandlers.set(name, handler);
+        }
+        logger.info('dashboard.initialized', { sources: config.dashboard.dataSources.length });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error('dashboard.init_error', { err: msg });
+        error(`Dashboard plugin init error: ${msg}`);
+      }
+    }
+
     // --- Plugin lifecycle ---
     const lifecycle = new PluginLifecycleManager({
       permissionGate,
       configResolver,
       toolDispatcher,
+      toolHandlers,
       skillHandlerFactory,
       skillRegistry,
       commandRegistry,
@@ -422,6 +442,7 @@ export const serveCommand: CliCommand = {
     const shutdown = async () => {
       logger.info('server.stopping', {});
       await gateway.stop();
+      if (dashboardPlugin) await dashboardPlugin.close();
       await storageBackend.close();
       logger.info('server.stopped', {});
       process.exit(0);

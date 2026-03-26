@@ -12,6 +12,11 @@ import { ProgressBlock } from './progress-block';
 import { SuggestedRepliesBlock } from './suggested-replies-block';
 import { ToolCallBlock } from './tool-call-block';
 import { ActivityBlock } from './activity-block';
+import {
+  CustomBlockRenderer,
+  getCustomBlockRenderer,
+} from '@/components/dashboard/custom-block-registry';
+import type { CustomBlock } from '@/lib/block-types';
 
 interface BlockRendererProps {
   block: DisplayBlock;
@@ -54,9 +59,12 @@ export function BlockRenderer({ block, allBlocks, index, onAction, onReply }: Bl
         </div>
       );
     default: {
-      // Custom blocks (custom:*) — render as collapsible JSON viewer
-      const customBlock = block as { type: string; data: unknown };
+      const customBlock = block as CustomBlock & { type: string };
       if (customBlock.type.startsWith('custom:')) {
+        // Use registered renderer if available, otherwise fall back to JSON viewer
+        if (getCustomBlockRenderer(customBlock.type)) {
+          return <CustomBlockRenderer block={customBlock as CustomBlock} />;
+        }
         return (
           <details className="rounded-lg border bg-muted/20">
             <summary className="cursor-pointer px-4 py-2 text-xs font-mono text-muted-foreground">

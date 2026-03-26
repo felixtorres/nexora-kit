@@ -20,6 +20,7 @@
     "@nexora-kit/commands": "*",
     "@nexora-kit/config": "*",
     "@nexora-kit/core": "*",
+    "@nexora-kit/dashboard-plugin": "*",
     "@nexora-kit/llm": "*",
     "@nexora-kit/mcp": "*",
     "@nexora-kit/plugins": "*",

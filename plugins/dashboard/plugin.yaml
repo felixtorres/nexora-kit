@@ -1,0 +1,24 @@
+name: Interactive Dashboards
+version: 0.1.0
+namespace: dashboard
+description: Conversational BI dashboards from chat — generate charts, KPIs, and data tables from natural language queries
+author: nexora-kit-team
+
+permissions:
+  - network:connect
+  - storage:read
+  - storage:write
+
+config:
+  schema:
+    dataSources:
+      type: string
+      description: JSON array of data source configurations
+      required: true
+
+skillIndex: true
+
+sandbox:
+  tier: basic
+  limits:
+    timeoutMs: 60000

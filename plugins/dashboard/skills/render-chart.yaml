@@ -1,0 +1,16 @@
+name: dashboard_render_chart
+description: Generate an interactive chart by executing a query and rendering it with a Vega-Lite specification. The chart is displayed inline in the conversation with tooltips, zoom, and pan. Use dashboard_list_sources first to understand the data schema, then provide a SQL query and Vega-Lite spec.
+invocation: model
+parameters:
+  dataSourceId:
+    type: string
+    description: The ID of the data source to query
+  sql:
+    type: string
+    description: A read-only SQL query that produces the data for the chart. Use GROUP BY to aggregate data — do not plot raw rows unless specifically requested.
+  spec:
+    type: string
+    description: A Vega-Lite JSON specification (without data). Must include mark and encoding. Do NOT include the data field — query results are injected automatically.
+  title:
+    type: string
+    description: A descriptive title for the chart

@@ -1,0 +1,10 @@
+name: dashboard_list_sources
+description: List available data sources and their schemas, including table structures, column types, and sample data. Use this to understand what data is available before generating queries or charts.
+invocation: model
+parameters:
+  dataSourceId:
+    type: string
+    description: Optional — specify a data source ID to get detailed schema, sample data, and column statistics. Omit to list all available sources.
+  refresh:
+    type: boolean
+    description: Set to true to refresh the cached schema (useful if the database schema has changed).

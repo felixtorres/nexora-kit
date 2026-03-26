@@ -1,0 +1,13 @@
+name: dashboard_query
+description: Execute a read-only SQL query against a data source. Returns tabular results with column types. Use this to explore data or retrieve results for analysis. Queries must be SELECT statements only — write operations are rejected.
+invocation: model
+parameters:
+  dataSourceId:
+    type: string
+    description: The ID of the data source to query (use dashboard_list_sources to see available sources)
+  sql:
+    type: string
+    description: A read-only SQL query (SELECT, WITH, VALUES). Must not contain INSERT, UPDATE, DELETE, DROP, or other write operations.
+  params:
+    type: string
+    description: Optional JSON object of query parameters for parameterized queries
