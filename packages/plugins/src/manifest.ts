@@ -5,7 +5,7 @@ import type { PluginManifest, Permission } from '@nexora-kit/core';
 const permissionValues: Permission[] = [
   'llm:invoke', 'mcp:connect', 'storage:read', 'storage:write',
   'code:execute', 'fs:read', 'fs:write', 'network:connect',
-  'env:read', 'secret:read',
+  'env:read', 'secret:read', 'tool:invoke',
 ];
 
 const pluginDependencySchema = z.object({

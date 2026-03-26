@@ -58,22 +58,24 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
     await registry.register(dsConfig);
   }
 
-  // Create tool handlers
+  // Create tool handlers — keys are qualified names (namespace:skillName)
+  // matching how PluginLifecycleManager looks them up
+  const ns = 'dashboard';
   const toolHandlers = new Map<string, ToolHandler>();
-  toolHandlers.set('dashboard_list_sources', createListSourcesHandler(registry));
-  toolHandlers.set('dashboard_query', createQueryHandler(registry));
-  toolHandlers.set('dashboard_render_chart', createRenderChartHandler(registry));
-  toolHandlers.set('dashboard_create', createDashboardCreateHandler(registry));
-  toolHandlers.set('dashboard_update', createDashboardUpdateHandler(registry));
-  toolHandlers.set('dashboard_refresh', createDashboardRefreshHandler(registry));
-  toolHandlers.set('dashboard_apply_filter', createApplyFilterHandler(registry));
-  toolHandlers.set('dashboard_cross_filter', createCrossFilterHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_list_sources`, createListSourcesHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_query`, createQueryHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_render_chart`, createRenderChartHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_create`, createDashboardCreateHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_update`, createDashboardUpdateHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_refresh`, createDashboardRefreshHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_apply_filter`, createApplyFilterHandler(registry));
+  toolHandlers.set(`${ns}:dashboard_cross_filter`, createCrossFilterHandler(registry));
 
   // Phase 4: Standalone dashboard management
   const store = options.dashboardStore ?? new InMemoryDashboardStore();
-  toolHandlers.set('dashboard_promote', createPromoteDashboardHandler(store));
-  toolHandlers.set('dashboard_share', createShareDashboardHandler(store));
-  toolHandlers.set('dashboard_list_standalone', createListDashboardsHandler(store));
+  toolHandlers.set(`${ns}:dashboard_promote`, createPromoteDashboardHandler(store));
+  toolHandlers.set(`${ns}:dashboard_share`, createShareDashboardHandler(store));
+  toolHandlers.set(`${ns}:dashboard_list_standalone`, createListDashboardsHandler(store));
 
   return {
     toolHandlers,
