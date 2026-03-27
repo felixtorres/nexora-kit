@@ -3,9 +3,10 @@
 import { LayoutDashboard, Maximize2 } from 'lucide-react';
 import type { CustomBlock } from '@/lib/block-types';
 
-interface AppPreviewBlockData {
+export interface AppPreviewBlockData {
   appId: string;
   title: string;
+  html: string;
   widgetCount: number;
   sizeBytes: number;
 }
@@ -17,13 +18,12 @@ interface AppPreviewBlockProps {
 
 /**
  * Inline block shown in the chat when a dashboard app is generated.
- * Clicking "Expand Preview" triggers the split-pane.
- *
- * This is registered as the renderer for `custom:app/preview` blocks.
+ * The split-pane auto-activates on streaming, but this provides a
+ * manual "Expand" fallback if the user closed the preview.
  */
 export function AppPreviewBlock({ block, onExpand }: AppPreviewBlockProps) {
   const data = block.data as AppPreviewBlockData;
-  const sizeKB = Math.round(data.sizeBytes / 1024);
+  const sizeKB = Math.round((data.sizeBytes ?? 0) / 1024);
 
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3">
@@ -36,7 +36,7 @@ export function AppPreviewBlock({ block, onExpand }: AppPreviewBlockProps) {
           {data.widgetCount} widget{data.widgetCount !== 1 ? 's' : ''} &middot; {sizeKB}KB
         </p>
       </div>
-      {onExpand && (
+      {onExpand && data.html && (
         <button
           onClick={() => onExpand(data)}
           className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"

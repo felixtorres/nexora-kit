@@ -206,6 +206,7 @@ export function createAppRefineHandler(registry: DataSourceRegistry): ToolHandle
           data: {
             appId,
             title: def.title,
+            html: app.html,
             widgetCount: app.widgetCount,
             sizeBytes: app.sizeBytes,
           },

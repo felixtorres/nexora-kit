@@ -134,6 +134,7 @@ export function createAppCreateHandler(registry: DataSourceRegistry): ToolHandle
           data: {
             appId: artifactId,
             title,
+            html: app.html,
             widgetCount: app.widgetCount,
             sizeBytes: app.sizeBytes,
           },

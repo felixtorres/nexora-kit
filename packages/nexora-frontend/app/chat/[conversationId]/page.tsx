@@ -14,6 +14,7 @@ import type { AppPreviewFrameRef } from '@/components/app-preview/AppPreviewFram
 import { AppPreviewToolbar } from '@/components/app-preview/AppPreviewToolbar';
 import { AppPreviewOverlay } from '@/components/app-preview/AppPreviewOverlay';
 import { useAppPreview } from '@/hooks/use-app-preview';
+import { AppPreviewProvider } from '@/components/app-preview/AppPreviewContext';
 import { useConversationStore } from '@/store/conversation';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useSendMessage, normalizeMessages } from '@/hooks/use-conversation';
@@ -35,6 +36,8 @@ export default function ConversationPage() {
     isConnected,
   } = useWebSocket(conversationId);
   const [showDevPanel, setShowDevPanel] = useState(false);
+  const streamingBlocks = useConversationStore((s) => s.streamingBlocks);
+  const messages = useConversationStore((s) => s.messagesByConversation[conversationId]) ?? [];
   const preview = useAppPreview();
   const previewFrameRef = useRef<AppPreviewFrameRef>(null);
 
@@ -69,6 +72,34 @@ export default function ConversationPage() {
 
     return () => setActiveConversation(null);
   }, [conversationId, hydrated, hydrateFeedback, setActiveConversation, setMessages]);
+
+  // Auto-activate split-pane when a custom:app/preview block arrives (streaming)
+  useEffect(() => {
+    const appBlock = streamingBlocks.find(
+      (b) => b.type === 'custom:app/preview' && (b as any).data?.html,
+    );
+    if (appBlock) {
+      const data = (appBlock as any).data as { appId: string; html: string; title: string };
+      preview.showPreview(data.appId, data.html, data.title);
+    }
+  }, [streamingBlocks, preview.showPreview]);
+
+  // Also check finalized messages for app preview blocks (e.g., page reload / history)
+  useEffect(() => {
+    if (preview.currentHtml) return; // Already showing a preview
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (!msg.blocks) continue;
+      const appBlock = msg.blocks.find(
+        (b: any) => b.type === 'custom:app/preview' && b.data?.html,
+      );
+      if (appBlock) {
+        const data = (appBlock as any).data as { appId: string; html: string; title: string };
+        preview.showPreview(data.appId, data.html, data.title);
+        break;
+      }
+    }
+  }, [messages, preview.currentHtml, preview.showPreview]);
 
   const handleSend = useCallback(
     (input: string) => {
@@ -143,13 +174,15 @@ export default function ConversationPage() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <SplitPane
-        mode={preview.mode}
-        chatPanel={chatPanel}
-        previewPanel={previewPanel}
-      />
-      {showDevPanel && <DevPanel isConnected={isConnected} />}
-    </div>
+    <AppPreviewProvider value={{ showPreview: preview.showPreview }}>
+      <div className="flex min-h-0 flex-1">
+        <SplitPane
+          mode={preview.mode}
+          chatPanel={chatPanel}
+          previewPanel={previewPanel}
+        />
+        {showDevPanel && <DevPanel isConnected={isConnected} />}
+      </div>
+    </AppPreviewProvider>
   );
 }
