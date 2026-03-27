@@ -24,7 +24,11 @@ export function createRenderChartHandler(registry: DataSourceRegistry): ToolHand
     // Parse and validate the Vega-Lite spec
     let spec: Record<string, unknown>;
     try {
-      spec = typeof specJson === 'string' ? JSON.parse(specJson) : specJson as Record<string, unknown>;
+      const parsed = typeof specJson === 'string' ? JSON.parse(specJson) : specJson;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return 'Error: spec must be a JSON object with mark/encoding or layer';
+      }
+      spec = parsed as Record<string, unknown>;
     } catch {
       return 'Error: spec must be valid JSON';
     }

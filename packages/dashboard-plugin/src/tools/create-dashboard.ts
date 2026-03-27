@@ -12,7 +12,7 @@ import type { DashboardWidget, ChartWidget, KpiWidget, TableWidget } from '../wi
 import { createDashboardDefinition, serializeDashboard } from '../widgets/dashboard-model.js';
 import { executeKpiWidget } from '../widgets/kpi-handler.js';
 import { executeTableWidget } from '../widgets/table-handler.js';
-import { validateVegaLiteSpec } from '../chart/validator.js';
+import { normalizeChartSpec, validateVegaLiteSpec } from '../chart/validator.js';
 import { validateQuery } from '../query/validator.js';
 import type { CustomBlock } from '@nexora-kit/core';
 
@@ -75,10 +75,16 @@ export function createDashboardCreateHandler(registry: DataSourceRegistry): Tool
       }
     }
 
-    // Validate chart specs before executing anything
+    // Normalize and validate chart specs before executing anything
     for (const w of widgets) {
       if (w.type === 'chart') {
         const chart = w as ChartWidget;
+        const normalized = normalizeChartSpec(chart.spec);
+        if (typeof normalized === 'string') {
+          return `Error: chart widget '${w.id}' has invalid spec: ${normalized}`;
+        }
+        chart.spec = normalized;
+
         const specValidation = validateVegaLiteSpec(chart.spec.config);
         if (!specValidation.valid) {
           return `Error: chart widget '${w.id}' has invalid spec: ${specValidation.error}`;

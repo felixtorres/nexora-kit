@@ -24,7 +24,53 @@ const VALID_CHANNELS = new Set([
   'strokeWidth', 'strokeDash', 'order',
 ]);
 
+/** Composite view keys in Vega-Lite */
+const COMPOSITE_KEYS = ['layer', 'concat', 'hconcat', 'vconcat', 'repeat'] as const;
+
+/**
+ * Normalize a chart spec that may arrive as:
+ *  - A JSON string of a raw Vega-Lite spec
+ *  - A raw Vega-Lite object (has mark/layer/concat)
+ *  - The wrapped form { engine: 'vega-lite', config: {...} }
+ *
+ * Returns the wrapped form or an error string.
+ */
+export function normalizeChartSpec(
+  raw: unknown,
+): { engine: 'vega-lite'; config: Record<string, unknown> } | string {
+  let parsed = raw;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return 'spec must be valid JSON';
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return 'spec must be a JSON object';
+  }
+
+  const obj = parsed as Record<string, unknown>;
+
+  // Already wrapped
+  if ('engine' in obj && 'config' in obj && typeof obj.config === 'object' && obj.config !== null) {
+    return obj as { engine: 'vega-lite'; config: Record<string, unknown> };
+  }
+
+  // Raw Vega-Lite spec
+  if ('mark' in obj || COMPOSITE_KEYS.some((k) => k in obj)) {
+    return { engine: 'vega-lite', config: obj };
+  }
+
+  return 'spec must have mark/encoding or layer';
+}
+
 export function validateVegaLiteSpec(spec: Record<string, unknown>): SpecValidationResult {
+  if (!spec || typeof spec !== 'object') {
+    return { valid: false, error: 'Spec must be a JSON object' };
+  }
+
   // Must have either mark + encoding (unit spec) or layer/concat/hconcat/vconcat/repeat
   const isSingleView = 'mark' in spec;
   const isComposite = 'layer' in spec || 'concat' in spec || 'hconcat' in spec || 'vconcat' in spec || 'repeat' in spec;
