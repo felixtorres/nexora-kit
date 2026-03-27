@@ -1,23 +1,22 @@
 name: dashboard_app_create
 description: >
-  Generate a self-contained HTML/CSS/JS dashboard app with interactive ECharts charts,
-  KPI cards, data tables, and more. The result is a single HTML file with dark/light
-  theme toggle that works standalone in any browser.
+  Build a dashboard app NOW. Call this tool immediately when the user asks for
+  a dashboard, chart, visualization, or data analysis. Do not explain what you
+  would build — call this tool and build it. The output is a live interactive
+  HTML app with charts, KPIs, and tables.
 invocation: model
 parameters:
   title:
     type: string
-    description: The dashboard app title
+    description: Short dashboard title
     required: true
   widgets:
     type: string
     description: >
-      JSON array of widget definitions. Each widget needs: id, type
-      (chart|kpi|table|stat|gauge|metric-card|text), title, size ({col,row,width,height}).
-      Chart widgets require chartType (bar|line|area|pie|donut|scatter|heatmap|gauge|
-      candlestick|radar|funnel|treemap|etc.) and config (ECharts option object).
-      Data widgets require query ({dataSourceId, sql}).
+      JSON array of widgets. Each needs id, type, title, size ({col,row,width,height}).
+      Chart: add chartType + config (ECharts option). KPI: add valueField + format.
+      Table: add columns array. All data widgets need query ({dataSourceId, sql}).
     required: true
   theme:
     type: string
-    description: "Color theme: 'light', 'dark', or 'auto' (default: 'auto')"
+    description: "'light', 'dark', or 'auto' (default: 'auto')"

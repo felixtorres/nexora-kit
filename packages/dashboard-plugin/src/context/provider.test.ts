@@ -90,9 +90,10 @@ describe('buildDashboardContext', () => {
     await registry.registerWithAdapter(DS_CONFIG, createMockAdapter('analytics'));
   });
 
-  it('includes the header', async () => {
+  it('includes the header and behavioral rules', async () => {
     const context = await buildDashboardContext(registry);
-    expect(context).toContain('# Dashboard Plugin Context');
+    expect(context).toContain('# Dashboard Plugin');
+    expect(context).toContain('call the tool immediately');
   });
 
   it('includes data source name and id', async () => {
@@ -108,7 +109,6 @@ describe('buildDashboardContext', () => {
     expect(context).toContain('`id`');
     expect(context).toContain('`name`');
     expect(context).toContain('`amount`');
-    // Row count estimates
     expect(context).toContain('1500');
     expect(context).toContain('8200');
   });
@@ -126,33 +126,23 @@ describe('buildDashboardContext', () => {
     expect(context).toContain('Bob');
   });
 
-  it('includes Vega-Lite chart examples', async () => {
+  it('includes Vega-Lite reference in classic/both mode', async () => {
     const context = await buildDashboardContext(registry);
-    expect(context).toContain('## Vega-Lite Chart Examples');
-    expect(context).toContain('Bar chart');
-    expect(context).toContain('Line chart');
-    expect(context).toContain('Scatter plot');
-    expect(context).toContain('Pie / donut chart');
-    expect(context).toContain('Heatmap');
+    expect(context).toContain('Vega-Lite');
   });
 
-  it('includes charting rules', async () => {
-    const context = await buildDashboardContext(registry);
-    expect(context).toContain('## Charting Rules');
-    expect(context).toContain('Always aggregate before charting');
-    expect(context).toContain('Do NOT include `data` in the spec');
+  it('includes ECharts reference in app/both mode', async () => {
+    const context = await buildDashboardContext(registry, { mode: 'app' });
+    expect(context).toContain('ECharts');
+    expect(context).not.toContain('Vega-Lite');
   });
 
   it('works with empty registry (no data sources)', async () => {
     const emptyRegistry = new TestableRegistry();
     const context = await buildDashboardContext(emptyRegistry);
 
-    expect(context).toContain('# Dashboard Plugin Context');
-    // No "Available Data Sources" section
+    expect(context).toContain('# Dashboard Plugin');
     expect(context).not.toContain('## Available Data Sources');
-    // Still includes examples and rules
-    expect(context).toContain('## Vega-Lite Chart Examples');
-    expect(context).toContain('## Charting Rules');
   });
 
   it('handles schema introspection failure gracefully', async () => {

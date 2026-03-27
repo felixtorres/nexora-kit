@@ -1,34 +1,33 @@
 name: dashboard_app_refine
 description: >
-  Refine an existing dashboard app by adding, removing, or updating widgets.
-  Supports three refinement levels: 'layout' (theme/title only, no queries),
-  'dashboard' (add/remove widgets, re-execute all), 'widget' (update one widget,
-  re-execute only that query).
+  Modify an existing dashboard app immediately. Call this when the user wants
+  to change, add, or remove anything in a dashboard. Do not explain the change
+  — apply it.
 invocation: model
 parameters:
   appId:
     type: string
-    description: The artifact ID of the existing dashboard app
+    description: Artifact ID of the dashboard
     required: true
   definition:
     type: string
-    description: Current AppDefinition JSON (from the artifact content)
+    description: Current AppDefinition JSON
     required: true
   refinementLevel:
     type: string
-    description: "'layout' (no queries), 'dashboard' (full re-query), or 'widget' (targeted). Default: 'dashboard'"
+    description: "'layout' (no queries), 'dashboard' (full), or 'widget' (targeted)"
   addWidgets:
     type: string
-    description: JSON array of new widgets to add
+    description: JSON array of new widgets
   removeWidgetIds:
     type: string
     description: JSON array of widget IDs to remove
   updateWidgets:
     type: string
-    description: JSON array of partial widget updates (each must include 'id')
+    description: JSON array of partial widget updates (each needs 'id')
   title:
     type: string
-    description: New dashboard title (optional)
+    description: New title
   theme:
     type: string
-    description: "New theme: 'light', 'dark', or 'auto' (optional)"
+    description: "'light', 'dark', or 'auto'"

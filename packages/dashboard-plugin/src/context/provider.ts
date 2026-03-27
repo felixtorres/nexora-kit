@@ -24,7 +24,14 @@ export async function buildDashboardContext(
 ): Promise<string> {
   const sections: string[] = [];
 
-  sections.push('# Dashboard Plugin Context');
+  sections.push('# Dashboard Plugin');
+  sections.push('');
+  sections.push('## IMPORTANT: Behavioral Rules');
+  sections.push('');
+  sections.push('- When the user asks for a dashboard, chart, or data visualization: **call the tool immediately**. Do NOT explain what you would build — BUILD IT.');
+  sections.push('- Examine the available data sources and schemas below, pick the right queries and chart types, and call `dashboard_app_create` (or `dashboard_create` in classic mode) in your FIRST response.');
+  sections.push('- Keep your text response SHORT — one sentence confirming what you built. The app itself is the answer.');
+  sections.push('- If the user asks to change something about an existing dashboard, call `dashboard_app_refine` immediately.');
   sections.push('');
 
   // Data sources
@@ -78,194 +85,42 @@ export async function buildDashboardContext(
 }
 
 const VEGA_LITE_EXAMPLES = `
-## Vega-Lite Chart Examples
+## Vega-Lite Reference (Classic Mode)
 
-When generating charts, output a valid Vega-Lite JSON spec. Do NOT include data in the spec — data is injected by the plugin.
-
-### Bar chart
-\`\`\`json
-{
-  "mark": "bar",
-  "encoding": {
-    "x": { "field": "category", "type": "nominal" },
-    "y": { "field": "value", "type": "quantitative", "aggregate": "sum" },
-    "color": { "field": "category", "type": "nominal" }
-  }
-}
-\`\`\`
-
-### Line chart (time series)
-\`\`\`json
-{
-  "mark": "line",
-  "encoding": {
-    "x": { "field": "date", "type": "temporal", "title": "Date" },
-    "y": { "field": "revenue", "type": "quantitative", "title": "Revenue" },
-    "color": { "field": "region", "type": "nominal" }
-  }
-}
-\`\`\`
-
-### Stacked bar chart
-\`\`\`json
-{
-  "mark": "bar",
-  "encoding": {
-    "x": { "field": "month", "type": "ordinal" },
-    "y": { "field": "sales", "type": "quantitative", "aggregate": "sum" },
-    "color": { "field": "product", "type": "nominal" }
-  }
-}
-\`\`\`
-
-### Scatter plot
-\`\`\`json
-{
-  "mark": "point",
-  "encoding": {
-    "x": { "field": "weight", "type": "quantitative" },
-    "y": { "field": "height", "type": "quantitative" },
-    "color": { "field": "species", "type": "nominal" },
-    "tooltip": [
-      { "field": "name", "type": "nominal" },
-      { "field": "weight", "type": "quantitative" },
-      { "field": "height", "type": "quantitative" }
-    ]
-  }
-}
-\`\`\`
-
-### Pie / donut chart
-\`\`\`json
-{
-  "mark": { "type": "arc", "innerRadius": 50 },
-  "encoding": {
-    "theta": { "field": "share", "type": "quantitative" },
-    "color": { "field": "segment", "type": "nominal" }
-  }
-}
-\`\`\`
-
-### Heatmap
-\`\`\`json
-{
-  "mark": "rect",
-  "encoding": {
-    "x": { "field": "day", "type": "ordinal" },
-    "y": { "field": "hour", "type": "ordinal" },
-    "color": { "field": "count", "type": "quantitative" }
-  }
-}
-\`\`\`
+Call \`dashboard_create\` immediately. Spec patterns (no data — injected automatically):
+- **bar**: \`{mark:"bar", encoding:{x:{field,type:"nominal"}, y:{field,type:"quantitative",aggregate:"sum"}}}\`
+- **line**: \`{mark:"line", encoding:{x:{field,type:"temporal"}, y:{field,type:"quantitative"}}}\`
+- **pie**: \`{mark:{type:"arc",innerRadius:50}, encoding:{theta:{field,type:"quantitative"}, color:{field,type:"nominal"}}}\`
+- **scatter**: \`{mark:"point", encoding:{x:{field,type:"quantitative"}, y:{field,type:"quantitative"}}}\`
+- **heatmap**: \`{mark:"rect", encoding:{x:{field,type:"ordinal"}, y:{field,type:"ordinal"}, color:{field,type:"quantitative"}}}\`
 `;
 
 const CHARTING_RULES = `
-## Charting Rules
-
-1. **Always aggregate before charting.** Use \`aggregate: "sum"\`, \`"mean"\`, \`"count"\` etc. in the encoding. Do not plot raw rows unless explicitly requested.
-2. **Use appropriate mark types:** bar for categorical comparisons, line for time series, point for scatter/correlation, arc for parts-of-whole.
-3. **Include axis labels and titles.** Use the \`title\` field in x/y encodings.
-4. **Add tooltips** for interactive exploration — include relevant fields.
-5. **Limit categories.** If a dimension has >15 unique values, aggregate or filter to the top N.
-6. **Use temporal type** for date columns, not ordinal.
-7. **Do NOT include \`data\` in the spec** — the plugin injects query results automatically.
-8. **Use SQL GROUP BY** to aggregate data before charting when the dataset is large. Do not rely on client-side aggregation for datasets > 1000 rows.
+Use SQL GROUP BY for aggregation. Add tooltips. Use temporal type for dates. Never include data in spec.
 `;
 
 const ECHARTS_EXAMPLES = `
-## ECharts Chart Examples (App Mode)
+## ECharts Reference (App Mode)
 
-When generating dashboard apps, provide ECharts config objects. Do NOT include data — the plugin injects query results via \`dataset.source\`.
+Call \`dashboard_app_create\` with a widgets JSON array. Each chart widget needs \`chartType\` and \`config\` (ECharts option, no data). Data is injected automatically from query results.
 
-### Bar chart
-\`\`\`json
-{
-  "chartType": "bar",
-  "config": {
-    "xAxis": { "type": "category" },
-    "yAxis": { "type": "value" },
-    "series": [{ "type": "bar", "encode": { "x": "category", "y": "value" } }],
-    "tooltip": { "trigger": "axis" }
-  }
-}
-\`\`\`
+Widget config patterns:
+- **bar/line/area/scatter**: \`{ xAxis:{type:"category"}, yAxis:{type:"value"}, series:[{type:"bar", encode:{x:"col",y:"col"}}], tooltip:{trigger:"axis"} }\`
+- **pie/donut**: \`{ series:[{type:"pie", radius:["40%","70%"], encode:{itemName:"col",value:"col"}}], tooltip:{trigger:"item"} }\`
+- **gauge**: \`{ series:[{type:"gauge", detail:{formatter:"{value}%"}, data:[{value:72}]}] }\`
+- **heatmap**: \`{ xAxis:{type:"category"}, yAxis:{type:"category"}, visualMap:{min:0,max:100}, series:[{type:"heatmap"}], tooltip:{} }\`
+- **candlestick**: \`{ xAxis:{type:"category"}, yAxis:{type:"value",scale:true}, series:[{type:"candlestick", encode:{x:"date",y:["open","close","low","high"]}}], dataZoom:[{type:"inside"},{type:"slider"}] }\`
+- **kpi** widget: \`{ type:"kpi", valueField:"col", format:"currency"|"number"|"percent" }\` — query must return 1 row
+- **table** widget: \`{ type:"table", columns:[{key,label}], sortable:true, pageSize:20 }\`
 
-### Line chart (time series)
-\`\`\`json
-{
-  "chartType": "line",
-  "config": {
-    "xAxis": { "type": "time" },
-    "yAxis": { "type": "value" },
-    "series": [{ "type": "line", "encode": { "x": "date", "y": "revenue" }, "smooth": true }],
-    "tooltip": { "trigger": "axis" },
-    "dataZoom": [{ "type": "inside" }, { "type": "slider" }]
-  }
-}
-\`\`\`
-
-### Pie / donut chart
-\`\`\`json
-{
-  "chartType": "donut",
-  "config": {
-    "series": [{ "type": "pie", "radius": ["40%", "70%"], "encode": { "itemName": "category", "value": "amount" }, "label": { "show": true, "formatter": "{b}: {d}%" } }],
-    "tooltip": { "trigger": "item" }
-  }
-}
-\`\`\`
-
-### Gauge
-\`\`\`json
-{
-  "chartType": "gauge",
-  "config": {
-    "series": [{ "type": "gauge", "detail": { "formatter": "{value}%" }, "data": [{ "value": 72, "name": "Uptime" }] }]
-  }
-}
-\`\`\`
-
-### Scatter plot
-\`\`\`json
-{
-  "chartType": "scatter",
-  "config": {
-    "xAxis": { "type": "value", "name": "Weight" },
-    "yAxis": { "type": "value", "name": "Height" },
-    "series": [{ "type": "scatter", "encode": { "x": "weight", "y": "height" } }],
-    "tooltip": { "trigger": "item" }
-  }
-}
-\`\`\`
-
-### Heatmap
-\`\`\`json
-{
-  "chartType": "heatmap",
-  "config": {
-    "xAxis": { "type": "category" },
-    "yAxis": { "type": "category" },
-    "visualMap": { "min": 0, "max": 100, "calculable": true },
-    "series": [{ "type": "heatmap", "encode": { "x": "hour", "y": "day" }, "label": { "show": true } }],
-    "tooltip": {}
-  }
-}
-\`\`\`
+Time series: use \`xAxis.type:"time"\` + \`dataZoom\`. Use SQL GROUP BY for aggregation.
+Never use JS functions in configs — declarative strings only (\`"{value}%"\` not \`function(){}\`).
 `;
 
 const APP_GENERATION_RULES = `
-## App Generation Rules
+## App Widget Layout
 
-1. **Use ECharts \`dataset\`** for data binding — never inline data in series.
-2. **Always include \`tooltip\`** configuration for interactive exploration.
-3. **Use \`encode\`** to map data columns to visual channels (not \`data\` arrays).
-4. **For time series:** set \`xAxis.type: 'time'\` and add \`dataZoom\` for navigation.
-5. **For categories > 10:** use horizontal bar chart or limit to top N.
-6. **Always include axis labels** and a legend for multi-series charts.
-7. **Use \`grid\`** to control chart margins (prevent label clipping).
-8. **For financial data:** prefer candlestick with volume bars below.
-9. **KPI widgets:** query must return exactly 1 row.
-10. **Tables:** include sortable columns and set pageSize for > 20 rows.
-11. **SQL:** always use GROUP BY server-side — don't send raw rows for charts.
-12. **Never use JavaScript functions** in ECharts configs — use declarative formatting strings only (e.g., \`'{value}%'\` not \`function(val) { ... }\`).
+Grid is 12 columns. Set \`size: {col, row, width, height}\` on each widget.
+Typical layout: KPIs in row 1 (width:3 each), charts in row 2-4 (width:6), table in row 5+ (width:12).
+Always include \`query: {dataSourceId, sql}\` for data-driven widgets. Use the data source IDs listed above.
 `;
