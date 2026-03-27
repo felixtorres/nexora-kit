@@ -139,6 +139,16 @@ export function sendResponse(res: ServerResponse, apiRes: ApiResponse): void {
     return;
   }
 
+  // If Content-Type is already set to non-JSON, send body as-is (e.g., HTML)
+  const explicitContentType = apiRes.headers['Content-Type'] || apiRes.headers['content-type'];
+  if (explicitContentType && !explicitContentType.includes('application/json')) {
+    const raw = typeof apiRes.body === 'string' ? apiRes.body : JSON.stringify(apiRes.body);
+    res.setHeader('Content-Length', Buffer.byteLength(raw));
+    res.writeHead(apiRes.status);
+    res.end(raw);
+    return;
+  }
+
   const json = JSON.stringify(apiRes.body);
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Length', Buffer.byteLength(json));

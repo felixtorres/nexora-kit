@@ -1,0 +1,14 @@
+name: dashboard_app_promote
+description: >
+  Promote a generated dashboard app to a standalone dashboard that persists
+  independently of the conversation. Required before sharing.
+invocation: model
+parameters:
+  html:
+    type: string
+    description: The generated HTML app content (from artifact)
+    required: true
+  title:
+    type: string
+    description: Dashboard title
+    required: true

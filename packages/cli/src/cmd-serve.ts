@@ -421,6 +421,7 @@ export const serveCommand: CliCommand = {
       plugins: lifecycle,
       commandDispatcher,
       admin: adminService,
+      dashboardStore: dashboardPlugin?.store,
       logger: logger.child({ component: 'gateway' }),
       rateLimit: config.rateLimit
         ? {

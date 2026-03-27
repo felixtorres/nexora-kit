@@ -22,6 +22,10 @@ import { createCrossFilterHandler } from './tools/cross-filter.js';
 import { createPromoteDashboardHandler } from './tools/promote-dashboard.js';
 import { createShareDashboardHandler } from './tools/share-dashboard.js';
 import { createListDashboardsHandler } from './tools/list-dashboards.js';
+import { createAppCreateHandler } from './tools/app-create.js';
+import { createAppRefineHandler } from './tools/app-refine.js';
+import { createAppPromoteHandler } from './tools/app-promote.js';
+import { createAppShareHandler } from './tools/app-share.js';
 import { buildDashboardContext } from './context/provider.js';
 import { InMemoryDashboardStore } from './store/dashboard-store.js';
 import type { DashboardStoreInterface } from './store/types.js';
@@ -34,6 +38,8 @@ export interface DashboardPluginOptions {
   toolNamespace?: string;
   /** Optional external dashboard store. Defaults to InMemoryDashboardStore. */
   dashboardStore?: DashboardStoreInterface;
+  /** Plugin mode: 'classic' (JSON definitions), 'app' (HTML generation), or 'both'. Defaults to 'both'. */
+  mode?: 'classic' | 'app' | 'both';
 }
 
 export interface DashboardPlugin {
@@ -61,18 +67,35 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
   // Create tool handlers — keys are qualified names (namespace:skillName)
   // matching how PluginLifecycleManager looks them up
   const ns = 'dashboard';
+  const mode = options.mode ?? 'both';
   const toolHandlers = new Map<string, ToolHandler>();
+
+  // Shared tools (always available)
   toolHandlers.set(`${ns}:dashboard_list_sources`, createListSourcesHandler(registry));
   toolHandlers.set(`${ns}:dashboard_query`, createQueryHandler(registry));
-  toolHandlers.set(`${ns}:dashboard_render_chart`, createRenderChartHandler(registry));
-  toolHandlers.set(`${ns}:dashboard_create`, createDashboardCreateHandler(registry));
-  toolHandlers.set(`${ns}:dashboard_update`, createDashboardUpdateHandler(registry));
-  toolHandlers.set(`${ns}:dashboard_refresh`, createDashboardRefreshHandler(registry));
-  toolHandlers.set(`${ns}:dashboard_apply_filter`, createApplyFilterHandler(registry));
-  toolHandlers.set(`${ns}:dashboard_cross_filter`, createCrossFilterHandler(registry));
 
-  // Phase 4: Standalone dashboard management
+  // Classic mode tools (JSON definition dashboards)
+  if (mode === 'classic' || mode === 'both') {
+    toolHandlers.set(`${ns}:dashboard_render_chart`, createRenderChartHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_create`, createDashboardCreateHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_update`, createDashboardUpdateHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_refresh`, createDashboardRefreshHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_apply_filter`, createApplyFilterHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_cross_filter`, createCrossFilterHandler(registry));
+  }
+
+  // Standalone dashboard store (shared by classic and app mode)
   const store = options.dashboardStore ?? new InMemoryDashboardStore();
+
+  // App mode tools (self-contained HTML generation)
+  if (mode === 'app' || mode === 'both') {
+    toolHandlers.set(`${ns}:dashboard_app_create`, createAppCreateHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_app_refine`, createAppRefineHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_app_promote`, createAppPromoteHandler(store));
+    toolHandlers.set(`${ns}:dashboard_app_share`, createAppShareHandler(store));
+  }
+
+  // Classic standalone dashboard management
   toolHandlers.set(`${ns}:dashboard_promote`, createPromoteDashboardHandler(store));
   toolHandlers.set(`${ns}:dashboard_share`, createShareDashboardHandler(store));
   toolHandlers.set(`${ns}:dashboard_list_standalone`, createListDashboardsHandler(store));
@@ -81,7 +104,7 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
     toolHandlers,
     registry,
     store,
-    buildContext: () => buildDashboardContext(registry),
+    buildContext: () => buildDashboardContext(registry, { mode }),
     close: () => registry.closeAll(),
   };
 }
@@ -128,7 +151,33 @@ export { createListDashboardsHandler } from './tools/list-dashboards.js';
 // Store
 export type { DashboardStoreInterface, StoredDashboard, DashboardShare } from './store/types.js';
 export { InMemoryDashboardStore } from './store/dashboard-store.js';
-export { RefreshScheduler } from './store/refresh-scheduler.js';
+export { RefreshScheduler, extractAppDefinition } from './store/refresh-scheduler.js';
 
 // Templates
 export { TEMPLATES, getTemplate, listTemplates } from './templates/index.js';
+
+// App mode (v2)
+export { createAppCreateHandler } from './tools/app-create.js';
+export { createAppRefineHandler } from './tools/app-refine.js';
+export { createAppPromoteHandler } from './tools/app-promote.js';
+export { createAppShareHandler } from './tools/app-share.js';
+export { APP_TEMPLATES, getAppTemplate, listAppTemplates } from './app/app-templates.js';
+export type { AppTemplate } from './app/app-templates.js';
+export { generateApp } from './app/generator.js';
+export { validateEChartsConfig, normalizeEChartsConfig } from './chart/echarts-validator.js';
+export type {
+  AppDefinition,
+  AppWidget,
+  AppChartWidget,
+  AppKpiWidget,
+  AppTableWidget,
+  AppStatWidget,
+  AppGaugeWidget,
+  AppMetricCardWidget,
+  AppTextWidget,
+  AppControl,
+  AppLayout,
+  EChartsType,
+  GeneratedApp,
+  WidgetDataMap,
+} from './app/types.js';

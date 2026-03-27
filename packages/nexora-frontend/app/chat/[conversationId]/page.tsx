@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { Code2 } from 'lucide-react';
@@ -8,6 +8,12 @@ import { Button } from '@/components/ui/button';
 import { MessageThread } from '@/components/chat/message-thread';
 import { MessageInput } from '@/components/chat/message-input';
 import { DevPanel } from '@/components/chat/dev-panel';
+import { SplitPane } from '@/components/app-preview/SplitPane';
+import { AppPreviewFrame } from '@/components/app-preview/AppPreviewFrame';
+import type { AppPreviewFrameRef } from '@/components/app-preview/AppPreviewFrame';
+import { AppPreviewToolbar } from '@/components/app-preview/AppPreviewToolbar';
+import { AppPreviewOverlay } from '@/components/app-preview/AppPreviewOverlay';
+import { useAppPreview } from '@/hooks/use-app-preview';
 import { useConversationStore } from '@/store/conversation';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useSendMessage, normalizeMessages } from '@/hooks/use-conversation';
@@ -29,6 +35,8 @@ export default function ConversationPage() {
     isConnected,
   } = useWebSocket(conversationId);
   const [showDevPanel, setShowDevPanel] = useState(false);
+  const preview = useAppPreview();
+  const previewFrameRef = useRef<AppPreviewFrameRef>(null);
 
   useEffect(() => {
     setActiveConversation(conversationId);
@@ -90,33 +98,57 @@ export default function ConversationPage() {
     [handleSend],
   );
 
+  const chatPanel = (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* Dev Panel toggle */}
+      <div className="flex justify-end border-b px-2 py-1">
+        <Button
+          variant={showDevPanel ? 'secondary' : 'ghost'}
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          onClick={() => setShowDevPanel(!showDevPanel)}
+        >
+          <Code2 className="size-3.5" />
+          Dev
+        </Button>
+      </div>
+      <MessageThread
+        conversationId={conversationId}
+        onAction={handleAction}
+        onReply={handleReply}
+      />
+      <MessageInput
+        onSend={handleSend}
+        onCancel={cancel}
+        disabled={isSending}
+        isStreaming={isStreaming}
+      />
+    </div>
+  );
+
+  const previewPanel = (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <AppPreviewToolbar
+        title={preview.currentTitle || 'Dashboard Preview'}
+        onThemeToggle={() => previewFrameRef.current?.postPatch({ type: 'theme-change' })}
+        onPopout={preview.popout}
+        onClose={preview.closePreview}
+      />
+      {preview.currentHtml ? (
+        <AppPreviewFrame ref={previewFrameRef} html={preview.currentHtml} />
+      ) : (
+        <AppPreviewOverlay state={preview.isLoading ? 'loading' : 'empty'} />
+      )}
+    </div>
+  );
+
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* Dev Panel toggle */}
-        <div className="flex justify-end border-b px-2 py-1">
-          <Button
-            variant={showDevPanel ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => setShowDevPanel(!showDevPanel)}
-          >
-            <Code2 className="size-3.5" />
-            Dev
-          </Button>
-        </div>
-        <MessageThread
-          conversationId={conversationId}
-          onAction={handleAction}
-          onReply={handleReply}
-        />
-        <MessageInput
-          onSend={handleSend}
-          onCancel={cancel}
-          disabled={isSending}
-          isStreaming={isStreaming}
-        />
-      </div>
+      <SplitPane
+        mode={preview.mode}
+        chatPanel={chatPanel}
+        previewPanel={previewPanel}
+      />
       {showDevPanel && <DevPanel isConnected={isConnected} />}
     </div>
   );

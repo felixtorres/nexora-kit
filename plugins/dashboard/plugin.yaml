@@ -16,6 +16,10 @@ config:
       type: string
       description: JSON array of data source configurations
       required: true
+    mode:
+      type: string
+      description: "Plugin mode: 'classic' (JSON definitions), 'app' (HTML generation), or 'both' (default)"
+      default: both
 
 skillIndex: true
 

@@ -2,16 +2,19 @@
  * RefreshScheduler — polls for dashboards due for refresh
  * and re-executes their widget queries.
  *
- * Runs as a background interval. Cached results are stored
- * on the dashboard for serving to shared/anonymous views.
+ * Supports both classic mode (JSON definitions) and app mode (HTML bundles).
+ * For app mode, extracts the embedded AppDefinition, re-queries, and regenerates HTML.
  */
 
 import type { DashboardStoreInterface } from './types.js';
 import type { DataSourceRegistry } from '../data-sources/registry.js';
 import type { ChartWidget, KpiWidget, TableWidget } from '../widgets/types.js';
-import { parseDashboard, serializeDashboard } from '../widgets/dashboard-model.js';
+import { parseDashboard } from '../widgets/dashboard-model.js';
 import { executeKpiWidget } from '../widgets/kpi-handler.js';
 import { executeTableWidget } from '../widgets/table-handler.js';
+import { generateApp } from '../app/generator.js';
+import type { AppDefinition, WidgetDataMap } from '../app/types.js';
+import { validateQuery } from '../query/validator.js';
 
 export interface RefreshSchedulerOptions {
   store: DashboardStoreInterface;
@@ -57,7 +60,11 @@ export class RefreshScheduler {
       const due = await this.store.listDueForRefresh();
       for (const dashboard of due) {
         try {
-          await this.refreshDashboard(dashboard.id, dashboard.definition);
+          if (isAppModeHtml(dashboard.definition)) {
+            await this.refreshAppDashboard(dashboard.id, dashboard.definition);
+          } else {
+            await this.refreshClassicDashboard(dashboard.id, dashboard.definition);
+          }
           refreshed++;
         } catch (error) {
           this.onError?.(dashboard.id, error instanceof Error ? error : new Error(String(error)));
@@ -69,7 +76,8 @@ export class RefreshScheduler {
     return refreshed;
   }
 
-  private async refreshDashboard(id: string, definitionJson: string): Promise<void> {
+  /** Classic mode: re-execute widget queries, cache results as JSON. */
+  private async refreshClassicDashboard(id: string, definitionJson: string): Promise<void> {
     const def = parseDashboard(definitionJson);
     const cachedWidgets: Record<string, unknown>[] = [];
 
@@ -104,7 +112,6 @@ export class RefreshScheduler {
           }
         }
       } catch {
-        // Individual widget failure doesn't stop the refresh
         cachedWidgets.push({ widgetId: w.id, type: w.type, error: true });
       }
     }
@@ -113,5 +120,70 @@ export class RefreshScheduler {
       cachedResults: JSON.stringify(cachedWidgets),
       lastRefreshedAt: new Date().toISOString(),
     });
+  }
+
+  /** App mode: extract definition from HTML, re-query, regenerate HTML bundle. */
+  private async refreshAppDashboard(id: string, html: string): Promise<void> {
+    const appDef = extractAppDefinition(html);
+    if (!appDef) {
+      throw new Error('Cannot extract AppDefinition from stored HTML');
+    }
+
+    // Re-execute all widget queries
+    const widgetData: WidgetDataMap = new Map();
+    const queryWidgets = appDef.widgets.filter(
+      w => w.type !== 'text' && 'query' in w && (w as any).query?.sql,
+    );
+
+    for (const widget of queryWidgets) {
+      try {
+        const query = (widget as any).query;
+        const dsConfig = this.registry.getConfig(query.dataSourceId);
+        const validation = validateQuery(query.sql, dsConfig.constraints);
+        if (!validation.valid) continue; // Skip invalid queries silently during refresh
+        const result = await this.registry.execute(query.dataSourceId, query.sql, query.params);
+        widgetData.set(widget.id, result.rows);
+      } catch {
+        // Individual widget failure doesn't stop refresh
+        widgetData.set(widget.id, []);
+      }
+    }
+
+    // Regenerate the HTML bundle with fresh data
+    const app = generateApp(appDef, widgetData);
+
+    await this.store.update(id, {
+      definition: app.html,
+      lastRefreshedAt: new Date().toISOString(),
+    });
+  }
+}
+
+// --- Helpers ---
+
+/** Check if a stored definition is an HTML bundle (app mode) vs JSON (classic). */
+function isAppModeHtml(definition: string): boolean {
+  const trimmed = definition.trimStart();
+  return trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html');
+}
+
+/**
+ * Extract the embedded AppDefinition from a generated HTML bundle.
+ * The definition is stored in a `<script type="application/json" id="__APP_DEFINITION__">` tag.
+ */
+export function extractAppDefinition(html: string): AppDefinition | null {
+  const startTag = '<script type="application/json" id="__APP_DEFINITION__">';
+  const endTag = '</script>';
+  const startIdx = html.indexOf(startTag);
+  if (startIdx === -1) return null;
+  const jsonStart = startIdx + startTag.length;
+  const endIdx = html.indexOf(endTag, jsonStart);
+  if (endIdx === -1) return null;
+
+  try {
+    const json = html.slice(jsonStart, endIdx).replace(/<\\\//g, '</');
+    return JSON.parse(json) as AppDefinition;
+  } catch {
+    return null;
   }
 }

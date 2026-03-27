@@ -18,6 +18,7 @@
     "next": "16.1.6",
     "plotly.js-dist-min": "^3.4.0",
     "radix-ui": "^1.4.3",
+    "react-resizable-panels": "^2.1.7",
     "react-vega": "^7.6.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",

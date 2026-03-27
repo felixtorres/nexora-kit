@@ -331,6 +331,35 @@ export class Gateway {
       jsonResponse(200, buildOpenApiSpec(prefix)),
     );
 
+    // Shared dashboards — public endpoint (no auth required)
+    if (config.dashboardStore) {
+      const dashStore = config.dashboardStore;
+      this.router.get(`${prefix}/shared/dashboards/:token`, async (req) => {
+        const result = await dashStore.getByToken(req.params.token);
+        if (!result) {
+          return jsonResponse(404, { error: 'Dashboard not found or link expired' });
+        }
+        const { dashboard } = result;
+        const isHtml = dashboard.definition.trimStart().startsWith('<!DOCTYPE') ||
+                       dashboard.definition.trimStart().startsWith('<html');
+        if (isHtml) {
+          return {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; img-src data: blob:",
+              'X-Content-Type-Options': 'nosniff',
+            },
+            body: dashboard.definition,
+          };
+        }
+        return jsonResponse(200, {
+          title: dashboard.title,
+          definition: JSON.parse(dashboard.definition),
+        });
+      });
+    }
+
     // Admin routes
     if (config.admin) {
       this.router.post(
@@ -598,10 +627,12 @@ export class Gateway {
     const isOpenApiEndpoint = url.pathname === `${prefix}/openapi.json`;
     const isClientApiRoute =
       url.pathname.startsWith(`${prefix}/agents/`) && !url.pathname.startsWith(`${prefix}/admin/`);
+    const isSharedDashboardRoute = url.pathname.startsWith(`${prefix}/shared/dashboards/`);
     const isPublicEndpoint =
       isHealthEndpoint ||
       isOpenApiEndpoint ||
       isClientApiRoute ||
+      isSharedDashboardRoute ||
       (isMetricsEndpoint && (this.config.publicMetrics ?? false));
     if (!isPublicEndpoint) {
       auth =

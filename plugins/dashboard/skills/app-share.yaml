@@ -1,0 +1,13 @@
+name: dashboard_app_share
+description: >
+  Create a shareable link for a standalone dashboard app.
+  The link serves the HTML bundle directly — no login required.
+invocation: model
+parameters:
+  dashboardId:
+    type: string
+    description: The standalone dashboard ID (from app_promote)
+    required: true
+  expiresInHours:
+    type: number
+    description: Optional link expiration in hours. Omit for no expiration.

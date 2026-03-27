@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { RefreshScheduler } from './refresh-scheduler.js';
+import { RefreshScheduler, extractAppDefinition } from './refresh-scheduler.js';
 import { InMemoryDashboardStore } from './dashboard-store.js';
 import { DataSourceRegistry } from '../data-sources/registry.js';
 import type { DataAdapter, TabularResult, DataSourceSchema, DataSourceConfig, QueryConstraints } from '../data-sources/types.js';
@@ -131,5 +131,76 @@ describe('RefreshScheduler', () => {
     scheduler.start(); // Idempotent
     scheduler.stop();
     scheduler.stop(); // Idempotent
+  });
+
+  it('refreshes app-mode dashboards (HTML bundles)', async () => {
+    // Generate an app-mode dashboard
+    const { generateApp } = await import('../app/generator.js');
+    const { DEFAULT_APP_LAYOUT } = await import('../app/types.js');
+    const appDef = {
+      title: 'App Test',
+      theme: 'light' as const,
+      widgets: [{
+        id: 'kpi-1', type: 'kpi' as const, title: 'Revenue',
+        query: { dataSourceId: 'ds1', sql: 'SELECT value FROM test' },
+        valueField: 'value', format: 'currency' as const,
+        size: { col: 1, row: 1, width: 3, height: 2 },
+      }],
+      layout: DEFAULT_APP_LAYOUT,
+      controls: [{ type: 'theme-toggle' as const }],
+    };
+    const app = generateApp(appDef, new Map([['kpi-1', [{ value: 100 }]]]));
+
+    // Store as app-mode (HTML definition)
+    const d = await store.create({
+      title: 'App Test', ownerId: 'u1', teamId: 't1',
+      definition: app.html,
+      refreshInterval: 1,
+    });
+
+    const scheduler = new RefreshScheduler({ store, registry });
+    const count = await scheduler.tick();
+
+    expect(count).toBe(1);
+    expect(adapter.callCount).toBe(1);
+
+    // Updated definition should still be HTML
+    const updated = await store.get(d.id);
+    expect(updated!.definition).toContain('<!DOCTYPE html>');
+    expect(updated!.lastRefreshedAt).toBeTruthy();
+  });
+});
+
+describe('extractAppDefinition', () => {
+  it('extracts definition from generated HTML', async () => {
+    const { generateApp } = await import('../app/generator.js');
+    const { DEFAULT_APP_LAYOUT } = await import('../app/types.js');
+    const appDef = {
+      title: 'Extract Test',
+      theme: 'light' as const,
+      widgets: [{
+        id: 'kpi-1', type: 'kpi' as const, title: 'Revenue',
+        query: { dataSourceId: 'ds1', sql: 'SELECT 1' },
+        valueField: 'value',
+        size: { col: 1, row: 1, width: 3, height: 2 },
+      }],
+      layout: DEFAULT_APP_LAYOUT,
+    };
+    const app = generateApp(appDef, new Map([['kpi-1', [{ value: 42 }]]]));
+    const extracted = extractAppDefinition(app.html);
+
+    expect(extracted).not.toBeNull();
+    expect(extracted!.title).toBe('Extract Test');
+    expect(extracted!.widgets).toHaveLength(1);
+    expect(extracted!.widgets[0].id).toBe('kpi-1');
+  });
+
+  it('returns null for non-app HTML', () => {
+    expect(extractAppDefinition('<html><body>plain</body></html>')).toBeNull();
+  });
+
+  it('returns null for invalid JSON in script tag', () => {
+    const html = '<script type="application/json" id="__APP_DEFINITION__">not json</script>';
+    expect(extractAppDefinition(html)).toBeNull();
   });
 });

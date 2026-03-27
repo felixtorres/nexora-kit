@@ -12,6 +12,7 @@ import { DashboardGrid } from './DashboardGrid';
 import type { DashboardGridData } from './DashboardGrid';
 import { FilterBar } from './FilterBar';
 import type { FilterBarData } from './FilterBar';
+import { AppPreviewBlock } from '../app-preview/AppPreviewBlock';
 
 type CustomBlockComponentProps = { block: CustomBlock };
 
@@ -49,6 +50,12 @@ function DashboardFilterBlock({ block }: CustomBlockComponentProps) {
 }
 
 registry.set('custom:dashboard/filter', DashboardFilterBlock);
+
+// App preview block (v2 — dashboard apps)
+function AppPreviewBlockWrapper({ block }: CustomBlockComponentProps) {
+  return <AppPreviewBlock block={block} />;
+}
+registry.set('custom:app/preview', AppPreviewBlockWrapper);
 
 // ── Public API ─────────────────────────────────────────────────────────
 

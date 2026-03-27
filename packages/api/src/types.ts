@@ -101,6 +101,8 @@ export interface GatewayConfig {
   fileBasePath?: string;
   maxFileSize?: number;
   allowedMimeTypes?: string[];
+  /** Dashboard plugin store — enables GET /shared/dashboards/:token */
+  dashboardStore?: { getByToken(token: string): Promise<{ dashboard: { definition: string; title: string }; share: { expiresAt?: string } } | null> };
   rateLimit?: RateLimitConfig;
   wsHeartbeatMs?: number;
   allowedOrigins?: string[];
