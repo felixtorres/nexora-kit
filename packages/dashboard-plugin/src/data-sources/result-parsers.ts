@@ -228,6 +228,53 @@ export const ResultParserRegistry = {
 // Main entry point
 // ---------------------------------------------------------------------------
 
+/**
+ * Try to extract a JSON structure from text that may contain non-JSON preamble/postamble.
+ * MCP tools commonly return text like "Query executed successfully.\n[{...}, ...]"
+ * or markdown-fenced JSON blocks.
+ */
+function extractJson(text: string): string | null {
+  // Try raw text first
+  const trimmed = text.trim();
+  try {
+    JSON.parse(trimmed);
+    return trimmed;
+  } catch {
+    // Not pure JSON — try extraction strategies
+  }
+
+  // Strategy 1: Extract from markdown code fences (```json ... ``` or ``` ... ```)
+  const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch) {
+    try {
+      JSON.parse(fenceMatch[1].trim());
+      return fenceMatch[1].trim();
+    } catch { /* not valid JSON inside fence */ }
+  }
+
+  // Strategy 2: Find first [ or { and match to last ] or }
+  const arrayStart = trimmed.indexOf('[');
+  const objectStart = trimmed.indexOf('{');
+
+  if (arrayStart >= 0) {
+    const candidate = trimmed.slice(arrayStart, trimmed.lastIndexOf(']') + 1);
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch { /* not valid */ }
+  }
+
+  if (objectStart >= 0) {
+    const candidate = trimmed.slice(objectStart, trimmed.lastIndexOf('}') + 1);
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch { /* not valid */ }
+  }
+
+  return null;
+}
+
 export function parseToolResult(
   raw: string | ToolHandlerResponse,
   format: string,
@@ -241,5 +288,42 @@ export function parseToolResult(
     );
   }
 
-  return parser(text);
+  // Try the configured parser first
+  try {
+    return parser(text);
+  } catch {
+    // Configured parser failed — try to extract JSON and auto-detect format
+  }
+
+  // Try to extract JSON from mixed text (common with MCP tools)
+  const jsonStr = extractJson(text);
+  if (jsonStr) {
+    const parsed = JSON.parse(jsonStr);
+
+    // Tabular format: { columns: [...], rows: [...] }
+    if (!Array.isArray(parsed) && parsed.columns && parsed.rows) {
+      return tabularParser(jsonStr);
+    }
+
+    // JSON array of row objects: [{...}, {...}]
+    if (Array.isArray(parsed)) {
+      return jsonArrayParser(jsonStr);
+    }
+
+    // Single object — wrap in array
+    if (typeof parsed === 'object' && parsed !== null) {
+      return jsonArrayParser(JSON.stringify([parsed]));
+    }
+  }
+
+  // Last resort: try CSV-text parser (some tools return CSV)
+  if (text.includes(',') && text.includes('\n')) {
+    try {
+      return csvTextParser(text);
+    } catch { /* not CSV either */ }
+  }
+
+  throw new Error(
+    `Could not parse tool result (format: ${format}). Raw output (first 300 chars): ${text.slice(0, 300)}`,
+  );
 }

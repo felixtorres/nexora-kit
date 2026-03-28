@@ -81,7 +81,7 @@ export class PluginLifecycleManager {
     this.logger?.info('plugin.installed', { namespace: ns, version: plugin.manifest.version });
   }
 
-  enable(namespace: string): void {
+  async enable(namespace: string): Promise<void> {
     const plugin = this.plugins.get(namespace);
     if (!plugin) {
       throw new Error(`Plugin '${namespace}' is not installed`);
@@ -190,12 +190,11 @@ export class PluginLifecycleManager {
       }
     }
 
-    // Start MCP servers and register their tools
+    // Start MCP servers and register their tools (awaited so tools are ready before serving)
     if (this.mcpManager) {
       const mcpConfigs = this.pluginMcpConfigs.get(namespace);
       if (mcpConfigs && mcpConfigs.length > 0) {
-        // MCP server startup is async — we fire-and-forget here but errors are caught
-        void this.startMcpServers(namespace, mcpConfigs);
+        await this.startMcpServers(namespace, mcpConfigs);
       }
     }
 
@@ -353,7 +352,7 @@ export class PluginLifecycleManager {
     this.pluginDirs.set(namespace, dir);
   }
 
-  reload(namespace: string): import('./loader.js').LoadResult {
+  async reload(namespace: string): Promise<import('./loader.js').LoadResult> {
     const dir = this.pluginDirs.get(namespace);
     if (!dir) {
       throw new Error(`No plugin directory registered for '${namespace}'`);
@@ -402,7 +401,7 @@ export class PluginLifecycleManager {
 
     // Re-enable if it was enabled before
     if (wasEnabled && result.plugin.state !== 'errored') {
-      this.enable(namespace);
+      await this.enable(namespace);
     }
 
     this.logger?.info('plugin.reloaded', { namespace });

@@ -82,8 +82,8 @@ describe('PluginLifecycleManager', () => {
       expect(manager.getPlugin('test')?.state).toBe('enabled');
     });
 
-    it('throws for unknown plugin', () => {
-      expect(() => manager.enable('unknown')).toThrow('not installed');
+    it('throws for unknown plugin', async () => {
+      await expect(manager.enable('unknown')).rejects.toThrow('not installed');
     });
 
     it('is idempotent for already enabled', () => {
@@ -139,12 +139,12 @@ describe('PluginLifecycleManager', () => {
       expect(result.content).toBe('ok');
     });
 
-    it('throws when dependencies are missing', () => {
+    it('throws when dependencies are missing', async () => {
       const plugin = makePlugin('test', {
         deps: [{ namespace: 'missing', version: '>=1.0.0' }],
       });
       manager.install(plugin);
-      expect(() => manager.enable('test')).toThrow('missing dependencies');
+      await expect(manager.enable('test')).rejects.toThrow('missing dependencies');
     });
 
     it('enables with satisfied dependencies', () => {

@@ -107,7 +107,7 @@ describe('PluginDevWatcher', () => {
     expect(watcher.watchedNamespaces).toHaveLength(0);
   });
 
-  it('registers plugin dir with lifecycle on watch', () => {
+  it('registers plugin dir with lifecycle on watch', async () => {
     const lifecycle = createLifecycle();
     const pluginDir = path.join(tmpDir, 'my-plugin');
     writePluginYaml(pluginDir, 'my-plugin');
@@ -120,7 +120,7 @@ describe('PluginDevWatcher', () => {
     watcher.watch('my-plugin', pluginDir);
 
     // Verify lifecycle knows the dir (reload won't throw "no dir")
-    expect(() => lifecycle.reload('my-plugin')).not.toThrow();
+    await expect(lifecycle.reload('my-plugin')).resolves.toBeDefined();
 
     watcher.stop();
   });
@@ -181,12 +181,12 @@ describe('PluginLifecycleManager.reload', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('throws when no dir registered', () => {
+  it('throws when no dir registered', async () => {
     const lifecycle = createLifecycle();
-    expect(() => lifecycle.reload('unknown')).toThrow('No plugin directory');
+    await expect(lifecycle.reload('unknown')).rejects.toThrow('No plugin directory');
   });
 
-  it('reloads a plugin from disk', () => {
+  it('reloads a plugin from disk', async () => {
     const lifecycle = createLifecycle();
     const pluginDir = path.join(tmpDir, 'my-plugin');
     writePluginYaml(pluginDir, 'my-plugin', '1.0.0');
@@ -198,12 +198,12 @@ describe('PluginLifecycleManager.reload', () => {
     // Update manifest on disk
     writePluginYaml(pluginDir, 'my-plugin', '2.0.0');
 
-    const reloaded = lifecycle.reload('my-plugin');
+    const reloaded = await lifecycle.reload('my-plugin');
     expect(reloaded.plugin.manifest.version).toBe('2.0.0');
     expect(lifecycle.getPlugin('my-plugin')?.manifest.version).toBe('2.0.0');
   });
 
-  it('re-enables plugin if it was enabled before reload', () => {
+  it('re-enables plugin if it was enabled before reload', async () => {
     const lifecycle = createLifecycle();
     const pluginDir = path.join(tmpDir, 'my-plugin');
     writePluginYaml(pluginDir, 'my-plugin');
@@ -211,16 +211,16 @@ describe('PluginLifecycleManager.reload', () => {
     const result = loadPlugin(pluginDir);
     lifecycle.install(result.plugin);
     lifecycle.registerPluginDir('my-plugin', pluginDir);
-    lifecycle.enable('my-plugin');
+    await lifecycle.enable('my-plugin');
 
     expect(lifecycle.getPlugin('my-plugin')?.state).toBe('enabled');
 
-    const reloaded = lifecycle.reload('my-plugin');
+    const reloaded = await lifecycle.reload('my-plugin');
     expect(reloaded.plugin.state !== 'errored').toBe(true);
     expect(lifecycle.getPlugin('my-plugin')?.state).toBe('enabled');
   });
 
-  it('does not re-enable plugin if it was disabled before reload', () => {
+  it('does not re-enable plugin if it was disabled before reload', async () => {
     const lifecycle = createLifecycle();
     const pluginDir = path.join(tmpDir, 'my-plugin');
     writePluginYaml(pluginDir, 'my-plugin');
@@ -230,7 +230,7 @@ describe('PluginLifecycleManager.reload', () => {
     lifecycle.registerPluginDir('my-plugin', pluginDir);
 
     // Don't enable — just installed state
-    const reloaded = lifecycle.reload('my-plugin');
+    const reloaded = await lifecycle.reload('my-plugin');
     expect(lifecycle.getPlugin('my-plugin')?.state).toBe('installed');
   });
 });

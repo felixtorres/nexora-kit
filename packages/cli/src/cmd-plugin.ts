@@ -424,7 +424,7 @@ export const pluginDevCommand: CliCommand = {
         lifecycle.setSkillDefinitions(result.plugin.manifest.namespace, result.skillDefinitions);
       }
       lifecycle.registerPluginDir(result.plugin.manifest.namespace, pluginDir);
-      lifecycle.enable(result.plugin.manifest.namespace);
+      await lifecycle.enable(result.plugin.manifest.namespace);
 
       success(
         `Plugin loaded: ${result.plugin.manifest.namespace} (${result.plugin.tools.length} tools)`,

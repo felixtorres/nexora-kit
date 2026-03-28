@@ -24,19 +24,31 @@ interface ContentPart {
  * We correlate these across messages to rebuild ToolCallBlock objects.
  */
 export function normalizeMessages(rawMessages: unknown[]): Message[] {
-  // Pass 1: collect tool results from 'tool' role messages
+  // Pass 1: collect tool results AND embedded blocks from 'tool' role messages
   const toolResults = new Map<string, { content: string; isError?: boolean }>();
+  const toolBlocks = new Map<string, DisplayBlock[]>();
   for (const raw of rawMessages) {
     const msg = raw as Record<string, unknown>;
     if (msg.role !== 'tool' || !Array.isArray(msg.content)) continue;
 
+    let currentToolUseId: string | undefined;
+    const collectedBlocks: DisplayBlock[] = [];
+
     for (const part of msg.content as ContentPart[]) {
       if (part.type === 'tool_result' && part.toolUseId) {
+        currentToolUseId = part.toolUseId;
         toolResults.set(part.toolUseId, {
           content: typeof part.content === 'string' ? part.content : '',
           isError: part.isError,
         });
+      } else if (part.type === 'blocks' && Array.isArray((part as any).blocks)) {
+        collectedBlocks.push(...((part as any).blocks as DisplayBlock[]));
       }
+    }
+
+    // Associate collected blocks with the tool call that produced them
+    if (currentToolUseId && collectedBlocks.length > 0) {
+      toolBlocks.set(currentToolUseId, collectedBlocks);
     }
   }
 
@@ -44,7 +56,7 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
   interface ParsedMsg {
     role: string;
     text: string;
-    toolBlocks: ToolCallBlock[];
+    toolCallEntries: ToolCallBlock[];
     existingBlocks: DisplayBlock[];
   }
 
@@ -58,7 +70,10 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
 
     const content = msg.content;
     let text = '';
-    const toolBlocks: ToolCallBlock[] = [];
+    const toolCallEntries: ToolCallBlock[] = [];
+
+    // Blocks embedded in the content array or from associated tool results
+    let contentBlocks: DisplayBlock[] = [];
 
     if (typeof content === 'string') {
       text = content;
@@ -70,7 +85,7 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
           text += part.text;
         } else if (part?.type === 'tool_use' && part.id && part.name) {
           const result = toolResults.get(part.id);
-          toolBlocks.push({
+          toolCallEntries.push({
             type: 'tool_call',
             id: part.id,
             name: part.name,
@@ -79,16 +94,28 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
             result: result?.content,
             isError: result?.isError,
           });
+          // Collect any custom blocks (e.g. dashboard app preview) associated with this tool call
+          const associatedBlocks = toolBlocks.get(part.id);
+          if (associatedBlocks) {
+            contentBlocks.push(...associatedBlocks);
+          }
+        } else if (part?.type === 'blocks' && Array.isArray((part as any).blocks)) {
+          // Extract custom blocks stored inside tool message content
+          contentBlocks.push(...((part as any).blocks as DisplayBlock[]));
         }
       }
     } else {
       text = String(content ?? '');
     }
 
-    if (!text && toolBlocks.length === 0) continue;
+    if (!text && toolCallEntries.length === 0 && contentBlocks.length === 0) continue;
 
-    const existingBlocks = (msg.blocks as DisplayBlock[] | undefined) ?? [];
-    parsed.push({ role, text, toolBlocks, existingBlocks });
+    // Also check for top-level blocks field (present on frontend-created messages)
+    const existingBlocks = [
+      ...contentBlocks,
+      ...((msg.blocks as DisplayBlock[] | undefined) ?? []),
+    ];
+    parsed.push({ role, text, toolCallEntries, existingBlocks });
   }
 
   // Pass 3: merge consecutive assistant messages into single turns.
@@ -107,7 +134,7 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
 
     // Assistant message — merge with subsequent consecutive assistant messages
     let mergedText = p.text;
-    const mergedBlocks: DisplayBlock[] = [...p.existingBlocks, ...p.toolBlocks];
+    const mergedBlocks: DisplayBlock[] = [...p.existingBlocks, ...p.toolCallEntries];
 
     while (i + 1 < parsed.length && parsed[i + 1].role === 'assistant') {
       i++;
@@ -116,7 +143,7 @@ export function normalizeMessages(rawMessages: unknown[]): Message[] {
         if (mergedText) mergedText += '\n\n';
         mergedText += next.text;
       }
-      mergedBlocks.push(...next.existingBlocks, ...next.toolBlocks);
+      mergedBlocks.push(...next.existingBlocks, ...next.toolCallEntries);
     }
 
     messages.push({

@@ -163,7 +163,7 @@ describe('ToolBackedAdapter', () => {
       const adapter = new ToolBackedAdapter('api', JSON_ARRAY_CONFIG, dispatcher, NAMESPACE);
 
       await expect(adapter.introspectSchema()).rejects.toThrow(
-        "Data source 'api' has no schemaTool configured",
+        "Data source 'api' has no schemaTool or schemaListTool configured",
       );
       expect(dispatcher.invoke).not.toHaveBeenCalled();
     });

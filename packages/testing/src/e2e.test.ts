@@ -171,7 +171,7 @@ describe('E2E: Plugin lifecycle', () => {
       ],
     });
 
-    const result = instance.installPlugin(pluginDir);
+    const result = await instance.installPlugin(pluginDir);
     expect(result.plugin.manifest.namespace).toBe('test-faq');
     expect(result.plugin.tools.length).toBeGreaterThan(0);
 
@@ -195,7 +195,7 @@ describe('E2E: Plugin lifecycle', () => {
     cleanupDirs.push(pluginDir);
 
     const instance = createTestInstance();
-    const result = instance.installPlugin(pluginDir);
+    const result = await instance.installPlugin(pluginDir);
 
     expect(result.skillDefinitions.size).toBe(2);
     expect(result.commandDefinitions.size).toBe(1);
@@ -211,7 +211,7 @@ describe('E2E: Plugin lifecycle', () => {
     cleanupDirs.push(pluginDir);
 
     const instance = createTestInstance();
-    instance.installPlugin(pluginDir);
+    await instance.installPlugin(pluginDir);
 
     expect(instance.lifecycle.getPlugin('temp')).toBeDefined();
 

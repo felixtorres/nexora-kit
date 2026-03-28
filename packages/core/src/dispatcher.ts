@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ArtifactOperation, Permission, ResponseBlock, ToolCall, ToolDefinition, ToolResult } from './types.js';
 
 export interface ToolHandlerResponse {
@@ -25,15 +26,20 @@ interface RegisteredTool {
   requiredPermissions: Permission[];
 }
 
-/** Max depth for programmatic invoke() calls to prevent infinite cycles. */
+/** Max nesting depth for programmatic invoke() calls to prevent infinite cycles. */
 const MAX_INVOKE_DEPTH = 5;
+
+/**
+ * Tracks invoke nesting depth per async call chain.
+ * Parallel invocations at the same depth level each get their own counter,
+ * so fan-out (e.g. Promise.all of 8 queries) does not trigger the depth limit.
+ */
+const invokeDepthStorage = new AsyncLocalStorage<{ depth: number }>();
 
 export class ToolDispatcher {
   private tools = new Map<string, RegisteredTool>();
   private definitions = new Map<string, ToolDefinition>();
   private permissionChecker?: PermissionChecker;
-  /** Tracks the current programmatic invocation depth per async context. */
-  private invokeDepth = 0;
 
   setPermissionChecker(checker: PermissionChecker): void {
     this.permissionChecker = checker;
@@ -103,7 +109,8 @@ export class ToolDispatcher {
    * called by one plugin's tool handler to execute another plugin's tool directly.
    *
    * Requires the caller to have 'tool:invoke' permission.
-   * Includes cycle detection (max depth 5) to prevent infinite recursion.
+   * Includes cycle detection (max depth 5) scoped per async call chain,
+   * so parallel fan-out (e.g. Promise.all of N queries) does not trigger the limit.
    */
   async invoke(
     toolName: string,
@@ -116,8 +123,10 @@ export class ToolDispatcher {
       throw new Error(`Permission denied: plugin '${callerNamespace}' lacks 'tool:invoke' permission`);
     }
 
-    // Cycle detection
-    if (this.invokeDepth >= MAX_INVOKE_DEPTH) {
+    // Cycle detection — scoped per async call chain via AsyncLocalStorage
+    const store = invokeDepthStorage.getStore();
+    const currentDepth = store?.depth ?? 0;
+    if (currentDepth >= MAX_INVOKE_DEPTH) {
       throw new Error(`Invoke depth limit (${MAX_INVOKE_DEPTH}) exceeded — possible circular tool invocation`);
     }
 
@@ -126,12 +135,9 @@ export class ToolDispatcher {
       throw new Error(`Tool not found: ${toolName}`);
     }
 
-    this.invokeDepth++;
-    try {
-      return await tool.handler(input, context);
-    } finally {
-      this.invokeDepth--;
-    }
+    return invokeDepthStorage.run({ depth: currentDepth + 1 }, () =>
+      tool.handler(input, context),
+    );
   }
 
   listTools(): ToolDefinition[] {

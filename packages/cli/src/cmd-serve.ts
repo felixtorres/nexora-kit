@@ -206,24 +206,9 @@ export const serveCommand: CliCommand = {
     // --- Skill index adapter ---
     const skillIndexAdapter = new SkillIndexAdapter(skillRegistry);
 
-    // --- Dashboard plugin (optional, if configured) ---
-    const toolHandlers = new Map<string, import('@nexora-kit/core').ToolHandler>();
-    let dashboardPlugin: Awaited<ReturnType<typeof createDashboardPlugin>> | undefined;
-    if (config.dashboard?.dataSources && config.dashboard.dataSources.length > 0) {
-      try {
-        dashboardPlugin = await createDashboardPlugin(config.dashboard);
-        for (const [name, handler] of dashboardPlugin.toolHandlers) {
-          toolHandlers.set(name, handler);
-        }
-        logger.info('dashboard.initialized', { sources: config.dashboard.dataSources.length });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logger.error('dashboard.init_error', { err: msg });
-        error(`Dashboard plugin init error: ${msg}`);
-      }
-    }
-
     // --- Plugin lifecycle ---
+    // Dashboard tool handlers are registered after MCP servers start (see below)
+    const toolHandlers = new Map<string, import('@nexora-kit/core').ToolHandler>();
     const lifecycle = new PluginLifecycleManager({
       permissionGate,
       configResolver,
@@ -273,10 +258,41 @@ export const serveCommand: CliCommand = {
           skillIndexAdapter.disableForNamespace(ns);
         }
 
-        lifecycle.enable(ns);
+        await lifecycle.enable(ns);
       }
     } catch {
       // Plugins dir may not exist yet — that's fine
+    }
+
+    // --- Dashboard plugin (optional, if configured) ---
+    // Initialized AFTER plugins are enabled so MCP tools (e.g. kyvos_execute_query)
+    // are registered in the dispatcher before the dashboard data-source adapter
+    // tries to invoke them for schema introspection.
+    let dashboardPlugin: Awaited<ReturnType<typeof createDashboardPlugin>> | undefined;
+    if (config.dashboard?.dataSources && config.dashboard.dataSources.length > 0) {
+      try {
+        dashboardPlugin = await createDashboardPlugin({
+          ...config.dashboard,
+          dispatcher: toolDispatcher,
+        });
+        for (const [name, handler] of dashboardPlugin.toolHandlers) {
+          toolHandlers.set(name, handler);
+        }
+        // Re-enable the dashboard plugin so skill-based tools pick up the new handlers
+        if (lifecycle.getPlugin('dashboard')?.state === 'enabled') {
+          lifecycle.disable('dashboard');
+          await lifecycle.enable('dashboard');
+        }
+        // Inject dashboard context (data sources, schemas, chart examples, behavioral rules)
+        // into the skill index so it reaches the LLM system prompt on every turn.
+        const dashboardContext = await dashboardPlugin.buildContext();
+        skillIndexAdapter.setPluginDocs('dashboard', dashboardContext);
+        logger.info('dashboard.initialized', { sources: config.dashboard.dataSources.length });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error('dashboard.init_error', { err: msg });
+        error(`Dashboard plugin init error: ${msg}`);
+      }
     }
 
     // Sync registered commands into the parser so isCommand() works

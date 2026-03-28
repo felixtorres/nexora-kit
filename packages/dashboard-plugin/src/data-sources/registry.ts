@@ -77,8 +77,8 @@ export class DataSourceRegistry {
     }
 
     // Validate connection by introspecting schema
-    // Skip for tool-backed sources that have no schemaTool (validation would throw)
-    if (config.config.type !== 'tool' || (config.config as ToolConfig).schemaTool) {
+    // Skip for tool-backed sources that have no schema tools (validation would throw)
+    if (config.config.type !== 'tool' || (config.config as ToolConfig).schemaTool || (config.config as ToolConfig).schemaListTool) {
       await adapter.introspectSchema();
     }
 

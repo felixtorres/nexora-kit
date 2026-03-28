@@ -356,9 +356,11 @@ export class Wso2Provider implements LlmProvider {
 
       // Structured content blocks — group text + tool_use from the same
       // message into a single OpenAI message so the API sees them together.
-      // Tool results stay as separate messages.
+      // Tool results are collected and emitted AFTER the assistant message
+      // to satisfy OpenAI's ordering: assistant (tool_calls) → tool (results).
       let textContent = '';
       const toolCalls: OpenAiToolCall[] = [];
+      const deferredToolResults: OpenAiMessage[] = [];
 
       for (const block of m.content) {
         if (block.type === 'text') {
@@ -373,8 +375,7 @@ export class Wso2Provider implements LlmProvider {
             },
           });
         } else if (block.type === 'tool_result') {
-          // Tool results are always separate messages
-          result.push({
+          deferredToolResults.push({
             role: 'tool',
             content: block.content,
             tool_call_id: block.toolUseId,
@@ -382,7 +383,7 @@ export class Wso2Provider implements LlmProvider {
         }
       }
 
-      // Emit grouped assistant/user message if we have text or tool calls
+      // Emit grouped assistant/user message FIRST (with tool_calls)
       if (textContent || toolCalls.length > 0) {
         const msg: OpenAiMessage = {
           role: m.role as OpenAiMessage['role'],
@@ -392,6 +393,11 @@ export class Wso2Provider implements LlmProvider {
           msg.tool_calls = toolCalls;
         }
         result.push(msg);
+      }
+
+      // THEN emit tool results (OpenAI requires tool messages after the assistant message)
+      for (const tr of deferredToolResults) {
+        result.push(tr);
       }
     }
 
@@ -475,11 +481,19 @@ export class Wso2Provider implements LlmProvider {
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
+      const isStreaming = body.stream === true;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          // Hint proxies (nginx, WSO2 gateway) to disable response buffering
+          // for streaming requests so SSE chunks are forwarded immediately.
+          ...(isStreaming && {
+            Accept: 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+          }),
         },
         body: JSON.stringify(body),
         signal: controller.signal,

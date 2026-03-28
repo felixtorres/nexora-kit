@@ -23,7 +23,7 @@ export interface TestInstance {
   llm: LlmProvider;
 
   /** Install a plugin from a directory and enable it */
-  installPlugin(dir: string): LoadResult;
+  installPlugin(dir: string): Promise<LoadResult>;
 
   /** Register a tool handler directly */
   registerTool(name: string, description: string, handler: ToolHandler): void;
@@ -99,7 +99,7 @@ export function createTestInstance(options: TestInstanceOptions = {}): TestInsta
     tokenBudget,
     llm,
 
-    installPlugin(dir: string): LoadResult {
+    async installPlugin(dir: string): Promise<LoadResult> {
       const result = loadPlugin(dir);
       if (result.errors.length > 0) {
         throw new Error(`Plugin load errors: ${result.errors.join(', ')}`);
@@ -115,7 +115,7 @@ export function createTestInstance(options: TestInstanceOptions = {}): TestInsta
         lifecycle.setMcpConfigs(ns, result.mcpServerConfigs);
       }
       lifecycle.registerPluginDir(ns, dir);
-      lifecycle.enable(ns);
+      await lifecycle.enable(ns);
 
       return result;
     },

@@ -40,7 +40,7 @@ export const AppPreviewFrame = forwardRef(function AppPreviewFrame(
       srcDoc={html}
       sandbox="allow-scripts"
       onLoad={onLoad}
-      className="h-full w-full border-none bg-white"
+      className="min-h-0 flex-1 border-none bg-white"
       title="Dashboard App Preview"
     />
   );

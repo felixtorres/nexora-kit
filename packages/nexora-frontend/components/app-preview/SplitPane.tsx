@@ -34,11 +34,11 @@ export function SplitPane({ chatPanel, previewPanel, mode }: SplitPaneProps) {
       className="h-full"
     >
       <Panel defaultSize={40} minSize={25} order={1}>
-        {chatPanel}
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">{chatPanel}</div>
       </Panel>
       <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/20 transition-colors" />
       <Panel defaultSize={60} minSize={30} order={2}>
-        {previewPanel}
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">{previewPanel}</div>
       </Panel>
     </PanelGroup>
   );

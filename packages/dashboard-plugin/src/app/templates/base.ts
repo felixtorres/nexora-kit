@@ -41,6 +41,7 @@ export function buildHtmlShell(options: HtmlShellOptions): string {
       ${description ? `<p style="color:var(--text-secondary);font-size:0.875rem">${escapeHtml(description)}</p>` : ''}
       <div class="dashboard-controls">${controlsHtml}</div>
     </header>
+    <script>window.__charts={};window.__widgets={};</script>
     <main class="dashboard-grid">
       ${widgetHtml}
     </main>

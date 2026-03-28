@@ -62,17 +62,21 @@ describe('tabular parser', () => {
   });
 
   it('throws on invalid JSON', () => {
-    expect(() => parseToolResult('{not json', 'tabular')).toThrow('not valid JSON');
+    expect(() => parseToolResult('{not json', 'tabular')).toThrow('Could not parse');
   });
 
-  it('throws when columns array is missing', () => {
+  it('falls back to json-array when columns array is missing', () => {
     const raw = JSON.stringify({ rows: [] });
-    expect(() => parseToolResult(raw, 'tabular')).toThrow('missing or invalid "columns"');
+    // Auto-detect wraps the single object in an array
+    const result = parseToolResult(raw, 'tabular');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toEqual({ rows: [] });
   });
 
-  it('throws when rows array is missing', () => {
+  it('falls back to json-array when rows array is missing', () => {
     const raw = JSON.stringify({ columns: ['a'] });
-    expect(() => parseToolResult(raw, 'tabular')).toThrow('missing or invalid "rows"');
+    const result = parseToolResult(raw, 'tabular');
+    expect(result.rows).toHaveLength(1);
   });
 });
 
@@ -106,12 +110,14 @@ describe('json-array parser', () => {
     expect(result.rowCount).toBe(0);
   });
 
-  it('throws on non-array JSON', () => {
-    expect(() => parseToolResult('{"a":1}', 'json-array')).toThrow('expected a JSON array');
+  it('falls back to wrapping single object in array', () => {
+    const result = parseToolResult('{"a":1}', 'json-array');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toEqual({ a: 1 });
   });
 
-  it('throws on invalid JSON', () => {
-    expect(() => parseToolResult('not json', 'json-array')).toThrow('not valid JSON');
+  it('throws on unparseable text', () => {
+    expect(() => parseToolResult('not json', 'json-array')).toThrow('Could not parse');
   });
 
   it('infers date type from ISO strings', () => {

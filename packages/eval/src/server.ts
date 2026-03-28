@@ -173,7 +173,7 @@ export async function startEvalServer(target: EvalTarget): Promise<EvalServer> {
       if (result.plugin.manifest.skillIndex === false) {
         skillIndexAdapter.disableForNamespace(ns);
       }
-      lifecycle.enable(ns);
+      await lifecycle.enable(ns);
     }
   } catch {
     // Plugins dir may not exist

@@ -70,10 +70,10 @@ export class PluginDevWatcher {
       clearTimeout(existing);
     }
 
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       this.timers.delete(namespace);
       try {
-        const result = this.lifecycle.reload(namespace);
+        const result = await this.lifecycle.reload(namespace);
         this.onReload?.(namespace, result);
       } catch {
         // Reload errors are non-fatal in dev mode

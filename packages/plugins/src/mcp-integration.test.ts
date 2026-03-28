@@ -192,10 +192,7 @@ describe('MCP lifecycle integration', () => {
     });
 
     lifecycle.setMcpConfigs('test', configs);
-    lifecycle.enable('test');
-
-    // MCP startup is async — give it a tick
-    await new Promise((r) => setTimeout(r, 10));
+    await lifecycle.enable('test');
 
     expect(mcpManager.startServers).toHaveBeenCalledWith('test', configs);
   });
@@ -224,7 +221,7 @@ describe('MCP lifecycle integration', () => {
       tools: [],
     });
 
-    lifecycle.enable('test');
+    await lifecycle.enable('test');
     lifecycle.disable('test');
 
     expect(mcpManager.stopServers).toHaveBeenCalledWith('test');
@@ -269,10 +266,7 @@ describe('MCP lifecycle integration', () => {
       { name: 'srv', transport: 'stdio', command: 'node' },
     ]);
 
-    lifecycle.enable('test');
-
-    // Wait for async MCP startup
-    await new Promise((r) => setTimeout(r, 10));
+    await lifecycle.enable('test');
 
     expect(dispatcher.hasHandler('@test/srv.read_file')).toBe(true);
     const tools = dispatcher.listTools();
@@ -314,22 +308,20 @@ servers:
     lifecycle.install(result.plugin);
     lifecycle.registerPluginDir('reload-test', tmpDir);
     lifecycle.setMcpConfigs('reload-test', result.mcpServerConfigs);
-    lifecycle.enable('reload-test');
+    await lifecycle.enable('reload-test');
 
-    await new Promise((r) => setTimeout(r, 10));
     expect(mcpManager.startServers).toHaveBeenCalledTimes(1);
 
     // Reload — should stop and restart
     mcpManager.startServers.mockClear();
-    const reloadResult = lifecycle.reload('reload-test');
+    const reloadResult = await lifecycle.reload('reload-test');
     expect(reloadResult.mcpServerConfigs).toHaveLength(1);
 
-    await new Promise((r) => setTimeout(r, 10));
     expect(mcpManager.stopServers).toHaveBeenCalledWith('reload-test');
     expect(mcpManager.startServers).toHaveBeenCalledWith('reload-test', expect.any(Array));
   });
 
-  it('works without mcpManager (backward compatible)', () => {
+  it('works without mcpManager (backward compatible)', async () => {
     const dispatcher = new ToolDispatcher();
 
     const lifecycle = new PluginLifecycleManager({
@@ -353,7 +345,7 @@ servers:
     });
 
     // Should not throw
-    expect(() => lifecycle.enable('test')).not.toThrow();
+    await expect(lifecycle.enable('test')).resolves.toBeUndefined();
     expect(() => lifecycle.disable('test')).not.toThrow();
   });
 });
