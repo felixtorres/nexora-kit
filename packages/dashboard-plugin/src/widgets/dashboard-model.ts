@@ -45,6 +45,64 @@ export function serializeDashboard(def: DashboardDefinition): string {
   return JSON.stringify(def, null, 2);
 }
 
+/**
+ * Normalizes a raw dashboard JSON object by filling in structural defaults
+ * that the LLM commonly omits: `version`, `dataSources`, and `layout`.
+ * Returns a new JSON string suitable for `parseDashboard()`.
+ */
+export function normalizeDashboardInput(json: string): string {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return json; // let parseDashboard handle invalid JSON
+  }
+
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return json; // let parseDashboard handle non-objects
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  // Default version to 1
+  if (obj.version === undefined) {
+    obj.version = 1;
+  }
+
+  // Infer dataSources from widget queries if missing
+  if (!Array.isArray(obj.dataSources)) {
+    const sources = new Set<string>();
+    // Check top-level dataSourceId
+    if (typeof obj.dataSourceId === 'string') {
+      sources.add(obj.dataSourceId);
+    }
+    // Collect from widget queries
+    if (Array.isArray(obj.widgets)) {
+      for (const w of obj.widgets) {
+        if (typeof w === 'object' && w !== null) {
+          const widget = w as Record<string, unknown>;
+          if (typeof widget.query === 'object' && widget.query !== null) {
+            const query = widget.query as Record<string, unknown>;
+            if (typeof query.dataSourceId === 'string') {
+              sources.add(query.dataSourceId);
+            }
+          }
+        }
+      }
+    }
+    if (sources.size > 0) {
+      obj.dataSources = [...sources];
+    }
+  }
+
+  // Default layout
+  if (obj.layout === undefined) {
+    obj.layout = { columns: 12, rowHeight: 80 };
+  }
+
+  return JSON.stringify(obj);
+}
+
 export function parseDashboard(json: string): DashboardDefinition {
   let raw: unknown;
   try {

@@ -38,14 +38,14 @@ describe('dashboard:app_promote handler', () => {
     expect(dashboards[0].definition).toBe(SAMPLE_HTML);
   });
 
-  it('returns error for missing html', async () => {
+  it('returns error for missing html and dashboardId', async () => {
     const result = await handler({ title: 'X' });
-    expect(result).toBe('Error: html (generated app content) is required');
+    expect(result).toBe('Error: either dashboardId or html is required');
   });
 
-  it('returns error for missing title', async () => {
+  it('returns error for missing title when using html', async () => {
     const result = await handler({ html: SAMPLE_HTML });
-    expect(result).toBe('Error: title is required');
+    expect(result).toBe('Error: title is required when promoting with html');
   });
 
   it('sets ownerId and teamId from context', async () => {

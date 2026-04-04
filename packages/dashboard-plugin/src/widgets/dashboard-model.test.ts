@@ -3,6 +3,7 @@ import {
   createDashboardDefinition,
   serializeDashboard,
   parseDashboard,
+  normalizeDashboardInput,
 } from './dashboard-model.js';
 import type { DashboardWidget, KpiWidget, TableWidget, ChartWidget } from './types.js';
 
@@ -208,5 +209,85 @@ describe('parseDashboard validation', () => {
       layout: { columns: 12, rowHeight: 80 },
     });
     expect(() => parseDashboard(json)).toThrow("Invalid widget 'w1': size is required");
+  });
+});
+
+describe('normalizeDashboardInput', () => {
+  it('adds version, dataSources, and layout when missing', () => {
+    const input = JSON.stringify({
+      title: 'Test',
+      widgets: [
+        { id: 'w1', type: 'kpi', title: 'Rev', size: { col: 1, row: 1, width: 3, height: 2 },
+          query: { dataSourceId: 'my-db', sql: 'SELECT 1' }, valueField: 'value' },
+      ],
+    });
+    const normalized = JSON.parse(normalizeDashboardInput(input));
+    expect(normalized.version).toBe(1);
+    expect(normalized.dataSources).toEqual(['my-db']);
+    expect(normalized.layout).toEqual({ columns: 12, rowHeight: 80 });
+  });
+
+  it('infers dataSources from top-level dataSourceId', () => {
+    const input = JSON.stringify({
+      title: 'Test',
+      dataSourceId: 'via-data-agent',
+      widgets: [],
+    });
+    const normalized = JSON.parse(normalizeDashboardInput(input));
+    expect(normalized.dataSources).toEqual(['via-data-agent']);
+  });
+
+  it('deduplicates dataSources from widgets and top-level', () => {
+    const input = JSON.stringify({
+      title: 'Test',
+      dataSourceId: 'db',
+      widgets: [
+        { id: 'w1', type: 'kpi', query: { dataSourceId: 'db', sql: 'SELECT 1' }, size: { col: 1, row: 1, width: 3, height: 2 } },
+        { id: 'w2', type: 'kpi', query: { dataSourceId: 'db', sql: 'SELECT 2' }, size: { col: 4, row: 1, width: 3, height: 2 } },
+      ],
+    });
+    const normalized = JSON.parse(normalizeDashboardInput(input));
+    expect(normalized.dataSources).toEqual(['db']);
+  });
+
+  it('does not overwrite existing version, dataSources, or layout', () => {
+    const input = JSON.stringify({
+      version: 1,
+      title: 'Test',
+      dataSources: ['existing-db'],
+      widgets: [],
+      layout: { columns: 12, rowHeight: 100 },
+    });
+    const normalized = JSON.parse(normalizeDashboardInput(input));
+    expect(normalized.version).toBe(1);
+    expect(normalized.dataSources).toEqual(['existing-db']);
+    expect(normalized.layout.rowHeight).toBe(100);
+  });
+
+  it('passes through invalid JSON unchanged', () => {
+    const input = '{not valid';
+    expect(normalizeDashboardInput(input)).toBe(input);
+  });
+
+  it('passes through non-object JSON unchanged', () => {
+    expect(normalizeDashboardInput('"hello"')).toBe('"hello"');
+    expect(normalizeDashboardInput('[]')).toBe('[]');
+  });
+
+  it('produces a parseable dashboard when combined with parseDashboard', () => {
+    const llmOutput = JSON.stringify({
+      title: 'Business Dashboard',
+      dataSourceId: 'via-data-agent',
+      widgets: [
+        { id: 'kpi-1', type: 'kpi', title: 'Revenue', size: { col: 1, row: 1, width: 3, height: 2 },
+          query: { dataSourceId: 'via-data-agent', sql: 'SELECT SUM(total) AS value FROM orders' },
+          valueField: 'value' },
+      ],
+    });
+    const def = parseDashboard(normalizeDashboardInput(llmOutput));
+    expect(def.version).toBe(1);
+    expect(def.title).toBe('Business Dashboard');
+    expect(def.dataSources).toEqual(['via-data-agent']);
+    expect(def.widgets).toHaveLength(1);
   });
 });

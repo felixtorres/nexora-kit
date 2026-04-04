@@ -8,14 +8,93 @@
 import type { AppChartWidget } from '../../types.js';
 import { escapeHtml, escapeAttr, escapeJsonForScript } from '../../escaper.js';
 
+/**
+ * Ensure the ECharts config is compatible with dataset injection.
+ * Strips inline data from series/axes and infers encode mappings when missing.
+ */
+function prepareConfigForDataset(
+  config: Record<string, unknown>,
+  chartType: string,
+  data: Record<string, unknown>[],
+): Record<string, unknown> {
+  const result = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+  const columns = data.length > 0 ? Object.keys(data[0]) : [];
+
+  // Strip xAxis.data — let dataset provide categories
+  if (result.xAxis && typeof result.xAxis === 'object' && !Array.isArray(result.xAxis)) {
+    delete (result.xAxis as Record<string, unknown>).data;
+  }
+
+  // Strip yAxis.data
+  if (result.yAxis && typeof result.yAxis === 'object' && !Array.isArray(result.yAxis)) {
+    delete (result.yAxis as Record<string, unknown>).data;
+  }
+
+  // Process series: strip inline data, ensure encode exists, expand for multi-column data
+  if (result.series) {
+    let series = Array.isArray(result.series) ? result.series : [result.series];
+    const cartesianTypes = ['bar', 'line', 'area', 'scatter'];
+    const yColumns = columns.slice(1); // columns[0] is typically the x/category axis
+
+    // Auto-expand: if there's a single cartesian series with no encode and
+    // the query returned more value columns than series, create one series per column
+    if (
+      series.length === 1 &&
+      yColumns.length > 1 &&
+      typeof series[0] === 'object' && series[0] !== null
+    ) {
+      const template = series[0] as Record<string, unknown>;
+      const serType = (template.type as string) ?? chartType;
+      if (cartesianTypes.includes(serType) && !template.encode) {
+        series = yColumns.map((col) => ({
+          ...JSON.parse(JSON.stringify(template)),
+          name: col,
+          encode: { x: columns[0], y: col },
+        }));
+      }
+    }
+
+    // Track column assignment for remaining series without encode
+    let nextYIndex = 0;
+    for (const s of series) {
+      if (typeof s !== 'object' || s === null) continue;
+      const ser = s as Record<string, unknown>;
+
+      // Strip inline data
+      delete ser.data;
+
+      // Auto-infer encode if missing and we have columns
+      if (!ser.encode && columns.length >= 2) {
+        const serType = (ser.type as string) ?? chartType;
+        if (['pie', 'donut'].includes(serType)) {
+          ser.encode = { itemName: columns[0], value: yColumns[nextYIndex] ?? yColumns[0] };
+          nextYIndex++;
+        } else if (cartesianTypes.includes(serType)) {
+          ser.encode = { x: columns[0], y: yColumns[nextYIndex] ?? yColumns[0] };
+          nextYIndex++;
+        }
+      }
+    }
+    result.series = series;
+
+    // Auto-add legend when there are multiple series
+    if (series.length > 1 && !result.legend) {
+      result.legend = { show: true };
+    }
+  }
+
+  return result;
+}
+
 export function renderChartWidget(widget: AppChartWidget, data: Record<string, unknown>[]): string {
   const containerId = `chart-${widget.id}`;
   const switchable = ['bar', 'line', 'area'].includes(widget.chartType);
+  const config = prepareConfigForDataset(widget.config, widget.chartType, data);
   const echartsOption = {
-    ...widget.config,
+    ...config,
     dataset: { source: data },
-    tooltip: widget.config.tooltip ?? { trigger: 'axis' },
-    grid: widget.config.grid ?? { left: 60, right: 20, top: 40, bottom: 40 },
+    tooltip: config.tooltip ?? { trigger: 'axis' },
+    grid: config.grid ?? { left: 60, right: 20, top: 40, bottom: 40 },
   };
 
   const switchBtn = switchable

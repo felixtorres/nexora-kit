@@ -7,6 +7,7 @@
 
 import type { ToolHandler, ToolHandlerResponse } from '@nexora-kit/core';
 import type { DataSourceRegistry } from '../data-sources/registry.js';
+import type { DashboardStoreInterface } from '../store/types.js';
 import type {
   AppDefinition,
   AppWidget,
@@ -20,8 +21,8 @@ import { validateQuery } from '../query/validator.js';
 import { generateApp } from '../app/generator.js';
 import { randomUUID } from 'node:crypto';
 
-export function createAppCreateHandler(registry: DataSourceRegistry): ToolHandler {
-  return async (input): Promise<string | ToolHandlerResponse> => {
+export function createAppCreateHandler(registry: DataSourceRegistry, store?: DashboardStoreInterface): ToolHandler {
+  return async (input, context): Promise<string | ToolHandlerResponse> => {
     const title = input.title as string;
     const widgetsJson = input.widgets as string;
     const theme = (input.theme as string) || 'auto';
@@ -119,8 +120,22 @@ export function createAppCreateHandler(registry: DataSourceRegistry): ToolHandle
       const artifactId = randomUUID();
       const sizeKB = Math.round(app.sizeBytes / 1024);
 
+      // Auto-save to dashboard store so promote/share can use the ID
+      let dashboardId: string | undefined;
+      if (store) {
+        const saved = await store.create({
+          title,
+          ownerId: context?.userId ?? 'unknown',
+          teamId: context?.teamId ?? 'default',
+          definition: app.html,
+        });
+        dashboardId = saved.id;
+      }
+
       return {
-        content: `Dashboard app "${title}" generated — ${app.widgetCount} widgets (${sizeKB}KB).`,
+        content: dashboardId
+          ? `Dashboard app "${title}" generated — ${app.widgetCount} widgets (${sizeKB}KB). Saved as ID: ${dashboardId}. Use dashboard_app_share with this ID to create a shareable link.`
+          : `Dashboard app "${title}" generated — ${app.widgetCount} widgets (${sizeKB}KB).`,
         artifacts: [{
           type: 'create',
           artifactId,
@@ -137,6 +152,7 @@ export function createAppCreateHandler(registry: DataSourceRegistry): ToolHandle
             html: app.html,
             widgetCount: app.widgetCount,
             sizeBytes: app.sizeBytes,
+            dashboardId,
           },
         }],
       };

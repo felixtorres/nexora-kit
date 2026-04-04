@@ -7,9 +7,9 @@
 
 import type { ToolHandler, ToolHandlerResponse } from '@nexora-kit/core';
 import type { DashboardStoreInterface } from '../store/types.js';
-import { parseDashboard } from '../widgets/dashboard-model.js';
+import { normalizeDashboardInput, parseDashboard } from '../widgets/dashboard-model.js';
 
-export function createPromoteDashboardHandler(store: DashboardStoreInterface): ToolHandler {
+export function createPromoteDashboardHandler(store: DashboardStoreInterface, publicUrl?: string): ToolHandler {
   return async (input, context): Promise<string | ToolHandlerResponse> => {
     const definition = input.definition as string;
     const title = input.title as string | undefined;
@@ -20,7 +20,8 @@ export function createPromoteDashboardHandler(store: DashboardStoreInterface): T
 
     let def;
     try {
-      def = parseDashboard(typeof definition === 'string' ? definition : JSON.stringify(definition));
+      const rawJson = typeof definition === 'string' ? definition : JSON.stringify(definition);
+      def = parseDashboard(normalizeDashboardInput(rawJson));
     } catch (error) {
       return `Error parsing dashboard: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -34,7 +35,7 @@ export function createPromoteDashboardHandler(store: DashboardStoreInterface): T
     });
 
     return {
-      content: `Dashboard "${dashboard.title}" promoted to standalone (ID: ${dashboard.id}). It now persists independently of this conversation.`,
+      content: `Dashboard "${dashboard.title}" promoted to standalone (ID: ${dashboard.id}). It now persists independently of this conversation. Use dashboard_share to create a shareable link.`,
       blocks: [{
         type: 'custom:dashboard/info' as const,
         data: {

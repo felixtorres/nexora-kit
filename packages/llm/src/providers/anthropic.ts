@@ -7,13 +7,17 @@ import { HeuristicTokenizer, type Tokenizer } from '../tokenizer.js';
 export interface AnthropicProviderOptions {
   apiKey?: string;
   baseURL?: string;
+  /** Default model ID. When set, prepended to the models list so it becomes the default. */
+  model?: string;
   defaultMaxTokens?: number;
   logger?: LlmLogger;
 }
 
 export class AnthropicProvider implements LlmProvider {
   readonly name = 'anthropic';
-  readonly models: ModelInfo[] = [
+  readonly models: ModelInfo[];
+
+  private static readonly KNOWN_MODELS: ModelInfo[] = [
     {
       id: 'claude-sonnet-4-6',
       name: 'Claude Sonnet 4.6',
@@ -49,6 +53,27 @@ export class AnthropicProvider implements LlmProvider {
     });
     this.defaultMaxTokens = options.defaultMaxTokens ?? 4096;
     this.logger = options.logger;
+
+    // If a custom model is configured and isn't already in the known list,
+    // prepend it so it becomes the default (models[0]).
+    const knownModels = [...AnthropicProvider.KNOWN_MODELS];
+    if (options.model && !knownModels.some((m) => m.id === options.model)) {
+      knownModels.unshift({
+        id: options.model,
+        name: options.model,
+        provider: 'anthropic',
+        contextWindow: 200_000,
+        maxOutputTokens: 16_384,
+      });
+    } else if (options.model) {
+      // Move the matching known model to the front
+      const idx = knownModels.findIndex((m) => m.id === options.model);
+      if (idx > 0) {
+        const [model] = knownModels.splice(idx, 1);
+        knownModels.unshift(model);
+      }
+    }
+    this.models = knownModels;
   }
 
   /**

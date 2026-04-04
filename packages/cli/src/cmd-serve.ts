@@ -82,6 +82,17 @@ interface InstanceConfig {
   };
   rateLimit?: { windowMs?: number; maxRequests?: number };
   dashboard?: DashboardPluginOptions;
+  bots?: Array<{
+    name: string;
+    description?: string;
+    systemPrompt: string;
+    pluginNamespaces?: string[];
+    model: string;
+    temperature?: number;
+    maxTurns?: number;
+    workspaceId?: string;
+    metadata?: Record<string, unknown>;
+  }>;
 }
 
 export const serveCommand: CliCommand = {
@@ -274,6 +285,7 @@ export const serveCommand: CliCommand = {
         dashboardPlugin = await createDashboardPlugin({
           ...config.dashboard,
           dispatcher: toolDispatcher,
+          publicUrl: config.dashboard.publicUrl ?? `http://${host}:${port}`,
         });
         for (const [name, handler] of dashboardPlugin.toolHandlers) {
           toolHandlers.set(name, handler);
@@ -419,6 +431,45 @@ export const serveCommand: CliCommand = {
         promptOptimizer,
       }),
     });
+
+    // --- Seed declarative bots ---
+    if (config.bots && config.bots.length > 0) {
+      const defaultTeamId = config.auth?.keys?.[0]?.teamId ?? 'default';
+      const existingBots = await storageBackend.botStore.list(defaultTeamId);
+      const existingByName = new Map(existingBots.map((b) => [b.name, b]));
+
+      for (const botDef of config.bots) {
+        const existing = existingByName.get(botDef.name);
+        if (existing) {
+          // Update if the config has changed
+          await storageBackend.botStore.update(existing.id, defaultTeamId, {
+            description: botDef.description,
+            systemPrompt: botDef.systemPrompt,
+            pluginNamespaces: botDef.pluginNamespaces,
+            model: botDef.model,
+            temperature: botDef.temperature,
+            maxTurns: botDef.maxTurns,
+            workspaceId: botDef.workspaceId,
+            metadata: botDef.metadata,
+          });
+          logger.info('bot.seed.updated', { name: botDef.name, id: existing.id });
+        } else {
+          const created = await storageBackend.botStore.create({
+            teamId: defaultTeamId,
+            name: botDef.name,
+            description: botDef.description,
+            systemPrompt: botDef.systemPrompt,
+            pluginNamespaces: botDef.pluginNamespaces,
+            model: botDef.model,
+            temperature: botDef.temperature,
+            maxTurns: botDef.maxTurns,
+            workspaceId: botDef.workspaceId,
+            metadata: botDef.metadata,
+          });
+          logger.info('bot.seed.created', { name: botDef.name, id: created.id });
+        }
+      }
+    }
 
     // --- Gateway ---
     const gateway = new Gateway({

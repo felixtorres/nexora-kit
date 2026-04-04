@@ -158,6 +158,7 @@ function createAnthropicProvider(
   return new AnthropicProvider({
     apiKey: config.apiKey, // falls through to ANTHROPIC_API_KEY in SDK
     baseURL: config.baseURL,
+    model: config.model,
     defaultMaxTokens: config.defaultMaxTokens,
     logger,
   });

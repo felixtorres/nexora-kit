@@ -8,7 +8,7 @@
 import type { ToolHandler, ToolHandlerResponse } from '@nexora-kit/core';
 import type { DashboardStoreInterface } from '../store/types.js';
 
-export function createShareDashboardHandler(store: DashboardStoreInterface): ToolHandler {
+export function createShareDashboardHandler(store: DashboardStoreInterface, publicUrl?: string): ToolHandler {
   return async (input): Promise<string | ToolHandlerResponse> => {
     const dashboardId = input.dashboardId as string;
     const expiresIn = input.expiresInHours as number | undefined;
@@ -31,10 +31,10 @@ export function createShareDashboardHandler(store: DashboardStoreInterface): Too
     return {
       content: [
         `Share link created for "${dashboard.title}".`,
-        `Token: \`${share.token}\``,
+        `URL: ${publicUrl ?? ''}/shared/dashboards/${share.token}`,
         expiresAt ? `Expires: ${expiresAt}` : 'No expiration.',
         '',
-        'Anyone with this token can view the dashboard (read-only).',
+        'Anyone with this link can view the dashboard — no login required.',
       ].join('\n'),
       blocks: [{
         type: 'custom:dashboard/share' as const,

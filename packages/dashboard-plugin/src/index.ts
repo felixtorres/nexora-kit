@@ -40,6 +40,8 @@ export interface DashboardPluginOptions {
   dashboardStore?: DashboardStoreInterface;
   /** Plugin mode: 'classic' (JSON definitions), 'app' (HTML generation), or 'both'. Defaults to 'both'. */
   mode?: 'classic' | 'app' | 'both';
+  /** Public base URL for share links (e.g. "http://localhost:3001"). Omit for relative paths. */
+  publicUrl?: string;
 }
 
 export interface DashboardPlugin {
@@ -86,18 +88,19 @@ export async function createDashboardPlugin(options: DashboardPluginOptions): Pr
 
   // Standalone dashboard store (shared by classic and app mode)
   const store = options.dashboardStore ?? new InMemoryDashboardStore();
+  const publicUrl = options.publicUrl?.replace(/\/$/, '');
 
   // App mode tools (self-contained HTML generation)
   if (mode === 'app' || mode === 'both') {
-    toolHandlers.set(`${ns}:dashboard_app_create`, createAppCreateHandler(registry));
+    toolHandlers.set(`${ns}:dashboard_app_create`, createAppCreateHandler(registry, store));
     toolHandlers.set(`${ns}:dashboard_app_refine`, createAppRefineHandler(registry));
-    toolHandlers.set(`${ns}:dashboard_app_promote`, createAppPromoteHandler(store));
-    toolHandlers.set(`${ns}:dashboard_app_share`, createAppShareHandler(store));
+    toolHandlers.set(`${ns}:dashboard_app_promote`, createAppPromoteHandler(store, publicUrl));
+    toolHandlers.set(`${ns}:dashboard_app_share`, createAppShareHandler(store, publicUrl));
   }
 
   // Classic standalone dashboard management
-  toolHandlers.set(`${ns}:dashboard_promote`, createPromoteDashboardHandler(store));
-  toolHandlers.set(`${ns}:dashboard_share`, createShareDashboardHandler(store));
+  toolHandlers.set(`${ns}:dashboard_promote`, createPromoteDashboardHandler(store, publicUrl));
+  toolHandlers.set(`${ns}:dashboard_share`, createShareDashboardHandler(store, publicUrl));
   toolHandlers.set(`${ns}:dashboard_list_standalone`, createListDashboardsHandler(store));
 
   return {

@@ -22,6 +22,7 @@ export async function buildDashboardContext(
   registry: DataSourceRegistry,
   options?: ContextOptions,
 ): Promise<string> {
+  const mode = options?.mode ?? 'both';
   const sections: string[] = [];
 
   sections.push('# Dashboard Plugin');
@@ -29,7 +30,15 @@ export async function buildDashboardContext(
   sections.push('## IMPORTANT: Behavioral Rules');
   sections.push('');
   sections.push('- When the user asks for a dashboard, chart, or data visualization: **call the tool immediately**. Do NOT explain what you would build — BUILD IT.');
-  sections.push('- Examine the available data sources and schemas below, pick the right queries and chart types, and call `dashboard_app_create` (or `dashboard_create` in classic mode) in your FIRST response.');
+  if (mode === 'app') {
+    sections.push('- Examine the available data sources and schemas below, pick the right queries and chart types, and call `dashboard_app_create` in your FIRST response.');
+    sections.push('- To share: call `dashboard_app_share` with the dashboard ID returned by `dashboard_app_create`. No need to call `dashboard_app_promote` — the app is auto-saved on creation.');
+    sections.push('- Do NOT use `dashboard_create`, `dashboard_promote`, or `dashboard_share` — those tools are not available.');
+  } else if (mode === 'classic') {
+    sections.push('- Examine the available data sources and schemas below, pick the right queries and chart types, and call `dashboard_create` in your FIRST response.');
+  } else {
+    sections.push('- Examine the available data sources and schemas below, pick the right queries and chart types, and call `dashboard_app_create` (or `dashboard_create` in classic mode) in your FIRST response.');
+  }
   sections.push('- Keep your text response SHORT — one sentence confirming what you built. The app itself is the answer.');
   sections.push('- If the user asks to change something about an existing dashboard, call `dashboard_app_refine` immediately.');
   sections.push('');
@@ -68,8 +77,6 @@ export async function buildDashboardContext(
       }
     }
   }
-
-  const mode = options?.mode ?? 'both';
 
   // Chart examples — mode-dependent
   if (mode === 'classic' || mode === 'both') {

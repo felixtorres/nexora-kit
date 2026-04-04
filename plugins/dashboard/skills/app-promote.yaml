@@ -1,14 +1,16 @@
 name: dashboard_app_promote
 description: >
-  Promote a generated dashboard app to a standalone dashboard that persists
-  independently of the conversation. Required before sharing.
+  Confirm a dashboard app is ready for sharing. Usually not needed — app_create
+  already saves the dashboard. Use this only to verify a dashboard ID exists
+  before sharing, or to promote raw HTML manually.
 invocation: model
 parameters:
+  dashboardId:
+    type: string
+    description: Dashboard ID returned by app_create (preferred — use this instead of html)
   html:
     type: string
-    description: The generated HTML app content (from artifact)
-    required: true
+    description: Raw HTML content (only if dashboardId is not available)
   title:
     type: string
-    description: Dashboard title
-    required: true
+    description: Dashboard title (required only when using html)
