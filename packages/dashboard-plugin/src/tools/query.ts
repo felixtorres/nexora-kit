@@ -56,14 +56,10 @@ export function createQueryHandler(registry: DataSourceRegistry): ToolHandler {
       lines.push(JSON.stringify(displayRows, null, 2));
       lines.push('```');
 
-      return {
-        content: lines.join('\n'),
-        blocks: [{
-          type: 'table',
-          columns: result.columns.map((c) => ({ key: c.key, label: c.label })),
-          rows: displayRows,
-        }],
-      };
+      // Return content only — no visual blocks.
+      // The LLM uses the data to answer questions or build dashboards.
+      // Visual rendering is handled by dashboard_create/dashboard_app_create.
+      return lines.join('\n');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return `Query execution failed: ${message}`;

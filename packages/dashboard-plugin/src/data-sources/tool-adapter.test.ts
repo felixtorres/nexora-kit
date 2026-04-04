@@ -133,7 +133,7 @@ describe('ToolBackedAdapter', () => {
 
       const adapter = new ToolBackedAdapter('crm', TABULAR_CONFIG, dispatcher, NAMESPACE);
 
-      await expect(adapter.execute('SELECT 1')).rejects.toThrow('not valid JSON');
+      await expect(adapter.execute('SELECT 1')).rejects.toThrow('Could not parse tool result');
     });
   });
 
@@ -194,7 +194,7 @@ describe('ToolBackedAdapter', () => {
 
       expect(dispatcher.invoke).toHaveBeenCalledWith(
         'crm_query',
-        { query: 'SELECT * FROM "contacts" LIMIT 3', params: undefined },
+        { query: 'SELECT * FROM "contacts" LIMIT 3' },
         NAMESPACE,
       );
       expect(result.rows).toHaveLength(2);
@@ -208,7 +208,7 @@ describe('ToolBackedAdapter', () => {
 
       expect(dispatcher.invoke).toHaveBeenCalledWith(
         'crm_query',
-        { query: 'SELECT * FROM "orders" LIMIT 5', params: undefined },
+        { query: 'SELECT * FROM "orders" LIMIT 5' },
         NAMESPACE,
       );
     });
@@ -226,6 +226,108 @@ describe('ToolBackedAdapter', () => {
       const adapter = new ToolBackedAdapter('crm', TABULAR_CONFIG, dispatcher, NAMESPACE);
       expect(adapter.id).toBe('crm');
       expect(adapter.type).toBe('tool');
+    });
+  });
+
+  describe('shorthand tool names (namespace:tool format)', () => {
+    const SHORTHAND_CONFIG: ToolConfig = {
+      type: 'tool',
+      queryTool: 'data-agent:sql_execute',
+      schemaTool: 'data-agent:generate_context',
+      resultFormat: 'tabular',
+    };
+
+    it('execute() passes shorthand tool name to dispatcher', async () => {
+      (dispatcher.invoke as any).mockResolvedValue(TABULAR_RESPONSE);
+
+      const adapter = new ToolBackedAdapter('bridge', SHORTHAND_CONFIG, dispatcher, NAMESPACE);
+      await adapter.execute('SELECT 1');
+
+      expect(dispatcher.invoke).toHaveBeenCalledWith(
+        'data-agent:sql_execute',
+        { query: 'SELECT 1' },
+        NAMESPACE,
+      );
+    });
+
+    it('introspectSchema() passes shorthand schemaTool name to dispatcher', async () => {
+      (dispatcher.invoke as any).mockResolvedValue(JSON.stringify(SCHEMA_RESPONSE));
+
+      const adapter = new ToolBackedAdapter('bridge', SHORTHAND_CONFIG, dispatcher, NAMESPACE);
+      await adapter.introspectSchema();
+
+      expect(dispatcher.invoke).toHaveBeenCalledWith(
+        'data-agent:generate_context',
+        {},
+        NAMESPACE,
+      );
+    });
+
+    it('propagates "Tool not found" when shorthand resolution fails', async () => {
+      (dispatcher.invoke as any).mockRejectedValue(
+        new Error('Tool not found: data-agent:sql_execute'),
+      );
+
+      const adapter = new ToolBackedAdapter('bridge', SHORTHAND_CONFIG, dispatcher, NAMESPACE);
+
+      await expect(adapter.execute('SELECT 1')).rejects.toThrow(
+        'Tool not found: data-agent:sql_execute',
+      );
+    });
+  });
+
+  describe('queryParam mapping', () => {
+    it('defaults to "query" when queryParam is not set', async () => {
+      (dispatcher.invoke as any).mockResolvedValue(TABULAR_RESPONSE);
+
+      const adapter = new ToolBackedAdapter('crm', TABULAR_CONFIG, dispatcher, NAMESPACE);
+      await adapter.execute('SELECT 1');
+
+      expect(dispatcher.invoke).toHaveBeenCalledWith(
+        'crm_query',
+        { query: 'SELECT 1' },
+        NAMESPACE,
+      );
+    });
+
+    it('uses custom queryParam when configured', async () => {
+      (dispatcher.invoke as any).mockResolvedValue(TABULAR_RESPONSE);
+
+      const config: ToolConfig = {
+        type: 'tool',
+        queryTool: 'data-agent:sql_execute',
+        queryParam: 'sql',
+        resultFormat: 'tabular',
+      };
+
+      const adapter = new ToolBackedAdapter('bridge', config, dispatcher, NAMESPACE);
+      await adapter.execute('SELECT * FROM orders');
+
+      expect(dispatcher.invoke).toHaveBeenCalledWith(
+        'data-agent:sql_execute',
+        { sql: 'SELECT * FROM orders' },
+        NAMESPACE,
+      );
+    });
+
+    it('includes params alongside custom queryParam', async () => {
+      (dispatcher.invoke as any).mockResolvedValue(TABULAR_RESPONSE);
+
+      const config: ToolConfig = {
+        type: 'tool',
+        queryTool: 'ns:exec',
+        queryParam: 'sql',
+        resultFormat: 'tabular',
+      };
+
+      const adapter = new ToolBackedAdapter('db', config, dispatcher, NAMESPACE);
+      await adapter.execute('SELECT $1', { limit: 10 });
+
+      expect(dispatcher.invoke).toHaveBeenCalledWith(
+        'ns:exec',
+        { sql: 'SELECT $1', params: { limit: 10 } },
+        NAMESPACE,
+      );
     });
   });
 });

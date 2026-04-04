@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { Plus, MessageSquare, Loader2, Trash2 } from 'lucide-react';
+import { Plus, MessageSquare, Loader2, Trash2, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -47,6 +47,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
   const [deleteTarget, setDeleteTarget] = useState<ConversationRecord | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [collapsed, setCollapsed] = useState(false);
   const isResizing = useRef(false);
 
   const conversations = data?.items ?? [];
@@ -98,71 +99,116 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
     });
   }
 
+  const COLLAPSED_WIDTH = 46;
+
   return (
-    <div className="relative flex h-full shrink-0" style={{ width }}>
+    <div
+      className="relative flex h-full shrink-0 transition-[width] duration-200 ease-in-out"
+      style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
+    >
       {/* Panel content */}
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-muted/20">
-        <div className="flex items-center justify-between border-b p-3">
-          <h2 className="text-sm font-semibold">Conversations</h2>
-          <Button size="icon" variant="ghost" className="size-7" onClick={onNewConversation}>
-            <Plus className="size-4" />
-          </Button>
-        </div>
-
-        <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : conversations.length === 0 ? (
-            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-              No conversations yet.
-              <br />
-              Click + to start one.
-            </div>
-          ) : (
-            <div className="space-y-0.5 p-1.5">
-              {conversations.map((conv: ConversationRecord) => (
-                <div
-                  key={conv.id}
-                  className={`group/conv flex w-full items-center rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
-                    activeId === conv.id ? 'bg-accent text-accent-foreground' : ''
-                  }`}
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-1 border-r border-border py-2">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-8"
+              onClick={() => setCollapsed(false)}
+              aria-label="Expand conversation list"
+            >
+              <ChevronsRight className="size-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-8"
+              onClick={onNewConversation}
+              aria-label="New conversation"
+            >
+              <Plus className="size-4" />
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between border-b p-3">
+              <h2 className="text-sm font-semibold">Conversations</h2>
+              <div className="flex items-center gap-0.5">
+                <Button size="icon" variant="ghost" className="size-7" onClick={onNewConversation}>
+                  <Plus className="size-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7"
+                  onClick={() => setCollapsed(true)}
+                  aria-label="Collapse conversation list"
                 >
-                  <button
-                    className="flex min-w-0 flex-1 items-start gap-2"
-                    onClick={() => router.push(`/chat/${conv.id}`)}
-                  >
-                    <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{conv.title || 'New conversation'}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {formatTime(conv.updatedAt)}
-                      </p>
-                    </div>
-                  </button>
-                  <button
-                    className="ml-1 shrink-0 rounded-sm p-1 text-muted-foreground/60 opacity-0 transition-all group-hover/conv:opacity-100 hover:text-destructive hover:bg-destructive/10"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteTarget(conv);
-                    }}
-                    aria-label="Delete conversation"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))}
+                  <ChevronsLeft className="size-4" />
+                </Button>
+              </div>
             </div>
-          )}
-        </ScrollArea>
+
+            <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-0">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : conversations.length === 0 ? (
+                <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+                  No conversations yet.
+                  <br />
+                  Click + to start one.
+                </div>
+              ) : (
+                <div className="space-y-0.5 p-1.5">
+                  {conversations.map((conv: ConversationRecord) => (
+                    <div
+                      key={conv.id}
+                      className={`group/conv flex w-full items-center rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                        activeId === conv.id ? 'bg-accent text-accent-foreground' : ''
+                      }`}
+                    >
+                      <button
+                        className="flex min-w-0 flex-1 items-start gap-2"
+                        onClick={() => router.push(`/chat/${conv.id}`)}
+                      >
+                        <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium">
+                            {conv.title || 'New conversation'}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {formatTime(conv.updatedAt)}
+                          </p>
+                        </div>
+                      </button>
+                      <button
+                        className="ml-1 shrink-0 rounded-sm p-1 text-muted-foreground/60 opacity-0 transition-all group-hover/conv:opacity-100 hover:text-destructive hover:bg-destructive/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget(conv);
+                        }}
+                        aria-label="Delete conversation"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </>
+        )}
       </div>
 
-      {/* Resize handle */}
-      <div
-        className="z-10 w-[3px] shrink-0 cursor-col-resize border-r border-border transition-colors hover:border-primary hover:bg-primary/10 active:border-primary active:bg-primary/20"
-        onMouseDown={handleMouseDown}
-      />
+      {/* Resize handle — hidden when collapsed */}
+      {!collapsed && (
+        <div
+          className="z-10 w-[3px] shrink-0 cursor-col-resize border-r border-border transition-colors hover:border-primary hover:bg-primary/10 active:border-primary active:bg-primary/20"
+          onMouseDown={handleMouseDown}
+        />
+      )}
 
       {/* Delete confirmation */}
       <Dialog

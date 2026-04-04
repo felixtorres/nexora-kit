@@ -423,6 +423,50 @@ nexora-kit plugin disable my-plugin
 
 See [Plugin Authoring](plugin-authoring.md) for details.
 
+## Dashboard Plugin
+
+The built-in dashboard plugin lets agents build interactive dashboards from conversational data questions.
+
+### Enable
+
+Add to your `nexora.yaml`:
+
+```yaml
+dashboard:
+  mode: 'both'          # 'classic' (Vega-Lite), 'app' (ECharts), or 'both'
+  dataSources:
+    - id: my_db
+      type: sql
+      config:
+        dialect: postgresql
+        connectionString: ${DB_URL}
+      constraints:
+        maxRows: 10000
+        timeoutMs: 30000
+```
+
+### Data Source Types
+
+| Type | Config |
+|------|--------|
+| `sql` | PostgreSQL connection string (read-only) |
+| `csv` | Inline CSV content or uploaded file |
+| `tool` | Other NexoraKit tools that return tabular data |
+| `rest` | REST API with Bearer or API-key auth |
+
+### What the Agent Can Do
+
+Once configured, the agent automatically has access to dashboard tools:
+
+- **Explore data** — `dashboard_list_sources`, `dashboard_query`
+- **Classic mode** — Create JSON-defined dashboards with Vega-Lite charts, KPIs, and tables
+- **App mode** — Generate self-contained HTML/CSS/JS apps with ECharts (20 chart types)
+- **Share** — Promote dashboards to standalone, create shareable links
+
+The frontend renders classic dashboards in a grid layout and app dashboards in a sandboxed split-pane preview.
+
+See [architecture.md](architecture.md#dashboard-plugin) for technical details and the [dashboard-plugin README](../packages/dashboard-plugin/README.md) for the full tool reference.
+
 ## CLI Reference
 
 ### Instance

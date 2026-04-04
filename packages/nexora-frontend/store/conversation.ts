@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   ActivityBlock,
+  DisplayBlock,
   Message,
   ResponseBlock,
   StreamingArtifact,
@@ -33,6 +34,8 @@ interface ConversationState {
   streamingBlocks: ResponseBlock[];
   streamingToolCalls: ToolCallBlock[];
   streamingActivities: ActivityBlock[];
+  /** Ordered list of content segments — preserves interleaving of text & blocks. */
+  streamingParts: DisplayBlock[];
   artifacts: Map<string, StreamingArtifact>;
 
   // Feedback state: "conversationId:messageSeq" → rating
@@ -90,6 +93,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   streamingBlocks: [],
   streamingToolCalls: [],
   streamingActivities: [],
+  streamingParts: [],
   artifacts: new Map(),
   feedbackByMessage: {},
   devEvents: [],
@@ -104,6 +108,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingBlocks: [],
       streamingToolCalls: [],
       streamingActivities: [],
+      streamingParts: [],
     }),
 
   setMessages: (conversationId, messages) =>
@@ -131,60 +136,87 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingBlocks: [],
       streamingToolCalls: [],
       streamingActivities: [],
+      streamingParts: [],
       isSending: true,
     }),
 
-  appendStreamingText: (text) => set((state) => ({ streamingText: state.streamingText + text })),
+  appendStreamingText: (text) =>
+    set((state) => {
+      const parts = [...state.streamingParts];
+      const last = parts[parts.length - 1];
+      if (last && last.type === 'text') {
+        // Append to existing text segment
+        parts[parts.length - 1] = { ...last, content: (last as { content: string }).content + text };
+      } else {
+        // Start a new text segment
+        parts.push({ type: 'text' as const, content: text });
+      }
+      return { streamingText: state.streamingText + text, streamingParts: parts };
+    }),
 
-  setStreamingBlocks: (blocks) => set({ streamingBlocks: blocks }),
+  setStreamingBlocks: (blocks) =>
+    set((state) => {
+      // Replace content blocks in parts (remove old ones, append new)
+      const parts: DisplayBlock[] = state.streamingParts.filter(
+        (p) => p.type === 'text' || p.type === 'tool_call' || p.type === 'activity',
+      );
+      for (const b of blocks) {
+        parts.push(b as DisplayBlock);
+      }
+      return { streamingBlocks: blocks, streamingParts: parts };
+    }),
 
   addToolCall: (tc) =>
     set((state) => ({
       streamingToolCalls: [...state.streamingToolCalls, tc],
+      streamingParts: [...state.streamingParts, tc as DisplayBlock],
     })),
 
   updateToolCallStatus: (id, status) =>
-    set((state) => ({
-      streamingToolCalls: state.streamingToolCalls.map((tc) =>
-        tc.id === id ? { ...tc, status } : tc,
-      ),
-    })),
+    set((state) => {
+      const updateTc = (tc: ToolCallBlock) => (tc.id === id ? { ...tc, status } : tc);
+      return {
+        streamingToolCalls: state.streamingToolCalls.map(updateTc),
+        streamingParts: state.streamingParts.map((p): DisplayBlock =>
+          p.type === 'tool_call' ? updateTc(p as ToolCallBlock) : p,
+        ),
+      };
+    }),
 
   updateToolCallResult: (id, result, isError) =>
-    set((state) => ({
-      streamingToolCalls: state.streamingToolCalls.map((tc) =>
+    set((state) => {
+      const updateTc = (tc: ToolCallBlock) =>
         tc.id === id
-          ? {
-              ...tc,
-              result,
-              isError,
-              status: isError ? ('error' as const) : ('completed' as const),
-            }
-          : tc,
-      ),
-    })),
+          ? { ...tc, result, isError, status: isError ? ('error' as const) : ('completed' as const) }
+          : tc;
+      return {
+        streamingToolCalls: state.streamingToolCalls.map(updateTc),
+        streamingParts: state.streamingParts.map((p): DisplayBlock =>
+          p.type === 'tool_call' ? updateTc(p as ToolCallBlock) : p,
+        ),
+      };
+    }),
 
   addActivity: (activity) =>
     set((state) => ({
       streamingActivities: [...state.streamingActivities, activity],
+      streamingParts: [...state.streamingParts, activity as DisplayBlock],
     })),
 
   finalizeStreaming: (conversationId) => {
-    const { streamingText, streamingBlocks, streamingToolCalls, streamingActivities } = get();
-    const allBlocks = [
-      ...streamingActivities,
-      ...streamingToolCalls,
-      ...(streamingBlocks.length > 0 ? streamingBlocks : []),
-    ];
-    const blocks = allBlocks.length > 0 ? allBlocks : undefined;
-    const content = streamingText || (blocks ? '' : '');
+    const { streamingParts, streamingText } = get();
+    // Use the ordered parts as blocks — text segments are already text blocks.
+    // Filter out empty text segments.
+    const blocks = streamingParts.filter(
+      (p) => !(p.type === 'text' && !(p as { content: string }).content),
+    );
+    const content = streamingText || '';
     const assistantMessage: Message = {
       role: 'assistant',
       content,
-      blocks,
+      blocks: blocks.length > 0 ? blocks : undefined,
     };
-    // Only add if there's actual content
-    if (content || blocks) {
+    if (content || blocks.length > 0) {
       get().addMessage(conversationId, assistantMessage);
     }
     set({
@@ -194,6 +226,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingBlocks: [],
       streamingToolCalls: [],
       streamingActivities: [],
+      streamingParts: [],
     });
   },
 
@@ -205,6 +238,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingBlocks: [],
       streamingToolCalls: [],
       streamingActivities: [],
+      streamingParts: [],
     }),
 
   initArtifact: (artifactId, title, content) =>

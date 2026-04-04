@@ -48,6 +48,17 @@ function compareValues(a: unknown, b: unknown, direction: SortDirection): number
 }
 
 export function DataTable({ data }: DataTableProps) {
+  // Normalize columns — backend may send plain strings instead of {key, label} objects
+  const columns = useMemo(
+    () =>
+      (data.columns as unknown[]).map((c, i) =>
+        typeof c === 'string'
+          ? { key: c, label: c }
+          : (c as { key: string; label: string; format?: string }) ?? { key: String(i), label: '' },
+      ),
+    [data.columns],
+  );
+
   const [sort, setSort] = useState<SortState | null>(null);
 
   const sortedRows = useMemo(() => {
@@ -92,9 +103,9 @@ export function DataTable({ data }: DataTableProps) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                {data.columns.map((col) => (
+                {columns.map((col, ci) => (
                   <th
-                    key={col.key}
+                    key={col.key || ci}
                     className={
                       'px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap' +
                       (data.sortable ? ' cursor-pointer select-none hover:text-foreground' : '')
@@ -119,10 +130,10 @@ export function DataTable({ data }: DataTableProps) {
                   key={i}
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  {data.columns.map((col) => {
+                  {columns.map((col, ci) => {
                     const val = row[col.key];
                     return (
-                      <td key={col.key} className="px-3 py-2 text-foreground">
+                      <td key={col.key || ci} className="px-3 py-2 text-foreground">
                         {val == null ? (
                           <span className="text-muted-foreground">&mdash;</span>
                         ) : (

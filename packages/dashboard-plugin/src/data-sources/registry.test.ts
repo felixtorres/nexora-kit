@@ -201,6 +201,95 @@ describe('DataSourceRegistry', () => {
     });
   });
 
+  describe('register() with tool-backed sources', () => {
+    function makeToolConfig(id: string, opts?: { schemaTool?: string; schemaListTool?: string }): DataSourceConfig {
+      return {
+        id,
+        name: `Tool Source ${id}`,
+        type: 'tool',
+        config: {
+          type: 'tool' as const,
+          queryTool: 'ns:query',
+          schemaTool: opts?.schemaTool,
+          schemaListTool: opts?.schemaListTool,
+          resultFormat: 'tabular',
+        },
+        constraints: { maxRows: 1000, timeoutMs: 5000 },
+      };
+    }
+
+    function createMockDispatcher() {
+      return {
+        invoke: vi.fn(),
+        dispatch: vi.fn(),
+        register: vi.fn(),
+        unregister: vi.fn(),
+        setPermissionChecker: vi.fn(),
+        listTools: vi.fn().mockReturnValue([]),
+        listToolsWithNamespace: vi.fn().mockReturnValue([]),
+        hasHandler: vi.fn().mockReturnValue(false),
+        cloneToolsInto: vi.fn(),
+      };
+    }
+
+    it('registers tool source even when schemaTool introspection fails', async () => {
+      const dispatcher = createMockDispatcher();
+      dispatcher.invoke.mockRejectedValue(
+        new Error("Input validation error: 'question' is a required property"),
+      );
+
+      const reg = new DataSourceRegistry(dispatcher as any);
+      const config = makeToolConfig('bridge', { schemaTool: 'data-agent:generate_context' });
+
+      await reg.register(config);
+
+      expect(reg.has('bridge')).toBe(true);
+      expect(dispatcher.invoke).toHaveBeenCalledOnce();
+    });
+
+    it('registers tool source without introspection when no schema tools configured', async () => {
+      const dispatcher = createMockDispatcher();
+      const reg = new DataSourceRegistry(dispatcher as any);
+      const config = makeToolConfig('bridge');
+
+      await reg.register(config);
+
+      expect(reg.has('bridge')).toBe(true);
+      expect(dispatcher.invoke).not.toHaveBeenCalled();
+    });
+
+    it('applies default constraints when config omits them', async () => {
+      const dispatcher = createMockDispatcher();
+      const reg = new DataSourceRegistry(dispatcher as any);
+      const config = {
+        ...makeToolConfig('bridge'),
+        constraints: undefined as any,
+      };
+
+      await reg.register(config);
+
+      const stored = reg.getConfig('bridge');
+      expect(stored.constraints).toBeDefined();
+      expect(stored.constraints.maxRows).toBe(10_000);
+      expect(stored.constraints.timeoutMs).toBe(30_000);
+    });
+
+    it('registers and introspects tool source when schemaTool succeeds', async () => {
+      const dispatcher = createMockDispatcher();
+      dispatcher.invoke.mockResolvedValue(JSON.stringify({
+        tables: [{ name: 'users', columns: [{ name: 'id', type: 'int', nullable: false }] }],
+      }));
+
+      const reg = new DataSourceRegistry(dispatcher as any);
+      const config = makeToolConfig('bridge', { schemaTool: 'data-agent:generate_context' });
+
+      await reg.register(config);
+
+      expect(reg.has('bridge')).toBe(true);
+      expect(dispatcher.invoke).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('closeAll', () => {
     it('closes all adapters and clears state', async () => {
       const adapterA = createMockAdapter('a');

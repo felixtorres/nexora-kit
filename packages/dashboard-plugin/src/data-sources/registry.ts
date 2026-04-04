@@ -44,6 +44,9 @@ export class DataSourceRegistry {
       ...config.constraints,
     };
 
+    // Normalize: ensure stored config always has resolved constraints
+    config = { ...config, constraints };
+
     let adapter: DataAdapter;
 
     switch (config.config.type) {
@@ -76,9 +79,18 @@ export class DataSourceRegistry {
         throw new Error(`Unsupported data source type: ${(config.config as { type: string }).type}`);
     }
 
-    // Validate connection by introspecting schema
-    // Skip for tool-backed sources that have no schema tools (validation would throw)
-    if (config.config.type !== 'tool' || (config.config as ToolConfig).schemaTool || (config.config as ToolConfig).schemaListTool) {
+    // Validate connection by introspecting schema.
+    // Tool-backed sources are best-effort — their MCP tools may require
+    // domain-specific parameters that generic introspection cannot supply.
+    if (config.config.type === 'tool') {
+      if ((config.config as ToolConfig).schemaTool || (config.config as ToolConfig).schemaListTool) {
+        try {
+          await adapter.introspectSchema();
+        } catch {
+          // Non-fatal: schema will be fetched lazily when dashboard tools need it.
+        }
+      }
+    } else {
       await adapter.introspectSchema();
     }
 

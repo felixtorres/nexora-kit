@@ -257,6 +257,142 @@ auth:
     expect(process.exitCode).toBe(1);
     errSpy.mockRestore();
   });
+
+  it('passes with a valid bots section', async () => {
+    await writeFile(configPath, `
+port: 3000
+auth:
+  type: api-key
+  keys:
+    - key: dev-key
+      userId: dev
+      teamId: default
+      role: admin
+storage:
+  path: ./data/nexora.db
+bots:
+  - name: my-bot
+    model: claude-sonnet-4-6
+    systemPrompt: You are a helpful assistant
+    pluginNamespaces:
+      - data-agent
+      - dashboard
+    temperature: 0.5
+    maxTurns: 20
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = spy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(output).toContain('valid');
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('reports missing required bot fields', async () => {
+    await writeFile(configPath, `
+port: 3000
+auth:
+  type: api-key
+  keys:
+    - key: dev-key
+      userId: dev
+      teamId: default
+      role: admin
+bots:
+  - description: missing name, model, and systemPrompt
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const errors = errSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(errors).toContain('bots[0]');
+    expect(errors).toContain('"name"');
+    expect(errors).toContain('"systemPrompt"');
+    expect(errors).toContain('"model"');
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('reports invalid bot temperature and maxTurns', async () => {
+    await writeFile(configPath, `
+port: 3000
+auth:
+  type: api-key
+  keys:
+    - key: dev-key
+      userId: dev
+      teamId: default
+      role: admin
+bots:
+  - name: bad-bot
+    model: gpt-4
+    systemPrompt: test
+    temperature: 5
+    maxTurns: 0
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const errors = errSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(errors).toContain('temperature');
+    expect(errors).toContain('maxTurns');
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('reports non-array pluginNamespaces', async () => {
+    await writeFile(configPath, `
+port: 3000
+auth:
+  type: api-key
+  keys:
+    - key: dev-key
+      userId: dev
+      teamId: default
+      role: admin
+bots:
+  - name: bad-bot
+    model: gpt-4
+    systemPrompt: test
+    pluginNamespaces: not-an-array
+`, 'utf-8');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await configValidateCommand.run({
+      positionals: [],
+      flags: { config: configPath },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const errors = errSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(errors).toContain('pluginNamespaces');
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
 });
 
 describe('config show command', () => {

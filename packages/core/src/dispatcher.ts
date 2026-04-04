@@ -130,7 +130,22 @@ export class ToolDispatcher {
       throw new Error(`Invoke depth limit (${MAX_INVOKE_DEPTH}) exceeded — possible circular tool invocation`);
     }
 
-    const tool = this.tools.get(toolName);
+    let tool = this.tools.get(toolName);
+
+    // Shorthand resolution: "namespace:toolSuffix" → "@namespace/*.toolSuffix"
+    // Lets configs reference MCP tools without knowing the server name.
+    if (!tool && toolName.includes(':')) {
+      const [ns, suffix] = toolName.split(':', 2);
+      const prefix = `@${ns}/`;
+      const dotSuffix = `.${suffix}`;
+      for (const [registered, entry] of this.tools) {
+        if (registered.startsWith(prefix) && registered.endsWith(dotSuffix)) {
+          tool = entry;
+          break;
+        }
+      }
+    }
+
     if (!tool) {
       throw new Error(`Tool not found: ${toolName}`);
     }

@@ -30,10 +30,14 @@ async function listAllSources(registry: DataSourceRegistry): Promise<string> {
 
   const lines: string[] = ['Available data sources:', ''];
   for (const source of sources) {
-    const schema = await registry.getSchema(source.id);
-    const tableNames = schema.tables.map((t) => t.name).join(', ');
     lines.push(`- **${source.name}** (id: \`${source.id}\`, type: ${source.config.type})`);
-    lines.push(`  Tables: ${tableNames}`);
+    try {
+      const schema = await registry.getSchema(source.id);
+      const tableNames = schema.tables.map((t) => t.name).join(', ');
+      lines.push(`  Tables: ${tableNames}`);
+    } catch {
+      lines.push(`  Tables: (schema discovery not available — use data exploration tools to inspect)`);
+    }
     lines.push(`  Constraints: max ${source.constraints.maxRows} rows, ${source.constraints.timeoutMs}ms timeout`);
     if (source.constraints.allowedTables) {
       lines.push(`  Allowed tables: ${source.constraints.allowedTables.join(', ')}`);
@@ -51,7 +55,22 @@ async function getSourceDetail(
 ): Promise<string> {
   const config = registry.getConfig(dataSourceId);
   const adapter = registry.get(dataSourceId);
-  const schema = await adapter.introspectSchema();
+
+  let schema;
+  try {
+    schema = await adapter.introspectSchema();
+  } catch {
+    return [
+      `# Data Source: ${config.name} (\`${config.id}\`)`,
+      '',
+      `Type: ${config.config.type}`,
+      `Constraints: max ${config.constraints.maxRows} rows, ${config.constraints.timeoutMs}ms timeout`,
+      '',
+      'Schema introspection is not available for this tool-backed source.',
+      'Use data exploration tools (e.g. `data-agent:explore-schema`) to discover tables and columns,',
+      `then use data source ID \`${config.id}\` when creating dashboards.`,
+    ].join('\n');
+  }
 
   const lines: string[] = [
     `# Data Source: ${config.name} (\`${config.id}\`)`,

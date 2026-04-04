@@ -34,8 +34,9 @@ describe('tabular parser', () => {
     });
 
     const result = parseToolResult(raw, 'tabular');
-    expect(result.columns[0]).toEqual({ key: 'x', label: 'x', type: 'unknown' });
-    expect(result.columns[1]).toEqual({ key: 'y', label: 'y', type: 'unknown' });
+    // Types are inferred from first data row when columns are plain strings
+    expect(result.columns[0]).toEqual({ key: 'x', label: 'x', type: 'number' });
+    expect(result.columns[1]).toEqual({ key: 'y', label: 'y', type: 'number' });
   });
 
   it('preserves truncated flag when true', () => {

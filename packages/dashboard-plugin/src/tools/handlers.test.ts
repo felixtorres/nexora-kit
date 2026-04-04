@@ -141,6 +141,64 @@ describe('dashboard_list_sources handler', () => {
     const result = await emptyHandler({});
     expect(result).toContain('No data sources are configured');
   });
+
+  it('lists source without tables when introspection fails', async () => {
+    const failingAdapter: DataAdapter = {
+      id: 'tool-src',
+      type: 'tool',
+      introspectSchema: vi.fn().mockRejectedValue(new Error("'question' is a required property")),
+      execute: vi.fn().mockResolvedValue(MOCK_QUERY_RESULT),
+      getSampleData: vi.fn().mockResolvedValue(MOCK_SAMPLE),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const toolConfig: DataSourceConfig = {
+      id: 'tool-src',
+      name: 'Data Agent Bridge',
+      type: 'tool',
+      config: { type: 'tool' as const, queryTool: 'ns:query', resultFormat: 'tabular' },
+      constraints: { maxRows: 5000, timeoutMs: 10_000 },
+    };
+
+    const reg = new TestableRegistry();
+    await reg.registerWithAdapter(toolConfig, failingAdapter);
+    const h = createListSourcesHandler(reg);
+
+    const result = await h({});
+    const text = result as string;
+    expect(text).toContain('Data Agent Bridge');
+    expect(text).toContain('tool-src');
+    expect(text).toContain('schema discovery not available');
+    expect(text).not.toContain('Error');
+  });
+
+  it('returns fallback detail when introspection fails for a specific source', async () => {
+    const failingAdapter: DataAdapter = {
+      id: 'tool-src',
+      type: 'tool',
+      introspectSchema: vi.fn().mockRejectedValue(new Error("'question' is a required property")),
+      execute: vi.fn().mockResolvedValue(MOCK_QUERY_RESULT),
+      getSampleData: vi.fn().mockResolvedValue(MOCK_SAMPLE),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const toolConfig: DataSourceConfig = {
+      id: 'tool-src',
+      name: 'Data Agent Bridge',
+      type: 'tool',
+      config: { type: 'tool' as const, queryTool: 'ns:query', resultFormat: 'tabular' },
+      constraints: { maxRows: 5000, timeoutMs: 10_000 },
+    };
+
+    const reg = new TestableRegistry();
+    await reg.registerWithAdapter(toolConfig, failingAdapter);
+    const h = createListSourcesHandler(reg);
+
+    const result = await h({ dataSourceId: 'tool-src' });
+    const text = result as string;
+    expect(text).toContain('Data Agent Bridge');
+    expect(text).toContain('tool-src');
+    expect(text).toContain('introspection is not available');
+    expect(text).toContain('data-agent:explore-schema');
+  });
 });
 
 describe('dashboard_query handler', () => {
@@ -153,20 +211,18 @@ describe('dashboard_query handler', () => {
     handler = createQueryHandler(registry);
   });
 
-  it('executes a valid SELECT and returns structured response', async () => {
+  it('executes a valid SELECT and returns text content', async () => {
     const result = await handler({
       dataSourceId: 'test-db',
       sql: 'SELECT status, count(*) as count FROM orders GROUP BY status',
     });
 
-    // Should be a ToolHandlerResponse object
-    expect(typeof result).toBe('object');
-    const response = result as ToolHandlerResponse;
-    expect(response.content).toContain('2 rows');
-    expect(response.content).toContain('status (string)');
-    expect(response.content).toContain('count (number)');
-    expect(response.blocks).toBeDefined();
-    expect(response.blocks![0]).toMatchObject({ type: 'table' });
+    // Returns plain string (no visual blocks — LLM uses data to build dashboards)
+    expect(typeof result).toBe('string');
+    const text = result as string;
+    expect(text).toContain('2 rows');
+    expect(text).toContain('status (string)');
+    expect(text).toContain('count (number)');
   });
 
   it('rejects a write statement (INSERT)', async () => {

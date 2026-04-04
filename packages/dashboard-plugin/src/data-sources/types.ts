@@ -83,6 +83,8 @@ export type SqlDialect = 'postgresql' | 'mysql' | 'sqlite';
 export interface ToolConfig {
   type: 'tool';
   queryTool: string;
+  /** Parameter name the query tool expects for the SQL string. Defaults to `"query"`. */
+  queryParam?: string;
   /** Tool that lists all available tables/models (no required params). */
   schemaListTool?: string;
   /** Tool that returns columns for a single table (called with table_name param). */

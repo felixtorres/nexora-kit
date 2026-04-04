@@ -14,15 +14,25 @@ interface GridSize {
   height: number;
 }
 
-interface RenderedWidget {
+/**
+ * Grid widget as sent by the dashboard backend.
+ * `type` is the short kind ('chart' | 'kpi' | 'table') — NOT prefixed.
+ * `rendered` holds the widget-specific data (spec, rows, value, etc.).
+ * `size` is the grid placement.
+ */
+interface GridWidget {
+  widgetId?: string;
   type: string;
-  data: Record<string, unknown> & { size?: GridSize };
+  size?: GridSize;
+  rendered?: Record<string, unknown>;
+  /** Legacy: some code paths put widget data here instead of `rendered`. */
+  data?: Record<string, unknown> & { size?: GridSize };
 }
 
 export interface DashboardGridData {
   dashboardId: string;
   title: string;
-  widgets: RenderedWidget[];
+  widgets: GridWidget[];
 }
 
 interface DashboardGridProps {
@@ -30,14 +40,26 @@ interface DashboardGridProps {
   onAction?: (actionId: string, payload: Record<string, unknown>) => void;
 }
 
-function WidgetRenderer({ widget }: { widget: RenderedWidget }) {
-  switch (widget.type) {
+/** Normalize short type ('chart') and prefixed type ('custom:dashboard/chart') */
+function resolveWidgetType(type: string): string {
+  if (type.startsWith('custom:')) return type;
+  return `custom:dashboard/${type}`;
+}
+
+/** Get the widget-specific data from whichever field the backend used. */
+function resolveWidgetData(widget: GridWidget): Record<string, unknown> {
+  return widget.rendered ?? widget.data ?? {};
+}
+
+function WidgetRenderer({ widget }: { widget: GridWidget }) {
+  const data = resolveWidgetData(widget);
+  switch (resolveWidgetType(widget.type)) {
     case 'custom:dashboard/chart':
-      return <ChartWidget data={widget.data as unknown as ChartWidgetData} />;
+      return <ChartWidget data={data as unknown as ChartWidgetData} />;
     case 'custom:dashboard/kpi':
-      return <KpiCard data={widget.data as unknown as KpiCardData} />;
+      return <KpiCard data={data as unknown as KpiCardData} />;
     case 'custom:dashboard/table':
-      return <DataTable data={widget.data as unknown as DataTableData} />;
+      return <DataTable data={data as unknown as DataTableData} />;
     default:
       return (
         <div className="rounded-lg border border-dashed px-4 py-3 text-xs text-muted-foreground">
@@ -71,7 +93,8 @@ export function DashboardGrid({ data, onAction }: DashboardGridProps) {
         }}
       >
         {data.widgets.map((widget, i) => {
-          const size = widget.data.size as GridSize | undefined;
+          // size can be top-level (backend grid format) or inside data (legacy)
+          const size = (widget.size ?? widget.data?.size) as GridSize | undefined;
 
           // When size is provided, place widget on the explicit grid position.
           // Otherwise, let it auto-flow spanning full width.
@@ -82,8 +105,10 @@ export function DashboardGrid({ data, onAction }: DashboardGridProps) {
               }
             : { gridColumn: '1 / -1' };
 
+          const key = widget.widgetId ?? (widget.data?.widgetId as string) ?? i;
+
           return (
-            <div key={(widget.data.widgetId as string) ?? i} style={style}>
+            <div key={key} style={style}>
               <WidgetRenderer widget={widget} />
             </div>
           );

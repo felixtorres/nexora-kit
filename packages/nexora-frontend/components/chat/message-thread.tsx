@@ -152,6 +152,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
   const streamingBlocks = useConversationStore((s) => s.streamingBlocks);
   const streamingToolCalls = useConversationStore((s) => s.streamingToolCalls);
   const streamingActivities = useConversationStore((s) => s.streamingActivities);
+  const streamingParts = useConversationStore((s) => s.streamingParts);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const getViewport = () =>
@@ -164,7 +165,7 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
     if (viewport) {
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'instant' });
     }
-  }, [streamingText, streamingBlocks, streamingToolCalls, streamingActivities]);
+  }, [streamingText, streamingBlocks, streamingToolCalls, streamingActivities, streamingParts]);
 
   // Smooth scroll only when a completed message lands or sending state changes.
   useEffect(() => {
@@ -196,36 +197,21 @@ export function MessageThread({ conversationId, onAction, onReply }: MessageThre
           />
         ))}
 
-        {/* Streaming assistant response */}
-        {isStreaming &&
-          (streamingText ||
-            streamingBlocks.length > 0 ||
-            streamingToolCalls.length > 0 ||
-            streamingActivities.length > 0) && (
-            <MessageBubble
-              message={{
-                role: 'assistant',
-                content: streamingText,
-                blocks: (() => {
-                  const all = [
-                    ...streamingActivities,
-                    ...streamingToolCalls,
-                    ...(streamingBlocks.length > 0 ? streamingBlocks : []),
-                  ];
-                  return all.length > 0 ? all : undefined;
-                })(),
-              }}
-              onAction={onAction}
-              onReply={onReply}
-            />
-          )}
+        {/* Streaming assistant response — uses ordered parts to preserve interleaving */}
+        {isStreaming && streamingParts.length > 0 && (
+          <MessageBubble
+            message={{
+              role: 'assistant',
+              content: '',
+              blocks: streamingParts,
+            }}
+            onAction={onAction}
+            onReply={onReply}
+          />
+        )}
 
-        {/* Show dots only when streaming hasn't produced content yet */}
-        {isSending && !isStreaming && <StreamingIndicator />}
-        {isStreaming &&
-          !streamingText &&
-          streamingBlocks.length === 0 &&
-          streamingActivities.length === 0 && <StreamingIndicator />}
+        {/* Show dots while the request is in flight */}
+        {isSending && <StreamingIndicator />}
       </div>
     </ScrollArea>
   );

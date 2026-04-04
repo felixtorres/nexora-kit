@@ -39,12 +39,17 @@ export async function executeTableWidget(
   const truncated = pageSize != null && result.rowCount > pageSize;
   const rows = truncated ? result.rows.slice(0, pageSize) : result.rows;
 
+  // Normalize columns — the LLM may send plain strings instead of {key, label} objects
+  const columns = (widget.columns as unknown[]).map((c) =>
+    typeof c === 'string' ? { key: c, label: c } : (c as { key: string; label: string; format?: string }),
+  );
+
   return {
     type: 'custom:dashboard/table',
     data: {
       widgetId: widget.id,
       title: widget.title,
-      columns: widget.columns,
+      columns,
       rows,
       rowCount: rows.length,
       totalRows: result.rowCount,

@@ -209,6 +209,36 @@ export const configValidateCommand: CliCommand = {
       if (storage && !storage.path && !storage.host) {
         issues.push('storage must have either "path" (SQLite) or "host" (PostgreSQL)');
       }
+
+      // Bots validation
+      const bots = config.bots as Array<Record<string, unknown>> | undefined;
+      if (bots) {
+        if (!Array.isArray(bots)) {
+          issues.push('bots must be an array');
+        } else {
+          for (let i = 0; i < bots.length; i++) {
+            const b = bots[i];
+            if (!b.name) issues.push(`bots[${i}] missing required field "name"`);
+            if (!b.systemPrompt) issues.push(`bots[${i}] missing required field "systemPrompt"`);
+            if (!b.model) issues.push(`bots[${i}] missing required field "model"`);
+            if (b.pluginNamespaces && !Array.isArray(b.pluginNamespaces)) {
+              issues.push(`bots[${i}].pluginNamespaces must be an array`);
+            }
+            if (b.temperature !== undefined) {
+              const t = Number(b.temperature);
+              if (Number.isNaN(t) || t < 0 || t > 2) {
+                issues.push(`bots[${i}].temperature must be 0–2`);
+              }
+            }
+            if (b.maxTurns !== undefined) {
+              const m = Number(b.maxTurns);
+              if (!Number.isInteger(m) || m < 1 || m > 100) {
+                issues.push(`bots[${i}].maxTurns must be an integer 1–100`);
+              }
+            }
+          }
+        }
+      }
     }
 
     // Report results

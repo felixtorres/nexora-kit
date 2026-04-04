@@ -351,6 +351,79 @@ describe('ToolDispatcher.invoke()', () => {
     await expect(dispatcher.invoke('nonexistent', {}, 'caller')).rejects.toThrow('not found');
   });
 
+  it('resolves namespace:tool shorthand to @namespace/server.tool', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    dispatcher.register(
+      { name: '@data-agent/dbinsight.sql_execute', description: 'Exec SQL', parameters: { type: 'object', properties: {} } },
+      async () => 'rows',
+      { namespace: 'data-agent' },
+    );
+
+    const result = await dispatcher.invoke('data-agent:sql_execute', {}, 'caller');
+    expect(result).toBe('rows');
+  });
+
+  it('shorthand: exact match takes precedence over namespace resolution', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    // Register both an exact-match tool and an MCP-qualified tool
+    dispatcher.register(
+      { name: 'data-agent:sql_execute', description: 'Exact', parameters: { type: 'object', properties: {} } },
+      async () => 'exact',
+      { namespace: 'data-agent' },
+    );
+    dispatcher.register(
+      { name: '@data-agent/dbinsight.sql_execute', description: 'MCP', parameters: { type: 'object', properties: {} } },
+      async () => 'mcp',
+      { namespace: 'data-agent' },
+    );
+
+    const result = await dispatcher.invoke('data-agent:sql_execute', {}, 'caller');
+    expect(result).toBe('exact');
+  });
+
+  it('shorthand: throws when no matching MCP tool exists', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    // Register a tool under a different namespace — should not match
+    dispatcher.register(
+      { name: '@other-ns/server.some_tool', description: 'Other', parameters: { type: 'object', properties: {} } },
+      async () => 'nope',
+      { namespace: 'other-ns' },
+    );
+
+    await expect(
+      dispatcher.invoke('data-agent:sql_execute', {}, 'caller'),
+    ).rejects.toThrow('Tool not found: data-agent:sql_execute');
+  });
+
+  it('shorthand: resolves across multiple MCP servers under the same namespace', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    dispatcher.register(
+      { name: '@analytics/server-a.run_query', description: 'A', parameters: { type: 'object', properties: {} } },
+      async () => 'from-a',
+      { namespace: 'analytics' },
+    );
+    dispatcher.register(
+      { name: '@analytics/server-b.get_schema', description: 'B', parameters: { type: 'object', properties: {} } },
+      async () => 'from-b',
+      { namespace: 'analytics' },
+    );
+
+    expect(await dispatcher.invoke('analytics:run_query', {}, 'caller')).toBe('from-a');
+    expect(await dispatcher.invoke('analytics:get_schema', {}, 'caller')).toBe('from-b');
+  });
+
+  it('shorthand: does not trigger for tool names without a colon', async () => {
+    grantedPermissions.set('caller', new Set(['tool:invoke']));
+    dispatcher.register(
+      { name: '@ns/server.my_tool', description: 'T', parameters: { type: 'object', properties: {} } },
+      async () => 'ok',
+      { namespace: 'ns' },
+    );
+
+    // Plain name with no colon should not attempt shorthand resolution
+    await expect(dispatcher.invoke('my_tool', {}, 'caller')).rejects.toThrow('Tool not found: my_tool');
+  });
+
   it('throws on handler errors (not caught like dispatch)', async () => {
     grantedPermissions.set('caller', new Set(['tool:invoke']));
     dispatcher.register(

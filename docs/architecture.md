@@ -58,6 +58,7 @@
 | Discovery | `tool-registry` | core |
 | Extensions | `skills`, `commands`, `mcp` | core |
 | Runtime | `plugins` | core, sandbox, config, skills, commands, mcp |
+| Plugins | `dashboard-plugin` | core (ToolHandler, ToolDispatcher, artifacts) |
 | Presentation | `api`, `admin` | core, plugins, storage |
 | Orchestration | `cli` | All packages |
 | Frontend | `nexora-frontend` | None (standalone Next.js app) |
@@ -522,3 +523,81 @@ Bots are capability profiles (system prompt, model, plugins). Agents are deploym
 **BotRunner** wraps `AgentLoop` with bot-specific config (model, prompt, plugins, temperature). It preserves streaming and provides `runToCompletion()` for orchestrator fan-out.
 
 **Orchestrator** creates `ask_<botname>` tools from bindings, lets the LLM decide which bots to invoke, runs them in parallel via `Promise.all()`, and synthesizes multi-bot responses.
+
+## Dashboard Plugin
+
+First-party plugin (`@nexora-kit/dashboard-plugin`) that turns conversational data questions into interactive dashboards. Operates in two modes:
+
+- **Classic mode** — JSON widget definitions + Vega-Lite charts, rendered by the frontend's grid layout
+- **App mode** — Self-contained HTML/CSS/JS apps with ECharts, rendered in a sandboxed iframe
+
+### Data Flow
+
+```
+User asks data question
+     │
+     ▼
+Agent loop invokes dashboard tools
+     │
+     ├─→ dashboard_list_sources     → DataSourceRegistry → schema introspection
+     ├─→ dashboard_query            → DataAdapter.execute() → tabular results
+     │
+     ├─→ dashboard_create (classic) → widget execution → artifact + grid blocks
+     │   dashboard_update / refresh
+     │
+     └─→ dashboard_app_create (app) → EChartsValidator → AppGenerator → HTML artifact
+         dashboard_app_refine          + AppPreviewBlock for split-pane rendering
+```
+
+### Data Sources
+
+Four adapter types implement the `DataAdapter` interface:
+
+| Adapter | Source | Use Case |
+|---------|--------|----------|
+| `SqlAdapter` | PostgreSQL | Production databases (read-only transactions) |
+| `CsvAdapter` | In-memory CSV | Uploaded files, inline data |
+| `ToolBackedAdapter` | Other NexoraKit tools | Any tool that returns tabular data |
+| `RestAdapter` | REST APIs | External services with Bearer/API-key auth |
+
+All queries are validated by `QueryValidator` — rejects writes, dangerous constructs, multi-statements, and blocked columns.
+
+### App Generation Pipeline
+
+App mode produces zero-dependency HTML files:
+
+```
+AppDefinition (JSON)
+     │
+     ├── EChartsValidator (validate configs, reject JS functions)
+     ├── DataSourceRegistry (execute queries in parallel)
+     │
+     ▼
+AppGenerator
+     ├── Widget templates (chart, kpi, table, stat, gauge, metric-card, text)
+     ├── Control templates (theme toggle, date range, dropdown, export)
+     ├── Styles (12-column responsive grid, dark/light themes)
+     └── Runtime JS (ECharts init, resize, filter engine)
+     │
+     ▼
+AppBundler → single HTML file (typically 100–500KB)
+```
+
+Refinement levels: **layout** (r0, no re-query), **dashboard** (r1, full re-query), **widget** (r2, single widget re-query).
+
+### Mode Configuration
+
+```yaml
+# In plugin config
+dashboard:
+  mode: 'both'          # 'classic' | 'app' | 'both'
+  dataSources:
+    - id: my_db
+      type: sql
+      config:
+        dialect: postgresql
+        connectionString: ${DB_URL}
+      constraints:
+        maxRows: 10000
+        timeoutMs: 30000
+```

@@ -167,9 +167,10 @@ export class ToolBackedAdapter implements DataAdapter {
     query: string,
     params?: Record<string, unknown>,
   ): Promise<TabularResult> {
+    const paramName = this.config.queryParam ?? 'query';
     const raw = await this.dispatcher.invoke(
       this.config.queryTool,
-      { query, params },
+      { [paramName]: query, ...(params ? { params } : {}) },
       this.namespace,
     );
 

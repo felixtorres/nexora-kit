@@ -64,19 +64,23 @@ const tabularParser: Parser = (raw: string): TabularResult => {
     throw new Error('tabular parser: missing or invalid "rows" array');
   }
 
+  const rows = obj.rows as Record<string, unknown>[];
+  const firstRow = rows[0] as Record<string, unknown> | undefined;
+
   const columns: ColumnInfo[] = (obj.columns as unknown[]).map((c) => {
     if (typeof c === 'string') {
-      return { key: c, label: c, type: 'unknown' as ColumnType };
+      // Infer type from the first data row when columns are plain strings
+      const inferred = firstRow ? inferColumnType(firstRow[c]) : ('unknown' as ColumnType);
+      return { key: c, label: c, type: inferred };
     }
     const col = c as Record<string, unknown>;
+    const key = String(col.key ?? col.name ?? '');
     return {
-      key: String(col.key ?? col.name ?? ''),
+      key,
       label: String(col.label ?? col.key ?? col.name ?? ''),
-      type: (col.type as ColumnType) ?? 'unknown',
+      type: (col.type as ColumnType) ?? (firstRow ? inferColumnType(firstRow[key]) : ('unknown' as ColumnType)),
     };
   });
-
-  const rows = obj.rows as Record<string, unknown>[];
 
   return {
     columns,
