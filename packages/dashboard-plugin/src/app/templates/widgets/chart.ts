@@ -9,8 +9,27 @@ import type { AppChartWidget } from '../../types.js';
 import { escapeHtml, escapeAttr, escapeJsonForScript } from '../../escaper.js';
 
 /**
+ * Check whether an encode mapping references columns that exist in the data.
+ */
+function encodeMatchesColumns(
+  encode: Record<string, unknown>,
+  columns: string[],
+): boolean {
+  const colSet = new Set(columns);
+  for (const val of Object.values(encode)) {
+    if (typeof val === 'string' && !colSet.has(val)) return false;
+    // ECharts supports array values for encode (e.g. candlestick y: [open,close,low,high])
+    if (Array.isArray(val) && val.some((v) => typeof v === 'string' && !colSet.has(v))) return false;
+  }
+  return true;
+}
+
+/**
  * Ensure the ECharts config is compatible with dataset injection.
- * Strips inline data from series/axes and infers encode mappings when missing.
+ *
+ * When query data is available: strips inline data from series/axes,
+ * infers encode mappings, and validates that encode fields match actual columns.
+ * When data is empty: preserves any inline data the LLM placed in the config.
  */
 function prepareConfigForDataset(
   config: Record<string, unknown>,
@@ -18,16 +37,17 @@ function prepareConfigForDataset(
   data: Record<string, unknown>[],
 ): Record<string, unknown> {
   const result = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
-  const columns = data.length > 0 ? Object.keys(data[0]) : [];
+  const hasData = data.length > 0;
+  const columns = hasData ? Object.keys(data[0]) : [];
 
-  // Strip xAxis.data — let dataset provide categories
-  if (result.xAxis && typeof result.xAxis === 'object' && !Array.isArray(result.xAxis)) {
-    delete (result.xAxis as Record<string, unknown>).data;
-  }
-
-  // Strip yAxis.data
-  if (result.yAxis && typeof result.yAxis === 'object' && !Array.isArray(result.yAxis)) {
-    delete (result.yAxis as Record<string, unknown>).data;
+  // Only strip axis inline data when we have query data to replace it
+  if (hasData) {
+    if (result.xAxis && typeof result.xAxis === 'object' && !Array.isArray(result.xAxis)) {
+      delete (result.xAxis as Record<string, unknown>).data;
+    }
+    if (result.yAxis && typeof result.yAxis === 'object' && !Array.isArray(result.yAxis)) {
+      delete (result.yAxis as Record<string, unknown>).data;
+    }
   }
 
   // Process series: strip inline data, ensure encode exists, expand for multi-column data
@@ -39,6 +59,7 @@ function prepareConfigForDataset(
     // Auto-expand: if there's a single cartesian series with no encode and
     // the query returned more value columns than series, create one series per column
     if (
+      hasData &&
       series.length === 1 &&
       yColumns.length > 1 &&
       typeof series[0] === 'object' && series[0] !== null
@@ -60,12 +81,16 @@ function prepareConfigForDataset(
       if (typeof s !== 'object' || s === null) continue;
       const ser = s as Record<string, unknown>;
 
-      // Strip inline data
-      delete ser.data;
+      // Only strip inline data when we have query data to replace it
+      if (hasData) {
+        delete ser.data;
+      }
 
-      // Auto-infer encode if missing and we have columns
-      if (!ser.encode && columns.length >= 2) {
-        const serType = (ser.type as string) ?? chartType;
+      const serType = (ser.type as string) ?? chartType;
+      const needsEncode = !ser.encode || (hasData && !encodeMatchesColumns(ser.encode as Record<string, unknown>, columns));
+
+      // Auto-infer encode if missing, or if existing encode doesn't match data columns
+      if (needsEncode && columns.length >= 2) {
         if (['pie', 'donut'].includes(serType)) {
           ser.encode = { itemName: columns[0], value: yColumns[nextYIndex] ?? yColumns[0] };
           nextYIndex++;
@@ -90,12 +115,15 @@ export function renderChartWidget(widget: AppChartWidget, data: Record<string, u
   const containerId = `chart-${widget.id}`;
   const switchable = ['bar', 'line', 'area'].includes(widget.chartType);
   const config = prepareConfigForDataset(widget.config, widget.chartType, data);
-  const echartsOption = {
+  const echartsOption: Record<string, unknown> = {
     ...config,
-    dataset: { source: data },
     tooltip: config.tooltip ?? { trigger: 'axis' },
     grid: config.grid ?? { left: 60, right: 20, top: 40, bottom: 40 },
   };
+  // Only inject dataset when we have query data — otherwise let inline config data render
+  if (data.length > 0) {
+    echartsOption.dataset = { source: data };
+  }
 
   const switchBtn = switchable
     ? `<button class="btn-icon" id="switch-${escapeAttr(widget.id)}" onclick="window.__switchChartType('${escapeAttr(widget.id)}')" title="Switch chart type">&#9776;</button>`

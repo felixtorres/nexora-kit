@@ -106,6 +106,23 @@ export function createAppCreateHandler(registry: DataSourceRegistry, store?: Das
       return `App creation failed: ${message}`;
     }
 
+    // --- Diagnostics: detect data-less widgets ---
+    const dataWarnings: string[] = [];
+    const dataWidgets = widgets.filter(w => w.type !== 'text');
+    const widgetsWithoutQuery = dataWidgets.filter(
+      w => !('query' in w) || !(w as any).query?.sql,
+    );
+    if (widgetsWithoutQuery.length > 0) {
+      dataWarnings.push(
+        `${widgetsWithoutQuery.length} widget(s) have no query.sql and will render without data: ${widgetsWithoutQuery.map(w => w.id).join(', ')}`,
+      );
+    }
+    for (const [wid, rows] of widgetData) {
+      if (rows.length === 0) {
+        dataWarnings.push(`Widget '${wid}' query returned 0 rows`);
+      }
+    }
+
     // --- Generate app ---
     const definition: AppDefinition = {
       title,
@@ -132,10 +149,14 @@ export function createAppCreateHandler(registry: DataSourceRegistry, store?: Das
         dashboardId = saved.id;
       }
 
+      const warningText = dataWarnings.length > 0
+        ? ` Warnings: ${dataWarnings.join('; ')}`
+        : '';
+
       return {
         content: dashboardId
-          ? `Dashboard app "${title}" generated — ${app.widgetCount} widgets (${sizeKB}KB). Saved as ID: ${dashboardId}. Use dashboard_app_share with this ID to create a shareable link.`
-          : `Dashboard app "${title}" generated — ${app.widgetCount} widgets (${sizeKB}KB).`,
+          ? `Dashboard app "${title}" generated — ${app.widgetCount} widgets (${sizeKB}KB). Saved as ID: ${dashboardId}. Use dashboard_app_share with this ID to create a shareable link.${warningText}`
+          : `Dashboard app "${title}" generated — ${app.widgetCount} widgets (${sizeKB}KB).${warningText}`,
         artifacts: [{
           type: 'create',
           artifactId,

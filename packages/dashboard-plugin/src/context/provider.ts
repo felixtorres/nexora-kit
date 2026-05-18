@@ -122,6 +122,10 @@ Widget config patterns:
 
 Time series: use \`xAxis.type:"time"\` + \`dataZoom\`. Use SQL GROUP BY for aggregation.
 Never use JS functions in configs — declarative strings only (\`"{value}%"\` not \`function(){}\`).
+
+CRITICAL: \`encode\` field names MUST exactly match the SQL column aliases in the widget's query.
+Example: if SQL is \`SELECT category, SUM(sales) AS total_sales\`, use \`encode:{x:"category", y:"total_sales"}\`.
+If encode is omitted, columns are auto-mapped by position (first column → x/category, remaining → y/value).
 `;
 
 const APP_GENERATION_RULES = `
@@ -130,4 +134,6 @@ const APP_GENERATION_RULES = `
 Grid is 12 columns. Set \`size: {col, row, width, height}\` on each widget.
 Typical layout: KPIs in row 1 (width:3 each), charts in row 2-4 (width:6), table in row 5+ (width:12).
 Always include \`query: {dataSourceId, sql}\` for data-driven widgets. Use the data source IDs listed above.
+SQL must use Spark SQL syntax. Enclose column and table names in backticks. Always use GROUP BY or DISTINCT for aggregated tables.
+Always alias aggregated columns (e.g. \`SUM(\`sales\`) AS \`total_sales\`\`) and use those aliases in encode mappings.
 `;

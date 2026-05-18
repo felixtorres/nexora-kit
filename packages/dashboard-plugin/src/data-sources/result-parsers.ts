@@ -201,6 +201,67 @@ const csvTextParser: Parser = (raw: string): TabularResult => {
 };
 
 // ---------------------------------------------------------------------------
+// kyvos parser — handles { metadata: { columns: [{caption, type}] }, rows: [[], ...] }
+// ---------------------------------------------------------------------------
+
+const kyvosParser: Parser = (raw: string): TabularResult => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('kyvos parser: input is not valid JSON');
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error('kyvos parser: expected a JSON object');
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const metadata = obj.metadata as Record<string, unknown> | undefined;
+
+  if (!metadata || !Array.isArray(metadata.columns)) {
+    throw new Error('kyvos parser: missing metadata.columns');
+  }
+
+  if (!Array.isArray(obj.rows)) {
+    throw new Error('kyvos parser: missing rows array');
+  }
+
+  const rawColumns = metadata.columns as Record<string, unknown>[];
+  const columnNames = rawColumns.map(
+    (c) => String(c.caption ?? c.name ?? c.key ?? ''),
+  );
+
+  // Convert array-of-arrays rows to array-of-objects, coercing numeric strings
+  const rows: Record<string, unknown>[] = (obj.rows as unknown[][]).map((row) => {
+    const rowObj: Record<string, unknown> = {};
+    for (let i = 0; i < columnNames.length; i++) {
+      const value = row[i];
+      if (typeof value === 'string') {
+        const num = Number(value);
+        rowObj[columnNames[i]] = value !== '' && !isNaN(num) ? num : value;
+      } else {
+        rowObj[columnNames[i]] = value;
+      }
+    }
+    return rowObj;
+  });
+
+  const columns: ColumnInfo[] = columnNames.map((name, i) => ({
+    key: name,
+    label: name,
+    type: rows.length > 0 ? inferColumnType(rows[0][name]) : ('unknown' as ColumnType),
+  }));
+
+  return {
+    columns,
+    rows,
+    rowCount: rows.length,
+    truncated: false,
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -208,6 +269,7 @@ const parsers = new Map<string, Parser>([
   ['tabular', tabularParser],
   ['json-array', jsonArrayParser],
   ['csv-text', csvTextParser],
+  ['kyvos', kyvosParser],
 ]);
 
 export const ResultParserRegistry = {
@@ -303,6 +365,11 @@ export function parseToolResult(
   const jsonStr = extractJson(text);
   if (jsonStr) {
     const parsed = JSON.parse(jsonStr);
+
+    // Kyvos format: { metadata: { columns: [...] }, rows: [[...], ...] }
+    if (!Array.isArray(parsed) && parsed.metadata && parsed.rows) {
+      return kyvosParser(jsonStr);
+    }
 
     // Tabular format: { columns: [...], rows: [...] }
     if (!Array.isArray(parsed) && parsed.columns && parsed.rows) {
