@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Plus, MessageSquare, Loader2, Trash2, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,12 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString();
 }
 
+/** SSR-safe stable date format — avoids hydration mismatch from relative time. */
+function formatTimeStable(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 interface ConversationListProps {
   onNewConversation: () => void;
 }
@@ -48,7 +54,10 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [collapsed, setCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const isResizing = useRef(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   const conversations = data?.items ?? [];
 
@@ -103,7 +112,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
 
   return (
     <div
-      className="relative flex h-full shrink-0 transition-[width] duration-200 ease-in-out"
+      className={`relative flex h-full shrink-0${mounted ? ' transition-[width] duration-200 ease-in-out' : ''}`}
       style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
     >
       {/* Panel content */}
@@ -179,7 +188,7 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
                             {conv.title || 'New conversation'}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {formatTime(conv.updatedAt)}
+                            {mounted ? formatTime(conv.updatedAt) : formatTimeStable(conv.updatedAt)}
                           </p>
                         </div>
                       </button>
